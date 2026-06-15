@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -165,6 +165,12 @@ test("writeTokenStore sets 0600 file permissions", () => {
     assert.equal(statSync(p).mode & 0o777, 0o600);
     // Re-write over an existing file keeps 0600.
     writeTokenStore(p, { namespaces: { acme: { ADMIN_TOKEN: "t2" } } });
+    assert.equal(statSync(p).mode & 0o777, 0o600);
+    // A pre-existing permissive (0644) file is tightened to 0600 before the
+    // token bytes are written, not after.
+    writeFileSync(p, "stale", { mode: 0o644 });
+    chmodSync(p, 0o644);
+    writeTokenStore(p, { namespaces: { acme: { ADMIN_TOKEN: "t3" } } });
     assert.equal(statSync(p).mode & 0o777, 0o600);
   });
 });

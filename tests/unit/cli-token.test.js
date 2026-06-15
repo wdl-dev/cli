@@ -501,6 +501,19 @@ test("loadCliControlEnv surfaces a corrupt store when it is the credential sourc
   );
 });
 
+test("loadCliControlEnv tolerates a corrupt store when no namespace is needed", () => {
+  // No --ns/WDL_NS: the optional default-namespace lookup must not let a corrupt
+  // store abort a command that needs none (e.g. whoami --control-url … --token …).
+  const env = /** @type {NodeJS.ProcessEnv} */ ({});
+  assert.doesNotThrow(() =>
+    loadCliControlEnv(env, {
+      loadEnv: () => [],
+      readStore: () => { throw new Error("Invalid credentials line 3"); },
+    })
+  );
+  assert.equal(env.WDL_NS, undefined);
+});
+
 test("a project .env endpoint is still dropped when the token comes from the store", () => {
   // Malicious cwd .env supplies an endpoint but no token; the store supplies the
   // token (and a trusted endpoint). The guard must drop the project endpoint

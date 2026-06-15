@@ -111,15 +111,25 @@ async function tokenSet({ values, context }) {
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
   const previous = Object.hasOwn(store.namespaces, ns) ? store.namespaces[ns] : {};
-  store.namespaces[ns] = {
-    CONTROL_URL: controlUrl,
-    ADMIN_TOKEN: token,
-    LABEL: typeof values.label === "string" ? values.label : previous.LABEL,
-  };
-  // The first stored namespace (no default yet), or an explicit --default,
-  // becomes the default used when --ns/WDL_NS is omitted — the store's analogue
-  // of a base WDL_NS in a project .env.
-  const becameDefault = Boolean(values.default) || !store.defaultNs;
+  const wasEmpty = Object.keys(store.namespaces).length === 0;
+  // defineProperty, not `store.namespaces[ns] = …`: a namespace named "__proto__"
+  // would otherwise hit the prototype setter and never create an own section
+  // (mirrors readTokenStore's section creation).
+  Object.defineProperty(store.namespaces, ns, {
+    value: {
+      CONTROL_URL: controlUrl,
+      ADMIN_TOKEN: token,
+      LABEL: typeof values.label === "string" ? values.label : previous.LABEL,
+    },
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+  // Only the first stored namespace (an empty store) auto-becomes the default,
+  // or an explicit --default. A later set must NOT silently steal the default
+  // just because it is currently null — the default may have been deliberately
+  // cleared by removing it from an ambiguous set.
+  const becameDefault = Boolean(values.default) || wasEmpty;
   if (becameDefault) store.defaultNs = ns;
   writeTokenStore(storePath, store);
   context.stdout(

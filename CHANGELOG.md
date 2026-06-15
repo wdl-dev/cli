@@ -25,6 +25,14 @@
   `--ns > shell WDL_NS > project .env WDL_NS > store default`, and
   `wdl config explain` shows `token store default` as the namespace source.
 
+### Changed
+
+- `wdl init`'s `--ns` is now optional. With `--ns`, the scaffolded `npm run
+  deploy` keeps `wdl deploy . --ns <ns>`; without it the script is
+  `wdl deploy .` and the namespace is resolved at deploy time (`--ns` / `WDL_NS`
+  / project `.env` / a `wdl token` default). `init` also no longer autoloads
+  control credentials, so a corrupt token store cannot block scaffolding.
+
 ### Removed
 
 - **BREAKING:** the `--admin` flag and the `ADMIN_URL` environment variable —

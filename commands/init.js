@@ -14,17 +14,19 @@ const DEFAULT_COMPATIBILITY_DATE = "2026-05-31";
 
 const CLI_ROOT = path.resolve(fileURLToPath(import.meta.url), "../..");
 const INIT_OPTIONS = [
-  defineCliOption("ns", { type: "string" }, "--ns <ns>", "Tenant namespace baked into the deploy scripts (required)."),
+  defineCliOption("ns", { type: "string" }, "--ns <ns>", "Tenant namespace baked into the deploy script (optional)."),
   defineCliOption("worker", { type: "string" }, "--worker <name>", "Worker name in wrangler.jsonc (defaults to <target>)."),
   defineCliOption("help", { type: "boolean", short: "h" }, "-h, --help", "Show this help."),
 ];
 
 // init is not a defineCommand (no control plane / namespace), so its metadata
-// is declared directly for the bin registry's help table.
+// is declared directly for the bin registry's help table. autoloadEnv is false:
+// init only scaffolds files locally, so it must not load .env control vars or
+// read the token store — a corrupt store must never block project scaffolding.
 export const meta = {
   name: "init",
   summary: "Scaffold a new WDL Worker project.",
-  autoloadEnv: true,
+  autoloadEnv: false,
   parseOptions: optionParseOptions(INIT_OPTIONS),
 };
 
@@ -38,9 +40,6 @@ export async function main(argv = process.argv.slice(2)) {
     if (!args.target) {
       throw new CliError("missing <target> argument. Run `wdl init --help`.");
     }
-    if (!args.ns) {
-      throw new CliError("missing --ns <ns>. Pass the tenant namespace, e.g. `--ns acme`.");
-    }
 
     const { targetDir, packageName, isInPlace } = resolveTarget(args.target);
 
@@ -51,8 +50,8 @@ export async function main(argv = process.argv.slice(2)) {
       );
     }
 
-    const ns = args.ns.trim();
-    validateNs(ns, "--ns");
+    const ns = args.ns ? args.ns.trim() : null;
+    if (ns) validateNs(ns, "--ns");
 
     const workerName = (args.worker ? args.worker.trim() : "") || packageName;
     validateWorker(workerName, args.worker ? "--worker" : "worker name");
@@ -167,7 +166,7 @@ async function writeStarter(targetDir, { packageName, workerName, ns }) {
     private: true,
     type: "module",
     scripts: {
-      deploy: `wdl deploy . --ns ${ns}`,
+      deploy: ns ? `wdl deploy . --ns ${ns}` : "wdl deploy .",
       "dry-run": "wrangler deploy --dry-run --outdir=.deploy-dist",
     },
     devDependencies: {
@@ -260,7 +259,7 @@ async function copyAgentsDoc(targetDir) {
 }
 
 function printNextSteps(target, { packageName, workerName, ns, isInPlace }) {
-  const url = `https://${ns}.<platform-domain>/${workerName}/`;
+  const url = `https://${ns || "<namespace>"}.<platform-domain>/${workerName}/`;
   const lines = [
     "",
     `Scaffolded ${packageName}.`,
@@ -278,8 +277,14 @@ function printNextSteps(target, { packageName, workerName, ns, isInPlace }) {
   lines.push("the agent reads it to find the right per-feature docs under");
   lines.push("node_modules/@wdl-dev/cli/docs/.");
   lines.push("");
-  lines.push(`Deploy (--ns ${ns} is baked into the npm script):`);
-  lines.push("  npm run deploy");
+  if (ns) {
+    lines.push(`Deploy (--ns ${ns} is baked into the npm script):`);
+    lines.push("  npm run deploy");
+  } else {
+    lines.push("Deploy — pick a namespace (none is baked in):");
+    lines.push("  npm run deploy -- --ns <namespace>");
+    lines.push("  # or set WDL_NS / a project .env / a `wdl token` default, then: npm run deploy");
+  }
   lines.push("");
   console.log(lines.join("\n"));
 }
@@ -287,7 +292,7 @@ function printNextSteps(target, { packageName, workerName, ns, isInPlace }) {
 function printHelp(exitCode) {
   console.log(formatHelp({
     usage: [
-      "wdl init <target> --ns <ns> [--worker <name>]",
+      "wdl init <target> [--ns <ns>] [--worker <name>]",
       "wdl init --help",
     ],
     description:

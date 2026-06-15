@@ -102,6 +102,39 @@ test("token set --default makes an existing namespace the default", async () => 
   });
 });
 
+test("token set creates a __proto__ namespace without hitting the prototype setter", async () => {
+  await withTempXdg(async (xdg) => {
+    await runTokenCommand(
+      ["set", "--ns", "__proto__", "--control-url", "https://api.example"],
+      deps(xdg, {
+        stdin: stdinFrom("tok-proto\n"),
+        controlFetch: async () => response({ ok: true, principal: { kind: "ns", ns: "__proto__" } }),
+      }).deps
+    );
+    const store = readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg }));
+    assert.equal(Object.hasOwn(store.namespaces, "__proto__"), true);
+    assert.equal(store.namespaces["__proto__"].ADMIN_TOKEN, "tok-proto");
+    assert.equal(store.defaultNs, "__proto__");
+  });
+});
+
+test("token set does not claim a deliberately-cleared default in an ambiguous store", async () => {
+  await withTempXdg(async (xdg) => {
+    const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    // Default null but 2+ namespaces (e.g. the default was removed from an
+    // ambiguous set); a later set without --default must not steal the default.
+    writeTokenStore(p, { defaultNs: null, namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } } });
+    await runTokenCommand(
+      ["set", "--ns", "demo", "--control-url", "https://api.example"],
+      deps(xdg, {
+        stdin: stdinFrom("tok\n"),
+        controlFetch: async () => response({ ok: true, principal: { kind: "ns", ns: "demo" } }),
+      }).deps
+    );
+    assert.equal(readTokenStore(p).defaultNs, null);
+  });
+});
+
 test("token set stores and preserves a --label", async () => {
   await withTempXdg(async (xdg) => {
     await runTokenCommand(

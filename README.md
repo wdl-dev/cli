@@ -96,7 +96,7 @@ source precedence (flags beat shell env, which beats `.env`).
 ## Commands
 
 ```bash
-wdl init <target> --ns <ns> [--worker <name>]
+wdl init <target> [--ns <ns>] [--worker <name>]
 wdl deploy <project-dir> [--ns <namespace>] [--env <name>] [--verbose]
 wdl tail <worker> [<worker>...] [--ns <namespace>] [--raw]
 wdl workers [--ns <namespace>]
@@ -160,9 +160,10 @@ Start executing right away — don't just hand me a plan. Follow these rules thr
 Steps:
 
 1. Check Node.js >= 22 and npm. If `wdl` is missing, run `npm i -g @wdl-dev/cli`, then confirm `command -v wdl` works.
-2. Confirm `WDL_NS`, `ADMIN_TOKEN`, and `CONTROL_URL`. The CLI has no built-in control endpoint, so all three are required — my operator provides them. If any are missing, guide me to add them to my shell rc file (check `$SHELL` first: zsh → `~/.zshrc`, bash → `~/.bashrc` or `~/.bash_profile`, fish → `~/.config/fish/config.fish`), then reload the current shell; skip if already set.
+2. Confirm a namespace and control credentials resolve — run `wdl doctor`. They can come from shell/CI env (`WDL_NS`, `ADMIN_TOKEN`, `CONTROL_URL`), a project `.env`, or the `wdl token` store; my operator provides the control URL and token (the CLI has no built-in endpoint). If nothing resolves, the cleanest setup is for me to run `wdl token set --ns <ns> --control-url <url>` and enter the token at the hidden prompt — it is validated, stored `0600`, and becomes the default namespace, so later `wdl deploy` needs no `--ns`. Prefer this over writing the token into a shell rc file.
 3. Confirm the project directory name starts with a letter and contains only letters, digits, and hyphens. Run:
-   `wdl init <name> --ns "$WDL_NS" && cd <name> && npm install`
+   `wdl init <name> && cd <name> && npm install`
+   (add `--ns <ns>` to `wdl init` to bake the namespace into the deploy script; otherwise it resolves from the `wdl token` default or `--ns` at deploy time.)
 4. Immediately open and read `AGENTS.md` in the new directory, then open the relevant docs and examples under `node_modules/@wdl-dev/cli/docs/` for my feature. Note: a freshly generated `AGENTS.md` is not loaded automatically mid-session — read it explicitly.
 5. Edit `wrangler.jsonc` and `src/` for the feature. Push third-party API secrets with `wdl secret put --worker <worker-name> <KEY>`; never put tokens in source, `wrangler.jsonc`, or `.env`.
 6. Run `npm run dry-run` first and fix local bundle issues, then deploy with `npm run deploy`.

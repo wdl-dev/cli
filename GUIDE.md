@@ -144,9 +144,10 @@ npm install
 
 It writes:
 
-- `package.json` — `npm run deploy` with `--ns` baked in, plus an
-  `npm run dry-run` local bundle check; pins `wrangler@^4` and `@wdl-dev/cli` as
-  devDependencies.
+- `package.json` — `npm run deploy` with `--ns` baked in when you pass it
+  (otherwise just `wdl deploy .`, with the namespace resolved at deploy time),
+  plus an `npm run dry-run` local bundle check; pins `wrangler@^4` and
+  `@wdl-dev/cli` as devDependencies.
 - `wrangler.jsonc` — top-level `name` is the worker name (defaults to the
   directory name; override with `--worker <name>`).
 - `src/index.js`, `.gitignore`, and `AGENTS.md`/`CLAUDE.md` so AI agents can

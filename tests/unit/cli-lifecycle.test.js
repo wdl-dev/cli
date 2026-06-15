@@ -1610,11 +1610,11 @@ async function withMockedExit(fn) {
 
 test("wdl dispatcher loads base dotenv before namespace section overlay", async () => {
   const calls = [];
-  // init's missing-<target> CliError fires after autoload, keeping the
+  // secret's missing-subcommand CliError fires after autoload, keeping the
   // dispatch harmless without needing a control-plane mock.
   await withMockedExit(async () => {
     await assert.rejects(
-      () => wdlMain(["init", "--ns", "demo"], {
+      () => wdlMain(["secret", "--ns", "demo"], {
         env: {},
         loadEnv: (_env, _path, options) => calls.push(options),
       }),
@@ -1637,7 +1637,7 @@ test("wdl dispatcher overlays the LAST --ns occurrence, matching parseArgs", asy
   const calls = [];
   await withMockedExit(async () => {
     await assert.rejects(
-      () => wdlMain(["init", "--ns", "first", "--ns=last"], {
+      () => wdlMain(["secret", "--ns", "first", "--ns=last"], {
         env: {},
         loadEnv: (_env, _path, options) => calls.push(options),
       }),

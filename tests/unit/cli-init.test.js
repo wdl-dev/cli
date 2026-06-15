@@ -173,11 +173,11 @@ test("init accepts a mixed-case project name end to end", async () => {
   });
 });
 
-test("init exits with an error when --ns is missing", async () => {
-  await withTempCwd(async () => {
-    const { exitCode, errOutput } = await captureExit(() => main(["demo"]));
-    assert.equal(exitCode, 1);
-    assert.match(errOutput, /missing --ns/);
+test("init scaffolds without --ns; the deploy script omits the namespace", async () => {
+  await withTempCwd(async (cwd) => {
+    await main(["demo"]);
+    const pkg = JSON.parse(readFileSync(path.join(cwd, "demo", "package.json"), "utf8"));
+    assert.equal(pkg.scripts.deploy, "wdl deploy .");
   });
 });
 

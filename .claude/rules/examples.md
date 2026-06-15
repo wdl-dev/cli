@@ -14,7 +14,7 @@ structure from scratch.
 
 ## Available examples
 
-Each lives under `examples/<name>/`. Prefer `wdl init <target> --ns <ns>` for
+Each lives under `examples/<name>/`. Prefer `wdl init <target> [--ns <ns>]` for
 plain workers. Pick and copy the closest example when an example matches the
 requested feature set better than the minimal init template.
 

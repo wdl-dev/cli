@@ -99,7 +99,7 @@ npm install
 
 它会写入：
 
-- `package.json` —— `npm run deploy` 已把 `--ns` 烤进去，另有 `npm run dry-run` 本地打包检查；devDependencies 固定 `wrangler@^4` 和 `@wdl-dev/cli`。
+- `package.json` —— 传了 `--ns` 时 `npm run deploy` 会把它烤进去，否则就是 `wdl deploy .`（namespace 在部署期解析），另有 `npm run dry-run` 本地打包检查；devDependencies 固定 `wrangler@^4` 和 `@wdl-dev/cli`。
 - `wrangler.jsonc` —— 顶层 `name` 是 worker 名（默认等于目录名，可用 `--worker <name>` 覆盖）。
 - `src/index.js`、`.gitignore`，以及 `AGENTS.md`/`CLAUDE.md`，方便 AI 代理找到 `node_modules/@wdl-dev/cli/docs/` 下的分主题文档。
 

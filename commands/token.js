@@ -110,7 +110,7 @@ async function tokenSet({ values, context }) {
 
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
-  const previous = store.namespaces[ns] || {};
+  const previous = Object.hasOwn(store.namespaces, ns) ? store.namespaces[ns] : {};
   store.namespaces[ns] = {
     CONTROL_URL: controlUrl,
     ADMIN_TOKEN: token,
@@ -135,7 +135,7 @@ function tokenUse({ context, nsArg }) {
   if (!ns) throw new CliError("token use requires a namespace: wdl token use <namespace>");
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
-  if (!store.namespaces[ns]) {
+  if (!Object.hasOwn(store.namespaces, ns)) {
     throw new CliError(`no stored token for namespace "${ns}" — run \`wdl token set --ns ${ns}\` first`);
   }
   store.defaultNs = ns;
@@ -160,7 +160,7 @@ function tokenRemove({ context }) {
   if (!ns) throw new CliError("token rm requires --ns <namespace>");
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
-  if (!store.namespaces[ns]) throw new CliError(`no stored token for namespace "${ns}"`);
+  if (!Object.hasOwn(store.namespaces, ns)) throw new CliError(`no stored token for namespace "${ns}"`);
   delete store.namespaces[ns];
   // Preserve the "a lone stored namespace is the default" invariant: if we
   // removed the default, promote a sole survivor, else clear it (an ambiguous
@@ -188,11 +188,12 @@ function formatTokenList(rows) {
 
 // Read a single line: a TTY prompts without echo; a pipe is read to EOF.
 /**
- * @param {{ isTTY?: boolean, setEncoding: (encoding: string) => void, on: Function, off: Function, pause?: Function }} stdin
+ * @param {{ isTTY?: boolean, setEncoding: (encoding: string) => void, setRawMode?: (mode: boolean) => void, on: Function, off: Function, pause?: Function }} stdin
  * @param {{ prompt?: string, stderr?: (text: string) => void }} [options]
  */
 function readStdin(stdin, { prompt, stderr } = {}) {
-  if (stdin.isTTY) return readTtyLine(stdin, { prompt, stderr });
+  // hidden: the token must never echo to the terminal or scrollback on a TTY.
+  if (stdin.isTTY) return readTtyLine(stdin, { prompt, stderr, hidden: true });
   return new Promise((resolve, reject) => {
     let data = "";
     stdin.setEncoding("utf8");

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
-import { loadCliControlEnv } from "../../lib/common.js";
+import { loadCliControlEnv, readTtyLine } from "../../lib/common.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
 import { response } from "./helpers.js";
 
@@ -287,6 +287,57 @@ test("token rejects unknown subcommands", async () => {
   });
 });
 
+test("token use/list/rm handle a namespace named like an Object.prototype key", async () => {
+  await withTempXdg(async (xdg) => {
+    const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    writeTokenStore(p, { namespaces: { constructor: { ADMIN_TOKEN: "c" }, acme: { ADMIN_TOKEN: "a" } } });
+
+    await runTokenCommand(["use", "constructor"], deps(xdg).deps);
+    assert.equal(readTokenStore(p).defaultNs, "constructor");
+
+    const { lines, deps: d } = deps(xdg);
+    await runTokenCommand(["list"], d);
+    assert.match(lines.join("\n"), /\*\s+constructor/);
+
+    await runTokenCommand(["rm", "--ns", "constructor"], deps(xdg).deps);
+    assert.equal(Object.hasOwn(readTokenStore(p).namespaces, "constructor"), false);
+  });
+});
+
+// --- hidden TTY input ---
+
+test("readTtyLine hides input by switching the TTY to raw mode", async () => {
+  const rawCalls = [];
+  const stderr = [];
+  const stdin = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    setEncoding() {},
+    setRawMode(v) { rawCalls.push(v); },
+    pause() {},
+  });
+  const pending = readTtyLine(stdin, { prompt: "tok: ", stderr: (s) => stderr.push(s), hidden: true });
+  queueMicrotask(() => {
+    stdin.emit("data", "sec");
+    stdin.emit("data", "X" + String.fromCharCode(127)); // typo, then backspace removes it
+    stdin.emit("data", "ret" + String.fromCharCode(13)); // Enter
+  });
+  assert.equal(await pending, "secret");
+  assert.deepEqual(rawCalls, [true, false], "raw mode (echo off) enabled, then restored");
+});
+
+test("readTtyLine fails closed when a TTY cannot hide input", async () => {
+  const stdin = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    setEncoding() {},
+    pause() {},
+    // no setRawMode: cannot disable echo, so hidden input must reject, not leak
+  });
+  await assert.rejects(
+    () => readTtyLine(stdin, { prompt: "tok: ", stderr: () => {}, hidden: true }),
+    /cannot hide input/
+  );
+});
+
 // --- resolution integration (the global store as the lowest-precedence layer) ---
 
 test("loadCliControlEnv fills control URL and token from the store as a gap-filler", () => {
@@ -351,6 +402,56 @@ test("loadCliControlEnv lets shell env win over the store (gap-fill only)", () =
   });
   assert.equal(env.ADMIN_TOKEN, "shell-tok", "shell token is not overwritten");
   assert.equal(env.CONTROL_URL, "https://store.example", "the empty control URL slot is filled");
+});
+
+test("loadCliControlEnv does not fill a flag-covered slot from the store", () => {
+  const env = { WDL_NS: "acme" };
+  // --control-url supplies the endpoint, so the store fills only the token and
+  // never writes its own CONTROL_URL into env.
+  loadCliControlEnv(env, {
+    nsFromFlag: "acme",
+    controlUrlFromFlag: true,
+    loadEnv: () => [],
+    readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://store.example", ADMIN_TOKEN: "store-tok" } } }),
+  });
+  assert.equal(env.CONTROL_URL, undefined, "flag-covered endpoint is not shadowed by the store");
+  assert.equal(env.ADMIN_TOKEN, "store-tok", "the uncovered token slot is still filled");
+});
+
+test("loadCliControlEnv does not read the store when ns and credentials are present", () => {
+  const env = { WDL_NS: "acme", CONTROL_URL: "https://shell.example", ADMIN_TOKEN: "shell-tok" };
+  let reads = 0;
+  loadCliControlEnv(env, {
+    nsFromFlag: "acme",
+    loadEnv: () => [],
+    readStore: () => { reads += 1; return {}; },
+  });
+  assert.equal(reads, 0, "the store is the lowest layer and untouched when nothing needs it");
+});
+
+test("loadCliControlEnv ignores a corrupt store when flags cover the credentials", () => {
+  let reads = 0;
+  // ns + both creds come from flags, so the store is never consulted and a
+  // corrupt ~/.config/wdl/credentials cannot abort the command.
+  loadCliControlEnv(/** @type {NodeJS.ProcessEnv} */ ({}), {
+    nsFromFlag: "acme",
+    tokenFromFlag: true,
+    controlUrlFromFlag: true,
+    loadEnv: () => [],
+    readStore: () => { reads += 1; throw new Error("Invalid credentials line 3"); },
+  });
+  assert.equal(reads, 0, "store never read");
+});
+
+test("loadCliControlEnv surfaces a corrupt store when it is the credential source", () => {
+  assert.throws(
+    () => loadCliControlEnv(/** @type {NodeJS.ProcessEnv} */ ({}), {
+      nsFromFlag: "acme",
+      loadEnv: () => [],
+      readStore: () => { throw new Error("Invalid credentials line 3"); },
+    }),
+    /Invalid credentials/
+  );
 });
 
 test("a project .env endpoint is still dropped when the token comes from the store", () => {

@@ -48,6 +48,7 @@ function ttyStdinLine(value) {
     isTTY: true,
     paused: false,
     setEncoding(_encoding) {},
+    setRawMode(_mode) {}, // a real TTY has this; hidden input requires it
     pause() {
       this.paused = true;
     },
@@ -1100,7 +1101,8 @@ test("secret put reads one tty line without waiting for EOF", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].init.body, JSON.stringify({ value: "typed-value" }));
-  assert.deepEqual(prompts, ["Enter secret value for demo (ns)/KEY: "]);
+  // The prompt, then a newline written when raw (hidden) mode is restored.
+  assert.deepEqual(prompts, ["Enter secret value for demo (ns)/KEY (input hidden): ", "\n"]);
   assert.equal(stdin.paused, true);
 });
 

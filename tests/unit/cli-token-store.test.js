@@ -95,6 +95,52 @@ test("writeTokenStore quotes and escapes so odd token characters round-trip", ()
   });
 });
 
+test("round-trips a token containing literal backslash escape sequences", () => {
+  withTempHome((dir) => {
+    const p = path.join(dir, "credentials");
+    // The token literally contains `\n`, `\t`, `\\`, `\"` as backslash+char,
+    // plus a Windows-style path — none of which must be decoded as control chars.
+    const store = {
+      defaultNs: null,
+      namespaces: {
+        acme: { ADMIN_TOKEN: "a\\nb\\tc\\\\d\\\"e", LABEL: "C:\\Users\\x" },
+      },
+    };
+    writeTokenStore(p, store);
+    assert.deepEqual(readTokenStore(p), store);
+  });
+});
+
+test("preserves a namespace named like an Object.prototype key", () => {
+  withTempHome((dir) => {
+    const p = path.join(dir, "credentials");
+    const store = {
+      defaultNs: "constructor",
+      namespaces: {
+        constructor: { ADMIN_TOKEN: "tok-ctor" },
+        toString: { ADMIN_TOKEN: "tok-tostr" },
+      },
+    };
+    writeTokenStore(p, store);
+    const back = readTokenStore(p);
+    assert.deepEqual(Object.keys(back.namespaces).sort(), ["constructor", "toString"]);
+    assert.equal(back.namespaces["constructor"].ADMIN_TOKEN, "tok-ctor");
+    assert.equal(back.defaultNs, "constructor");
+  });
+});
+
+test("handles a __proto__ section without polluting the prototype", () => {
+  withTempHome((dir) => {
+    const p = path.join(dir, "credentials");
+    writeFileSync(p, '[__proto__]\nADMIN_TOKEN="x"\n[acme]\nADMIN_TOKEN="a"\n');
+    const back = readTokenStore(p);
+    assert.deepEqual(Object.keys(back.namespaces).sort(), ["__proto__", "acme"]);
+    assert.equal(back.namespaces["__proto__"].ADMIN_TOKEN, "x");
+    assert.equal(Object.getPrototypeOf(back.namespaces), Object.prototype, "map prototype untouched");
+    assert.equal(/** @type {any} */ ({}).ADMIN_TOKEN, undefined, "Object.prototype not polluted");
+  });
+});
+
 test("writeTokenStore writes canonical sorted output with a managed-by header", () => {
   withTempHome((dir) => {
     const p = path.join(dir, "credentials");

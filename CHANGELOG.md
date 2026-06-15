@@ -25,6 +25,15 @@
   `--ns > shell WDL_NS > project .env WDL_NS > store default`, and
   `wdl config explain` shows `token store default` as the namespace source.
 
+### Fixed
+
+- `wdl secret put` no longer echoes the typed secret on a TTY: input is read in
+  raw mode (hidden), and fails closed — it errors rather than echo if the
+  terminal cannot hide input.
+- `.env` values containing literal backslash escape sequences (e.g. a token
+  with a backslash followed by `n`) now round-trip correctly instead of being
+  decoded as control characters.
+
 ## 1.0.0
 
 Initial open-source release.

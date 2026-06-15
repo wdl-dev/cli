@@ -80,7 +80,7 @@ async function runSecret({ values, positionals, context }) {
     if (!keyArg) throw new CliError("put requires a KEY argument");
     // Empty string is a set secret (≠ unset), matching wrangler.
     const value = await readStdin(stdin, {
-      prompt: `Enter secret value for ${scopeLabel}/${keyArg}: `,
+      prompt: `Enter secret value for ${scopeLabel}/${keyArg} (input hidden): `,
       stderr,
     });
     const body = await context.fetchJson(context.nsUrl(...secretPath, keyArg), {
@@ -150,11 +150,12 @@ function pickPromoteWarning(body) {
 // Pipe/redirect mode reads until EOF so multi-line secrets work. TTY mode
 // reads one line so typing a value and pressing Enter submits immediately.
 /**
- * @param {{ isTTY?: boolean, setEncoding: (encoding: string) => void, on: Function, off: Function, pause?: Function }} stdin
+ * @param {{ isTTY?: boolean, setEncoding: (encoding: string) => void, setRawMode?: (mode: boolean) => void, on: Function, off: Function, pause?: Function }} stdin
  * @param {{ prompt?: string, stderr?: (text: string) => void }} [options]
  */
 function readStdin(stdin, { prompt, stderr } = {}) {
-  if (stdin.isTTY) return readTtyLine(stdin, { prompt, stderr });
+  // hidden: a secret value must never echo to the terminal or scrollback.
+  if (stdin.isTTY) return readTtyLine(stdin, { prompt, stderr, hidden: true });
 
   return new Promise((resolve, reject) => {
     let data = "";

@@ -20,6 +20,9 @@ Open the relevant doc before answering:
   commands.
 - `docs/secrets.md` — `wdl secret` (worker-level vs namespace-level), runtime
   secret precedence, `--json` automation output, anti-patterns.
+- `docs/token.md` — `wdl token set/list/use/rm`, the local credential store
+  (`~/.config/wdl/credentials`), its default namespace, and where it sits in
+  credential resolution.
 - `docs/d1.md` — `[[d1_databases]]` config, `wdl d1` commands, migrations.
 - `docs/durable-objects.md` — `[[durable_objects.bindings]]`, migration class
   declarations, the DO runtime surface.

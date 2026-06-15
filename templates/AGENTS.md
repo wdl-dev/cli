@@ -31,6 +31,7 @@ package.
 | Scheduled / cron jobs                                 | `cron-triggers.md`   |
 | WDL environment override rules (preview / production) | `env-overrides.md`   |
 | Runtime secrets                                       | `secrets.md`         |
+| Storing control-plane tokens locally                  | `token.md`           |
 | Deploy / dry-run / list and delete workers            | `deploy.md`          |
 
 Open the relevant doc before editing `wrangler.jsonc` / `wrangler.toml` or

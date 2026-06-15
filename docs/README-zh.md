@@ -23,6 +23,7 @@
 | 静态资源和 `env.ASSETS.url()` | [assets-zh.md](./assets-zh.md) |
 | WDL 环境覆盖 `[env.<name>]` 规则 | [env-overrides-zh.md](./env-overrides-zh.md) |
 | Worker / namespace 运行时 secrets | [secrets-zh.md](./secrets-zh.md) |
+| 本地存储控制面 token | [token-zh.md](./token-zh.md) |
 
 组合功能时读多个专题。例如：queue 消费后写状态，读 [queues-zh.md](./queues-zh.md) 和 [kv-zh.md](./kv-zh.md)；上传文件后记录索引，读 [r2-zh.md](./r2-zh.md) 和 [d1-zh.md](./d1-zh.md)；带静态页面的管理工具，读 [assets-zh.md](./assets-zh.md) 和实际绑定对应的专题。
 

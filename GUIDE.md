@@ -112,10 +112,15 @@ namespace resolves, section values are skipped and the command will fail
 normally if it needs a namespace or token. Pass `--ns` when you want to override
 the default for one command.
 
-Today these credentials come from your shell, a `.env` file, or flags. A future
-release (1.1) will add `wdl auth login`, which reads the token with hidden input
-and stores it in a managed config file, so it never lands in shell history or a
-project file.
+These credentials can also come from a managed store instead of your shell or a
+`.env`: `wdl token set --ns <ns> --control-url <url>` reads the token with
+hidden input, validates it against `/whoami`, and stores it under the namespace
+in `~/.config/wdl/credentials` (so it never lands in shell history or a project
+file). The store is the lowest-precedence layer — flags, shell env, and a
+project `.env` still win — and `wdl token list` / `wdl token rm` manage it. The
+first stored namespace becomes the default (a base `WDL_NS`, like a project
+`.env`'s), so commands run without `--ns`; `wdl token use <ns>` switches it. See
+[token.md](./docs/token.md).
 
 Use `wdl config explain` to inspect the final namespace, control URL, masked
 token, and where each value came from. Use `wdl whoami` to call control-plane

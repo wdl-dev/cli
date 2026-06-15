@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `wdl token set/list/use/rm` manages a local credential store at
+  `~/.config/wdl/credentials` (`$XDG_CONFIG_HOME`/`%APPDATA%` honored), so
+  commands resolve a control URL and token without a per-shell `ADMIN_TOKEN`
+  export or a token in every project's `.env`. `set` reads the token from stdin
+  (hidden on a TTY) and validates it against `/whoami` before storing it under
+  the namespace; `rm` deletes the local copy without revoking it. The store is
+  the same `dotenv`/INI dialect as a project `.env`, written `0600`, and is the
+  lowest-precedence credential layer:
+  `flag > shell env > project .env > token store`. It is trusted (home
+  directory, same-source token + endpoint) and is not subject to the
+  cross-origin `.env` guard, while a project `.env` endpoint is still dropped
+  when the token comes from the store. `wdl config explain` shows
+  `token store [<ns>].…` as a value's source.
+- The store carries a default namespace (a base `WDL_NS`, the analogue of a
+  project `.env`'s base `WDL_NS`): the first stored namespace becomes the
+  default, `wdl token set --default` and `wdl token use <ns>` change it, and
+  `wdl token list` marks it with `*`. With a default set, commands resolve a
+  namespace without `--ns`; the selection chain is
+  `--ns > shell WDL_NS > project .env WDL_NS > store default`, and
+  `wdl config explain` shows `token store default` as the namespace source.
+
 ## 1.0.0
 
 Initial open-source release.

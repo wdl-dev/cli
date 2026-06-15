@@ -32,6 +32,7 @@ English set.
 | Static assets and `env.ASSETS.url()`                    | [assets.md](./assets.md)                   |
 | WDL `[env.<name>]` override rules                       | [env-overrides.md](./env-overrides.md)     |
 | Worker / namespace runtime secrets                      | [secrets.md](./secrets.md)                 |
+| Storing control-plane tokens locally                    | [token.md](./token.md)                     |
 
 Combining features means reading several topics. For example: writing state
 after consuming a queue, read [queues.md](./queues.md) and [kv.md](./kv.md);

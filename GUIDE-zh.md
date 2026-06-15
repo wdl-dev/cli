@@ -83,7 +83,7 @@ ADMIN_TOKEN=<acme-staging-token>
 
 CLI 只会从 `.env` 读取 WDL 平台变量：`ADMIN_TOKEN`、`ADMIN_URL`、 `CONTROL_URL`、`CONTROL_CONNECT_HOST`、`WDL_NS`。优先级是 `CLI flag > shell/CI env > [resolved-ns] section > base .env`，都没有提供时命令直接报错——没有内置默认值。namespace 解析顺序是 `--ns`，然后是 shell 或 base `.env` 里的 `WDL_NS`。section 名可以是 `[acme]` 这类 tenant namespace，也可以是 `[__name__]` 这种运维保留的不透明 section。Tenant Wrangler 配置默认仍使用普通 tenant namespace 语法，除非运维方明确给了这种 namespace token；否则不要把 `__name__` 形态写进 `[[services]].ns`、`allowed_callers` 或命令示例。如果没有解析出 namespace，section 会全部跳过；后续命令如果需要 namespace 或 token，会按正常校验报错。只有临时切换 namespace 时才需要显式传 `--ns`。不带 scheme 的生产 control host（例如 `api.wdl.dev`）默认补 `https://`；`localhost:8080` 或 `*.test:8080` 这类本地开发地址默认补 `http://`。任何不带 scheme 的 `:8080` control URL 都会按本地 HTTP 处理。需要强制使用其它协议时，显式写 scheme。
 
-目前这些凭证来自 shell、`.env` 文件或命令行标志。后续版本（1.1）会新增 `wdl auth login`，用隐藏输入读取 token 并存入托管配置文件，使其不进入 shell 历史、也不落在项目文件里。
+这些凭证也可以来自托管存储，而不是 shell 或 `.env`：`wdl token set --ns <ns> --control-url <url>` 用隐藏输入读取 token、调 `/whoami` 校验后按 namespace 存入 `~/.config/wdl/credentials`（不进 shell 历史、也不落在项目文件里）。存储是优先级最低的层——命令行标志、shell env、项目 `.env` 仍然胜出——`wdl token list` / `wdl token rm` 管理它。第一个存入的 namespace 成为默认（一行 base `WDL_NS`，和项目 `.env` 一样），命令不带 `--ns` 也能跑；`wdl token use <ns>` 切换默认。详见 [token-zh.md](./docs/token-zh.md)。
 
 用 `wdl config explain` 查看最终 namespace、control URL、脱敏 token 以及每个值的来源。用 `wdl whoami` 调 control-plane `/whoami`，查看当前 authenticated principal、token id、platform version、最低支持 CLI version 和 URL hints。用 `wdl doctor` 做本地可用性检查，包括 Node.js、wdl-cli、Wrangler、配置文件是否存在、凭据是否能解析，以及 `/whoami` 是否可达。当 control plane 暴露 `/whoami` 时，`doctor` 可以发现 token 是否有效、principal namespace、platform version 和 CLI compatibility；更细的 capability 检查仍需要额外的 control endpoint。
 

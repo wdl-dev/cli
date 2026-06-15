@@ -321,6 +321,19 @@ test("token list prints a placeholder when empty", async () => {
   });
 });
 
+test("token use/rm escape terminal controls in the not-found error", async () => {
+  await withTempXdg(async (xdg) => {
+    const esc = String.fromCharCode(27);
+    const bad = `ghost${esc}[2J`;
+    const noEsc = (err) => {
+      assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(esc), "raw ESC must not reach the error");
+      return true;
+    };
+    await assert.rejects(() => runTokenCommand(["use", bad], deps(xdg).deps), noEsc);
+    await assert.rejects(() => runTokenCommand(["rm", "--ns", bad], deps(xdg).deps), noEsc);
+  });
+});
+
 test("token rm removes a stored namespace and errors when absent", async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });

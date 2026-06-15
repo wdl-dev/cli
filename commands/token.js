@@ -155,7 +155,7 @@ function tokenUse({ context, nsArg }) {
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
   if (!Object.hasOwn(store.namespaces, ns)) {
-    throw new CliError(`no stored token for namespace "${ns}" — run \`wdl token set --ns ${ns}\` first`);
+    throw new CliError(`no stored token for namespace "${escapeTerminalText(ns)}" — run \`wdl token set --ns ${escapeTerminalText(ns)}\` first`);
   }
   store.defaultNs = ns;
   writeTokenStore(storePath, store);
@@ -179,7 +179,7 @@ function tokenRemove({ context }) {
   if (!ns) throw new CliError("token rm requires --ns <namespace>");
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
-  if (!Object.hasOwn(store.namespaces, ns)) throw new CliError(`no stored token for namespace "${ns}"`);
+  if (!Object.hasOwn(store.namespaces, ns)) throw new CliError(`no stored token for namespace "${escapeTerminalText(ns)}"`);
   delete store.namespaces[ns];
   // Keep the "a lone stored namespace is the default" invariant after any
   // removal: a sole survivor becomes the default even if an earlier removal

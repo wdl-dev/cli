@@ -110,7 +110,7 @@ test("resolveControlUrl keeps bare local dev control URLs on http", () => {
 
 test("resolveControlContext centralizes admin token and headers", () => {
   assert.deepEqual(
-    resolveControlContext({ admin: "http://ctl.example/" }, { ADMIN_TOKEN: "tok" }),
+    resolveControlContext({ "control-url": "http://ctl.example/" }, { ADMIN_TOKEN: "tok" }),
     {
       controlUrl: "http://ctl.example",
       token: "tok",

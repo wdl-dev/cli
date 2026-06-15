@@ -1363,7 +1363,6 @@ test("wranglerChildEnv strips WDL control-plane environment", () => {
   assert.deepEqual(
     wranglerChildEnv({
       ADMIN_TOKEN: "secret",
-      ADMIN_URL: "https://ctl.admin.example",
       CONTROL_CONNECT_HOST: "ctl.connect.example",
       CONTROL_URL: "https://ctl.example",
       WDL_NS: "tenant",

@@ -95,7 +95,7 @@ ADMIN_TOKEN=<acme-staging-token>
 ```
 
 The CLI loads only WDL platform variables from `.env`: `ADMIN_TOKEN`,
-`ADMIN_URL`, `CONTROL_URL`, `CONTROL_CONNECT_HOST`, and `WDL_NS`. Precedence is
+`CONTROL_URL`, `CONTROL_CONNECT_HOST`, and `WDL_NS`. Precedence is
 `CLI flag > shell/CI env > [resolved-ns] section > base .env`, and if none
 supplies a value the command fails — there is no built-in default. Namespace
 resolution is `--ns`, then `WDL_NS` from your shell or base `.env`. Section

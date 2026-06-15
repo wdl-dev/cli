@@ -75,7 +75,7 @@ async function tokenSet({ values, context }) {
   // writing the store, so it cannot supply its own endpoint. Give a token-set
   // message rather than resolveControlUrl's generic "set it in .env" hint,
   // which would be backwards here (the store exists to avoid a .env).
-  if (!values["control-url"] && !values.admin && !context.env.CONTROL_URL && !context.env.ADMIN_URL) {
+  if (!values["control-url"] && !context.env.CONTROL_URL) {
     throw new CliError(
       `token set needs the control URL for ${ns}: pass --control-url <url> (a stored token is scoped to one control plane).`
     );
@@ -162,13 +162,13 @@ function tokenRemove({ context }) {
   const store = readTokenStore(storePath);
   if (!Object.hasOwn(store.namespaces, ns)) throw new CliError(`no stored token for namespace "${ns}"`);
   delete store.namespaces[ns];
-  // Preserve the "a lone stored namespace is the default" invariant: if we
-  // removed the default, promote a sole survivor, else clear it (an ambiguous
-  // set of remaining namespaces needs an explicit --ns or `wdl token use`).
-  if (store.defaultNs === ns) {
-    const remaining = Object.keys(store.namespaces);
-    store.defaultNs = remaining.length === 1 ? remaining[0] : null;
-  }
+  // Keep the "a lone stored namespace is the default" invariant after any
+  // removal: a sole survivor becomes the default even if an earlier removal
+  // already cleared it; removing the current default from a still-ambiguous set
+  // clears it (an explicit --ns or `wdl token use` is then needed).
+  const remaining = Object.keys(store.namespaces);
+  if (remaining.length === 1) store.defaultNs = remaining[0];
+  else if (store.defaultNs === ns) store.defaultNs = null;
   writeTokenStore(storePath, store);
   context.stdout(
     `Removed the stored token for ${escapeTerminalText(ns)}. This does not revoke it on the control plane.`

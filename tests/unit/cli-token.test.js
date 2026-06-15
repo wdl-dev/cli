@@ -281,6 +281,20 @@ test("token rm of the default promotes a sole survivor, clears it when ambiguous
   });
 });
 
+test("token rm promotes the sole survivor even after the default was already cleared", async () => {
+  await withTempXdg(async (xdg) => {
+    const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    writeTokenStore(p, {
+      defaultNs: "acme",
+      namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" }, prod: { ADMIN_TOKEN: "p" } },
+    });
+    await runTokenCommand(["rm", "--ns", "acme"], deps(xdg).deps); // default cleared, 2 remain
+    assert.equal(readTokenStore(p).defaultNs, null);
+    await runTokenCommand(["rm", "--ns", "demo"], deps(xdg).deps); // non-default removed, prod alone
+    assert.equal(readTokenStore(p).defaultNs, "prod", "sole survivor promoted even with no prior default");
+  });
+});
+
 test("token rejects unknown subcommands", async () => {
   await withTempXdg(async (xdg) => {
     await assert.rejects(() => runTokenCommand(["frobnicate"], deps(xdg).deps), /Usage:/);

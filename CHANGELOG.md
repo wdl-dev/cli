@@ -25,6 +25,14 @@
   `--ns > shell WDL_NS > project .env WDL_NS > store default`, and
   `wdl config explain` shows `token store default` as the namespace source.
 
+### Removed
+
+- **BREAKING:** the `--admin` flag and the `ADMIN_URL` environment variable —
+  legacy compatibility aliases for the control endpoint — are removed. Use
+  `--control-url <url>` and the `CONTROL_URL` environment variable instead.
+  `--admin` is now an unknown option and `ADMIN_URL` is no longer read from the
+  shell or `.env`.
+
 ### Fixed
 
 - `wdl secret put` no longer echoes the typed secret on a TTY: input is read in

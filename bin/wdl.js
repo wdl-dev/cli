@@ -99,11 +99,9 @@ function scanCommandArgs(commandModule, args) {
     // (an empty --token "" falls back to env), so the cross-origin guard must
     // distrust .env control endpoints. Matches config-state's detection.
     tokenFromFlag: typeof values.token === "string" && values.token.length > 0,
-    // A control endpoint from a flag means the store need not be consulted to
-    // fill it, so a corrupt store cannot block a fully flag-supplied command.
-    controlUrlFromFlag:
-      (typeof values["control-url"] === "string" && values["control-url"].length > 0) ||
-      (typeof values.admin === "string" && values.admin.length > 0),
+    // A --control-url means the store need not be consulted to fill the
+    // endpoint, so a corrupt store cannot block a fully flag-supplied command.
+    controlUrlFromFlag: typeof values["control-url"] === "string" && values["control-url"].length > 0,
     help: values.help === true || isHelpAlias(positionals),
   };
 }

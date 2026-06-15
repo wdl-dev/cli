@@ -19,6 +19,7 @@ import {
   writeResult,
 } from "../lib/common.js";
 import { maskToken } from "../lib/config-state.js";
+import { isAdminAcceptableNs } from "../lib/ns-pattern.js";
 import { fetchWhoami, namespaceFromPrincipal } from "../lib/whoami.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../lib/token-store.js";
 
@@ -71,6 +72,14 @@ async function runToken({ values, positionals, context }) {
 async function tokenSet({ values, context }) {
   const ns = context.resolveNamespace();
   if (!ns) throw new CliError("token set requires --ns <namespace>");
+  // The namespace becomes a `[section]` key in the store file, so it must match
+  // the same grammar store/.env sections use (tenant namespaces plus operator-
+  // reserved `__name__` sections). A value with `]` or newlines (e.g. echoed
+  // back via --ns from a misconfigured control plane) would otherwise inject
+  // lines/sections and corrupt the file on the next read.
+  if (!isAdminAcceptableNs(ns)) {
+    throw new CliError(`invalid namespace "${escapeTerminalText(ns)}"`);
+  }
   // The control URL comes from flags/shell only, never the store — we are
   // writing the store, so it cannot supply its own endpoint. Give a token-set
   // message rather than resolveControlUrl's generic "set it in .env" hint,
@@ -103,8 +112,8 @@ async function tokenSet({ values, context }) {
   if (principalNs !== ns) {
     throw new CliError(
       principalNs
-        ? `token principal is namespace "${principalNs}", not "${ns}" — run with --ns ${principalNs}`
-        : `this token is not scoped to namespace "${ns}"; wdl token stores tenant tokens under their own namespace`
+        ? `token principal is namespace "${escapeTerminalText(principalNs)}", not "${escapeTerminalText(ns)}" — run with --ns ${escapeTerminalText(principalNs)}`
+        : `this token is not scoped to namespace "${escapeTerminalText(ns)}"; wdl token stores tenant tokens under their own namespace`
     );
   }
 
@@ -133,7 +142,7 @@ async function tokenSet({ values, context }) {
   if (becameDefault) store.defaultNs = ns;
   writeTokenStore(storePath, store);
   context.stdout(
-    `Stored token for ${escapeTerminalText(ns)} @ ${escapeTerminalText(controlUrl)} (${maskToken(token)}).`
+    `Stored token for ${escapeTerminalText(ns)} @ ${escapeTerminalText(controlUrl)} (${escapeTerminalText(maskToken(token))}).`
   );
   if (becameDefault) {
     context.stdout(`${escapeTerminalText(ns)} is now the default namespace (used when --ns is omitted).`);

@@ -210,6 +210,49 @@ test("token set rejects a token that is not scoped to a namespace", async () => 
   });
 });
 
+test("token set rejects a namespace that is not a valid section name", async () => {
+  await withTempXdg(async (xdg) => {
+    await assert.rejects(
+      () => runTokenCommand(
+        ["set", "--ns", "evil]x", "--control-url", "https://api.example"],
+        deps(xdg, { stdin: stdinFrom("tok\n") }).deps
+      ),
+      /invalid namespace/
+    );
+    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), { defaultNs: null, namespaces: {} });
+  });
+});
+
+test("token set escapes terminal controls in a principal-mismatch error", async () => {
+  await withTempXdg(async (xdg) => {
+    const esc = String.fromCharCode(27);
+    const controlFetch = async () => response({ ok: true, principal: { kind: "ns", ns: `other${esc}[2J` } });
+    await assert.rejects(
+      () => runTokenCommand(
+        ["set", "--ns", "acme", "--control-url", "https://api.example"],
+        deps(xdg, { stdin: stdinFrom("tok\n"), controlFetch }).deps
+      ),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.doesNotMatch(message, new RegExp(esc), "raw ESC must not be in the error");
+        assert.match(message, /token principal is namespace/);
+        return true;
+      }
+    );
+  });
+});
+
+test("token set escapes a masked token suffix containing terminal controls", async () => {
+  await withTempXdg(async (xdg) => {
+    const esc = String.fromCharCode(27);
+    const { lines, deps: d } = deps(xdg, { stdin: stdinFrom(`tok-secret${esc}[2J\n`) });
+    await runTokenCommand(["set", "--ns", "acme", "--control-url", "https://api.example"], d);
+    const out = lines.join("\n");
+    assert.doesNotMatch(out, new RegExp(esc), "raw ESC must not reach stdout via the masked suffix");
+    assert.match(out, /Stored token for acme/);
+  });
+});
+
 test("token set warns before sending the token to a plain-http non-local host", async () => {
   await withTempXdg(async (xdg) => {
     const { warnings, deps: d } = deps(xdg, { stdin: stdinFrom("tok\n") });
@@ -512,6 +555,29 @@ test("loadCliControlEnv tolerates a corrupt store when no namespace is needed", 
     })
   );
   assert.equal(env.WDL_NS, undefined);
+});
+
+test("an empty .env ADMIN_TOKEN does not mark a .env endpoint same-source", () => {
+  // Malicious cwd .env: a control endpoint + an EMPTY `ADMIN_TOKEN=` placeholder.
+  // The empty token must not make the endpoint same-source.
+  const env = /** @type {NodeJS.ProcessEnv} */ ({});
+  const warnings = [];
+  loadCliControlEnv(env, {
+    nsFromFlag: "acme",
+    loadEnv: (e, _path, opts) => {
+      if (!opts.resolvedNs) {
+        e.CONTROL_URL = "https://evil.example";
+        e.ADMIN_TOKEN = "";
+        return ["CONTROL_URL", "ADMIN_TOKEN"];
+      }
+      return [];
+    },
+    readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://good.example", ADMIN_TOKEN: "store-tok" } } }),
+    onCrossOrigin: (line) => warnings.push(line),
+  });
+  assert.equal(env.CONTROL_URL, "https://good.example", "evil endpoint dropped, store endpoint used");
+  assert.equal(env.ADMIN_TOKEN, "store-tok");
+  assert.equal(warnings.length, 1);
 });
 
 test("a project .env endpoint is still dropped when the token comes from the store", () => {

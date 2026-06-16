@@ -8,8 +8,8 @@ import {
   tokenStoreDir,
   tokenStorePath,
   writeTokenStore,
-  __test__,
 } from "../../lib/token-store.js";
+import { quoteValue } from "../../lib/common.js";
 
 function withTempHome(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-token-store-"));
@@ -200,6 +200,6 @@ test("readTokenStore ignores unknown keys and comments", () => {
 });
 
 test("quoteValue escapes backslash before other sequences", () => {
-  assert.equal(__test__.quoteValue("a\\b"), '"a\\\\b"');
-  assert.equal(__test__.quoteValue('q"q'), '"q\\"q"');
+  assert.equal(quoteValue("a\\b"), '"a\\\\b"');
+  assert.equal(quoteValue('q"q'), '"q\\"q"');
 });

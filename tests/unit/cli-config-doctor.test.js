@@ -7,7 +7,8 @@ import { runConfigCommand } from "../../commands/config.js";
 import { runDoctorCommand } from "../../commands/doctor.js";
 import { runWhoamiCommand } from "../../commands/whoami.js";
 import { main as wdlMain } from "../../bin/wdl.js";
-import { maskToken, resolveCliConfigState } from "../../lib/config-state.js";
+import { resolveCliConfigState } from "../../lib/config-state.js";
+import { maskToken } from "../../lib/common.js";
 import { cliCompatibility, compareSemver } from "../../lib/whoami.js";
 import { response } from "./helpers.js";
 

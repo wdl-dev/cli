@@ -13,6 +13,7 @@ import {
   isMain,
   optionHelp,
   shellSingleQuote,
+  writeStatusLine,
 } from "../lib/common.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
 
@@ -45,9 +46,9 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   };
   const deployBody = serializeDeployManifest(manifest);
 
-  stdout(`[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
-  // `version` comes from the control response — escape every display site,
-  // but keep the raw value for the promote request body.
+  writeStatusLine(stdout, `[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
+  // `version` comes from the control response; keep the raw value for the
+  // promote request body — display sites escape via writeStatusLine.
   const { version, warnings } = await context.fetchJson(
     context.nsUrl("worker", workerName, "deploy"),
     {
@@ -76,8 +77,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     }
   }
 
-  const displayVersion = escapeTerminalText(String(version));
-  stdout(`[3/3] promoting ${displayVersion}`);
+  writeStatusLine(stdout, `[3/3] promoting ${version}`);
   let promoteBody;
   try {
     promoteBody = await context.fetchJson(
@@ -91,7 +91,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     );
   } catch (err) {
     stderr(
-      `note: version ${displayVersion} was uploaded and retained but NOT promoted; ` +
+      `note: version ${escapeTerminalText(String(version))} was uploaded and retained but NOT promoted; ` +
       `the previously active version still serves traffic. Re-run \`wdl deploy\` to retry.`
     );
     throw err;
@@ -168,14 +168,14 @@ async function runDeploy({ values, positionals, context }) {
   });
 
   stdout("");
-  stdout(`✓ ${ns}/${workerName}@${escapeTerminalText(String(version))} live`);
+  writeStatusLine(stdout, `✓ ${ns}/${workerName}@${version} live`);
   const controlHost = new URL(controlUrl).hostname;
   const isLocal = controlHost === "localhost" || controlHost === "127.0.0.1";
   if (isLocal) {
     const host = `${ns}.${platformDomain || "workers.local"}`;
-    stdout(`  curl -H ${shellSingleQuote(`Host: ${escapeTerminalText(host)}`)} http://localhost:8080/${escapeTerminalText(workerName)}/`);
+    writeStatusLine(stdout, `  curl -H ${shellSingleQuote(`Host: ${host}`)} http://localhost:8080/${workerName}/`);
   } else if (platformDomain) {
-    stdout(`  https://${escapeTerminalText(ns)}.${escapeTerminalText(platformDomain)}/${escapeTerminalText(workerName)}/`);
+    writeStatusLine(stdout, `  https://${ns}.${platformDomain}/${workerName}/`);
   }
 }
 

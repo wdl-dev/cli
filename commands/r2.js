@@ -15,6 +15,7 @@ import {
   isMain,
   optionHelp,
   writeResult,
+  writeStatusLine,
 } from "../lib/common.js";
 import { formatBucketList, formatObjectHead, formatObjectList } from "../lib/r2-format.js";
 
@@ -92,7 +93,7 @@ async function runR2({ values, positionals, context }) {
     }, "get R2 object");
     if (values.out) {
       const bytesWritten = await writeBodyToFile(res.body, values.out);
-      stdout(`OK wrote ${bytesWritten} bytes to ${values.out}`);
+      writeStatusLine(stdout, `OK wrote ${bytesWritten} bytes to ${values.out}`);
     } else {
       await writeBodyToStdout(res.body, stdoutStream);
     }

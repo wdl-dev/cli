@@ -12,13 +12,14 @@ import {
   escapeTerminalText,
   formatHelp,
   isMain,
+  maskToken,
   optionHelp,
-  readTtyLine,
+  readSecretStdin,
   resolveControlUrl,
   warnIfInsecureControlUrl,
   writeResult,
+  writeStatusLine,
 } from "../lib/common.js";
-import { maskToken } from "../lib/config-state.js";
 import { isAdminAcceptableNs } from "../lib/ns-pattern.js";
 import { fetchWhoami, namespaceFromPrincipal } from "../lib/whoami.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../lib/token-store.js";
@@ -94,7 +95,7 @@ async function tokenSet({ values, context }) {
   // that sends the token.
   warnIfInsecureControlUrl(controlUrl, context.warn);
 
-  const token = (await readStdin(context.stdin, {
+  const token = (await readSecretStdin(context.stdin, {
     prompt: `Token for ${ns} @ ${controlUrl} (input hidden): `,
     stderr: context.stderr,
   })).trim();
@@ -141,11 +142,9 @@ async function tokenSet({ values, context }) {
   const becameDefault = Boolean(values.default) || wasEmpty;
   if (becameDefault) store.defaultNs = ns;
   writeTokenStore(storePath, store);
-  context.stdout(
-    `Stored token for ${escapeTerminalText(ns)} @ ${escapeTerminalText(controlUrl)} (${escapeTerminalText(maskToken(token))}).`
-  );
+  writeStatusLine(context.stdout, `Stored token for ${ns} @ ${controlUrl} (${maskToken(token)}).`);
   if (becameDefault) {
-    context.stdout(`${escapeTerminalText(ns)} is now the default namespace (used when --ns is omitted).`);
+    writeStatusLine(context.stdout, `${ns} is now the default namespace (used when --ns is omitted).`);
   }
 }
 
@@ -159,7 +158,7 @@ function tokenUse({ context, nsArg }) {
   }
   store.defaultNs = ns;
   writeTokenStore(storePath, store);
-  context.stdout(`Default namespace set to ${escapeTerminalText(ns)} (used when --ns is omitted).`);
+  writeStatusLine(context.stdout, `Default namespace set to ${ns} (used when --ns is omitted).`);
 }
 
 function tokenList({ values, context }) {
@@ -189,9 +188,7 @@ function tokenRemove({ context }) {
   if (remaining.length === 1) store.defaultNs = remaining[0];
   else if (store.defaultNs === ns) store.defaultNs = null;
   writeTokenStore(storePath, store);
-  context.stdout(
-    `Removed the stored token for ${escapeTerminalText(ns)}. This does not revoke it on the control plane.`
-  );
+  writeStatusLine(context.stdout, `Removed the stored token for ${ns}. This does not revoke it on the control plane.`);
 }
 
 // Returns an array of lines; writeResult escapes each one at its choke point.
@@ -203,23 +200,6 @@ function formatTokenList(rows) {
   const lines = cells.map((l) => l.map((cell, col) => cell.padEnd(widths[col])).join("  ").trimEnd());
   if (rows.some((r) => r.default)) lines.push("", "* default namespace (used when --ns is omitted)");
   return lines;
-}
-
-// Read a single line: a TTY prompts without echo; a pipe is read to EOF.
-/**
- * @param {{ isTTY?: boolean, setEncoding: (encoding: string) => void, setRawMode?: (mode: boolean) => void, on: Function, off: Function, pause?: Function }} stdin
- * @param {{ prompt?: string, stderr?: (text: string) => void }} [options]
- */
-function readStdin(stdin, { prompt, stderr } = {}) {
-  // hidden: the token must never echo to the terminal or scrollback on a TTY.
-  if (stdin.isTTY) return readTtyLine(stdin, { prompt, stderr, hidden: true });
-  return new Promise((resolve, reject) => {
-    let data = "";
-    stdin.setEncoding("utf8");
-    stdin.on("data", (chunk) => (data += chunk));
-    stdin.on("end", () => resolve(data.replace(/\r?\n$/, "")));
-    stdin.on("error", reject);
-  });
 }
 
 function usageText() {

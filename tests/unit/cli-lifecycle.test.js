@@ -15,12 +15,15 @@ import { runWorkflowsCommand } from "../../commands/workflows.js";
 import { main as wdlMain } from "../../bin/wdl.js";
 import {
   CliError,
+  confirmAction,
   loadCliControlEnv,
   loadCliDotEnv,
   readJsonOrFail,
   resolveControlContext,
   resolveControlUrl,
   resolveNamespace,
+  writeJsonOr,
+  writeStatusLine,
 } from "../../lib/common.js";
 import {
   LONG_CONTROL_TIMEOUT_MS,
@@ -1081,6 +1084,50 @@ test("secret put reads stdin, trims one newline, and encodes key", async () => {
   assert.deepEqual(lines, ["✓ demo (ns)/KEY/ONE set — effect on next natural cold-load"]);
 });
 
+test("writeStatusLine escapes terminal control bytes in the assembled line", () => {
+  const lines = [];
+  writeStatusLine((l) => lines.push(l), `ok ${String.fromCharCode(27)}[2J done`);
+  assert.equal(lines.length, 1);
+  assert.doesNotMatch(lines[0], new RegExp(String.fromCharCode(27)), "raw ESC must not pass through");
+});
+
+test("writeJsonOr emits JSON and reports handled, or defers to the human path", () => {
+  const out = [];
+  assert.equal(writeJsonOr(true, { a: 1 }, (l) => out.push(l)), true);
+  assert.equal(out[0], JSON.stringify({ a: 1 }, null, 2));
+  out.length = 0;
+  assert.equal(writeJsonOr(false, { a: 1 }, (l) => out.push(l)), false);
+  assert.equal(out.length, 0, "nothing written when not json");
+});
+
+test("confirmAction escapes terminal controls in its refusal message", async () => {
+  const esc = String.fromCharCode(27);
+  await assert.rejects(
+    () => confirmAction({ stdin: /** @type {any} */ ({ isTTY: false }), action: `delete ${esc}[2J thing` }),
+    (err) => {
+      assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(esc), "raw ESC must not be in the refusal error");
+      assert.match(/** @type {Error} */ (err).message, /Refusing to delete/);
+      return true;
+    }
+  );
+});
+
+test("secret put escapes terminal controls from a raw keyArg in the status line", async () => {
+  const esc = String.fromCharCode(27);
+  const lines = [];
+  await runSecretCommand(
+    ["put", "--ns", "demo", "--scope", "ns", `KEY${esc}[2J`, "--control-url", "http://ctl.test"],
+    {
+      env: { ADMIN_TOKEN: "tok" },
+      stdin: stdinFrom("v\n"),
+      stdout: (line) => lines.push(line),
+      controlFetch: async () => response({ deleted: false }),
+    }
+  );
+  assert.equal(lines.length, 1);
+  assert.doesNotMatch(lines[0], new RegExp(esc), "raw ESC from keyArg must not reach stdout");
+});
+
 test("secret put reads one tty line without waiting for EOF", async () => {
   const calls = [];
   const prompts = [];
@@ -1380,6 +1427,34 @@ test("r2 object get waits for stdout backpressure", async () => {
   });
 
   assert.deepEqual(events, ["write:a", "drain", "write:b"]);
+});
+
+test("r2 object get --out escapes a control-char path in the success line", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-r2-out-escape-"));
+  try {
+    const esc = String.fromCharCode(27);
+    const outPath = path.join(dir, `file${esc}[2J.bin`);
+    const lines = [];
+    await runR2Command(
+      ["objects", "get", "--ns", "demo", "uploads", "file.txt", "--out", outPath, "--control-url", "http://ctl.test"],
+      {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: (line) => lines.push(line),
+        controlFetch: async () => ({
+          status: 200,
+          ok: true,
+          headers: {},
+          body: Readable.from([Buffer.from("ab")]),
+          text: async () => "",
+        }),
+      }
+    );
+    const out = lines.join("\n");
+    assert.doesNotMatch(out, new RegExp(esc), "raw ESC from --out path must not reach stdout");
+    assert.match(out, /OK wrote 2 bytes to/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("r2 object get, head, and delete reject blank keys", async () => {

@@ -15,7 +15,7 @@ import * as doctorCmd from "../commands/doctor.js";
 import * as whoamiCmd from "../commands/whoami.js";
 import * as tokenCmd from "../commands/token.js";
 import { isHelpAlias } from "../lib/command.js";
-import { commonCliOptions, formatHelp, handleCliError, isMain, loadCliControlEnv } from "../lib/common.js";
+import { commonCliOptions, flagSet, formatHelp, handleCliError, isMain, loadCliControlEnv } from "../lib/common.js";
 import { currentCliVersion } from "../lib/package-info.js";
 import { readTokenStore, tokenStorePath } from "../lib/token-store.js";
 
@@ -98,10 +98,10 @@ function scanCommandArgs(commandModule, args) {
     // A non-empty --token means the effective credential is NOT the .env one
     // (an empty --token "" falls back to env), so the cross-origin guard must
     // distrust .env control endpoints. Matches config-state's detection.
-    tokenFromFlag: typeof values.token === "string" && values.token.length > 0,
+    tokenFromFlag: flagSet(values, "token"),
     // A --control-url means the store need not be consulted to fill the
     // endpoint, so a corrupt store cannot block a fully flag-supplied command.
-    controlUrlFromFlag: typeof values["control-url"] === "string" && values["control-url"].length > 0,
+    controlUrlFromFlag: flagSet(values, "control-url"),
     help: values.help === true || isHelpAlias(positionals),
   };
 }

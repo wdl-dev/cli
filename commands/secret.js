@@ -7,11 +7,12 @@ import {
   CliError,
   confirmAction,
   defineCliOption,
-  escapeTerminalText,
   formatHelp,
   isMain,
   optionHelp,
-  readTtyLine,
+  readSecretStdin,
+  writeJsonOr,
+  writeStatusLine,
 } from "../lib/common.js";
 
 const SECRET_OPTIONS = [
@@ -66,20 +67,17 @@ async function runSecret({ values, positionals, context }) {
 
   if (subcommand === "list") {
     const body = await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list");
-    if (values.json) {
-      stdout(JSON.stringify(body, null, 2));
-      return;
-    }
+    if (writeJsonOr(values.json, body, stdout)) return;
     const keys = Array.isArray(body.keys) ? body.keys : [];
-    if (keys.length === 0) stdout("(no secrets)");
-    else for (const k of keys) stdout(escapeTerminalText(String(k)));
+    if (keys.length === 0) writeStatusLine(stdout, "(no secrets)");
+    else for (const k of keys) writeStatusLine(stdout, String(k));
     return;
   }
 
   if (subcommand === "put") {
     if (!keyArg) throw new CliError("put requires a KEY argument");
     // Empty string is a set secret (≠ unset), matching wrangler.
-    const value = await readStdin(stdin, {
+    const value = await readSecretStdin(stdin, {
       prompt: `Enter secret value for ${scopeLabel}/${keyArg} (input hidden): `,
       stderr,
     });
@@ -88,20 +86,17 @@ async function runSecret({ values, positionals, context }) {
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ value }),
     }, "put");
-    if (values.json) {
-      stdout(JSON.stringify(body, null, 2));
-      return;
-    }
+    if (writeJsonOr(values.json, body, stdout)) return;
     const warning = pickPromoteWarning(body);
     if (warning) {
-      stdout(`⚠ ${scopeLabel}/${keyArg} set — stored, reload deferred: ${escapeTerminalText(warning.reason)}`);
-      stdout(`  next pickup: ${escapeTerminalText(warning.nextPickup)}`);
+      writeStatusLine(stdout, `⚠ ${scopeLabel}/${keyArg} set — stored, reload deferred: ${warning.reason}`);
+      writeStatusLine(stdout, `  next pickup: ${warning.nextPickup}`);
     } else if (hasWorker && body.version) {
-      stdout(`✓ ${scopeLabel}/${keyArg} set — promoted ${escapeTerminalText(body.previousVersion)} → ${escapeTerminalText(body.version)}`);
+      writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} set — promoted ${body.previousVersion} → ${body.version}`);
     } else if (hasWorker) {
-      stdout(`✓ ${scopeLabel}/${keyArg} set — stored; will apply on first deploy`);
+      writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} set — stored; will apply on first deploy`);
     } else {
-      stdout(`✓ ${scopeLabel}/${keyArg} set — effect on next natural cold-load`);
+      writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} set — effect on next natural cold-load`);
     }
     return;
   }
@@ -119,23 +114,20 @@ async function runSecret({ values, positionals, context }) {
       method: "DELETE",
       headers,
     }, "delete");
-    if (values.json) {
-      stdout(JSON.stringify(body, null, 2));
-      return;
-    }
+    if (writeJsonOr(values.json, body, stdout)) return;
     const warning = pickPromoteWarning(body);
-    if (!body.deleted && !warning) stdout(`(${keyArg} was not set)`);
+    if (!body.deleted && !warning) writeStatusLine(stdout, `(${keyArg} was not set)`);
     else if (warning && body.deleted) {
-      stdout(`⚠ ${scopeLabel}/${keyArg} deleted — stored, reload deferred: ${escapeTerminalText(warning.reason)}`);
-      stdout(`  next pickup: ${escapeTerminalText(warning.nextPickup)}`);
+      writeStatusLine(stdout, `⚠ ${scopeLabel}/${keyArg} deleted — stored, reload deferred: ${warning.reason}`);
+      writeStatusLine(stdout, `  next pickup: ${warning.nextPickup}`);
     }
     else if (warning) {
-      stdout(`⚠ ${scopeLabel}/${keyArg} unchanged — reload deferred: ${escapeTerminalText(warning.reason)}`);
-      stdout(`  next pickup: ${escapeTerminalText(warning.nextPickup)}`);
+      writeStatusLine(stdout, `⚠ ${scopeLabel}/${keyArg} unchanged — reload deferred: ${warning.reason}`);
+      writeStatusLine(stdout, `  next pickup: ${warning.nextPickup}`);
     }
-    else if (hasWorker && body.version) stdout(`✓ ${scopeLabel}/${keyArg} deleted — promoted ${escapeTerminalText(body.previousVersion)} → ${escapeTerminalText(body.version)}`);
-    else if (hasWorker) stdout(`✓ ${scopeLabel}/${keyArg} deleted — no active worker version to promote`);
-    else stdout(`✓ ${scopeLabel}/${keyArg} deleted — effect on next natural cold-load`);
+    else if (hasWorker && body.version) writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — promoted ${body.previousVersion} → ${body.version}`);
+    else if (hasWorker) writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — no active worker version to promote`);
+    else writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — effect on next natural cold-load`);
     return;
   }
 
@@ -145,25 +137,6 @@ async function runSecret({ values, positionals, context }) {
 function pickPromoteWarning(body) {
   const warnings = Array.isArray(body?.warnings) ? body.warnings : [];
   return warnings.find((w) => w?.kind === "promote_failed") || null;
-}
-
-// Pipe/redirect mode reads until EOF so multi-line secrets work. TTY mode
-// reads one line so typing a value and pressing Enter submits immediately.
-/**
- * @param {{ isTTY?: boolean, setEncoding: (encoding: string) => void, setRawMode?: (mode: boolean) => void, on: Function, off: Function, pause?: Function }} stdin
- * @param {{ prompt?: string, stderr?: (text: string) => void }} [options]
- */
-function readStdin(stdin, { prompt, stderr } = {}) {
-  // hidden: a secret value must never echo to the terminal or scrollback.
-  if (stdin.isTTY) return readTtyLine(stdin, { prompt, stderr, hidden: true });
-
-  return new Promise((resolve, reject) => {
-    let data = "";
-    stdin.setEncoding("utf8");
-    stdin.on("data", (chunk) => (data += chunk));
-    stdin.on("end", () => resolve(data.replace(/\r?\n$/, "")));
-    stdin.on("error", reject);
-  });
 }
 
 function usageText() {

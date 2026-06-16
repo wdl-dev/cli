@@ -1366,6 +1366,9 @@ test("wranglerChildEnv strips WDL control-plane environment", () => {
       CONTROL_CONNECT_HOST: "ctl.connect.example",
       CONTROL_URL: "https://ctl.example",
       WDL_NS: "tenant",
+      // Legacy alias the CLI no longer reads, but must still scrub so a stale
+      // export does not leak the control endpoint into the bundler.
+      ADMIN_URL: "https://legacy-admin.example",
       CLOUDFLARE_API_TOKEN: "real-cloudflare-token",
       PATH: "/bin",
       KEEP_ME: "ok",

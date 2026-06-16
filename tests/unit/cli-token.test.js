@@ -351,6 +351,19 @@ test("token rm removes a stored namespace and errors when absent", async () => {
   });
 });
 
+test("token rm requires an explicit --ns and ignores ambient WDL_NS", async () => {
+  await withTempXdg(async (xdg) => {
+    const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    writeTokenStore(p, { defaultNs: "acme", namespaces: { acme: { ADMIN_TOKEN: "a" } } });
+
+    const { deps: d } = deps(xdg);
+    // A stray WDL_NS must NOT make a bare `rm` delete that namespace's token.
+    d.env.WDL_NS = "acme";
+    await assert.rejects(() => runTokenCommand(["rm"], d), /requires an explicit --ns/);
+    assert.deepEqual(Object.keys(readTokenStore(p).namespaces), ["acme"], "store untouched");
+  });
+});
+
 test("token rm of the default promotes a sole survivor, clears it when ambiguous", async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });

@@ -10,6 +10,7 @@ import {
   CliError,
   defineCliOption,
   escapeTerminalText,
+  flagSet,
   formatHelp,
   isMain,
   maskToken,
@@ -64,7 +65,7 @@ async function runToken({ values, positionals, context }) {
       if (rest.length > 1) throw new CliError(usageText());
       return tokenUse({ context, nsArg: rest[0] });
     case "rm":
-      return tokenRemove({ context });
+      return tokenRemove({ values, context });
     default:
       throw new CliError(usageText());
   }
@@ -173,9 +174,13 @@ function tokenList({ values, context }) {
   writeResult(values.json, rows, () => formatTokenList(rows), context.stdout);
 }
 
-function tokenRemove({ context }) {
-  const ns = context.resolveNamespace();
-  if (!ns) throw new CliError("token rm requires --ns <namespace>");
+function tokenRemove({ values, context }) {
+  // `rm` deletes and rewrites the store with no confirmation, so it takes the
+  // namespace only from an explicit --ns — never the ambient WDL_NS that the
+  // other subcommands fall back to. Otherwise a stray WDL_NS in the shell could
+  // silently delete a different namespace's stored token than the one named.
+  const ns = flagSet(values, "ns") ? values.ns : null;
+  if (!ns) throw new CliError("token rm requires an explicit --ns <namespace>");
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
   if (!Object.hasOwn(store.namespaces, ns)) throw new CliError(`no stored token for namespace "${escapeTerminalText(ns)}"`);

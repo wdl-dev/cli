@@ -9,6 +9,7 @@ import { runWhoamiCommand } from "../../commands/whoami.js";
 import { main as wdlMain } from "../../bin/wdl.js";
 import { resolveCliConfigState } from "../../lib/config-state.js";
 import { maskToken } from "../../lib/common.js";
+import { tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
 import { cliCompatibility, compareSemver } from "../../lib/whoami.js";
 import { response } from "./helpers.js";
 
@@ -43,6 +44,34 @@ test("resolveCliConfigState reports .env section sources and masks token", () =>
     assert.equal(state.controlUrl.source, ".env CONTROL_URL");
     assert.equal(state.token.display, "****oken");
     assert.equal(state.token.source, ".env [acme].ADMIN_TOKEN");
+  });
+});
+
+test("resolveCliConfigState resolves the .env namespace over the store default given an empty shell WDL_NS", () => {
+  withTempDir((cwd) => {
+    const xdg = path.join(cwd, "xdg");
+    writeTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg }), {
+      defaultNs: "demo",
+      namespaces: {
+        acme: { CONTROL_URL: "https://acme.store.example", ADMIN_TOKEN: "acme-store-token" },
+        demo: { CONTROL_URL: "https://demo.store.example", ADMIN_TOKEN: "demo-store-token" },
+      },
+    });
+    writeFileSync(path.join(cwd, ".env"), [
+      "WDL_NS=acme",
+      "",
+      "[acme]",
+      "CONTROL_URL=https://acme.env.example",
+      "ADMIN_TOKEN=acme-env-token",
+    ].join("\n"));
+
+    const state = resolveCliConfigState({
+      env: { WDL_NS: "", XDG_CONFIG_HOME: xdg },
+      cwd,
+    });
+
+    assert.equal(state.namespace.display, "acme", "the .env namespace wins, not the demo store default");
+    assert.equal(state.controlUrl.display, "https://acme.env.example", "control comes from the .env acme section");
   });
 });
 

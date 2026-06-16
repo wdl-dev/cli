@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
-import { loadCliControlEnv, readSecretStdin, readTtyLine } from "../../lib/common.js";
+import { loadCliControlEnv, protectedEnvKeys, readSecretStdin, readTtyLine } from "../../lib/common.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
 import { response } from "./helpers.js";
 
@@ -523,6 +523,11 @@ test("readTtyLine escapes terminal controls in the prompt at the write point", a
   assert.doesNotMatch(errs.join(""), new RegExp(String.fromCharCode(27)), "raw ESC from the prompt must not reach stderr");
 });
 
+test("protectedEnvKeys protects only non-empty string values", () => {
+  const keys = protectedEnvKeys(/** @type {any} */ ({ A: "x", EMPTY: "", MISSING: undefined, B: "y" }));
+  assert.deepEqual([...keys].sort(), ["A", "B"]);
+});
+
 // --- resolution integration (the global store as the lowest-precedence layer) ---
 
 test("loadCliControlEnv fills control URL and token from the store as a gap-filler", () => {
@@ -565,6 +570,28 @@ test("loadCliControlEnv lets an explicit namespace override the store default", 
   assert.equal(env.WDL_NS, "demo", "shell WDL_NS wins over the store default");
   assert.equal(env.CONTROL_URL, "https://demo.example");
   assert.equal(env.ADMIN_TOKEN, "demo-tok");
+});
+
+test("loadCliControlEnv lets a project .env namespace beat the store default over an empty shell WDL_NS", () => {
+  const env = { WDL_NS: "" };
+  loadCliControlEnv(env, {
+    // Simulate the real loader: only set the .env WDL_NS when it is not protected.
+    loadEnv: (e, _path, { protectedKeys }) => {
+      if (protectedKeys.has("WDL_NS")) return [];
+      e.WDL_NS = "acme";
+      return ["WDL_NS"];
+    },
+    readStore: () => ({
+      defaultNs: "demo",
+      namespaces: {
+        acme: { CONTROL_URL: "https://acme.example", ADMIN_TOKEN: "acme-tok" },
+        demo: { CONTROL_URL: "https://demo.example", ADMIN_TOKEN: "demo-tok" },
+      },
+    }),
+  });
+  assert.equal(env.WDL_NS, "acme", "the project .env namespace wins over the store default");
+  assert.equal(env.CONTROL_URL, "https://acme.example", "creds come from acme, not the demo default");
+  assert.equal(env.ADMIN_TOKEN, "acme-tok");
 });
 
 test("loadCliControlEnv ignores a store default with no stored entry", () => {

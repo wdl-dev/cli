@@ -96,9 +96,10 @@ ADMIN_TOKEN=<acme-staging-token>
 
 The CLI loads only WDL platform variables from `.env`: `ADMIN_TOKEN`,
 `CONTROL_URL`, `CONTROL_CONNECT_HOST`, and `WDL_NS`. Precedence is
-`CLI flag > shell/CI env > [resolved-ns] section > base .env`, and if none
-supplies a value the command fails — there is no built-in default. Namespace
-resolution is `--ns`, then `WDL_NS` from your shell or base `.env`. Section
+`CLI flag > shell/CI env > [resolved-ns] section > base .env > wdl token store`,
+and if none supplies a value the command fails — there is no built-in default.
+Namespace resolution is `--ns`, then `WDL_NS` from your shell or base `.env`,
+then the token store's default namespace. Section
 names may be normal tenant namespaces, such as `[acme]`, or opaque
 operator-reserved sections shaped like `[__name__]`. Tenant Wrangler config
 still uses normal tenant namespace grammar unless your operator explicitly gave

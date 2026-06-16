@@ -91,7 +91,8 @@ The worker is now at `https://<namespace>.<platform-domain>/hello/`.
 Credentials can also live in a `.env` file with per-namespace sections — copy
 [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example) and see
 [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md) for
-source precedence (flags beat shell env, which beats `.env`).
+source precedence (flags beat shell env, which beats `.env`, which beats the
+`wdl token` store).
 
 ## Commands
 
@@ -101,7 +102,8 @@ wdl deploy <project-dir> [--ns <namespace>] [--env <name>] [--verbose]
 wdl tail <worker> [<worker>...] [--ns <namespace>] [--raw]
 wdl workers [--ns <namespace>]
 wdl secret <put|list|delete> (--worker <name> | --scope ns) [KEY] [--json]
-wdl token <set|list|use|rm> [--ns <namespace>] [--control-url <url>] [--label <text>] [--default]
+wdl token set --ns <ns> [--control-url <url>] [--label <text>] [--default]
+wdl token list [--json] / wdl token use <ns> / wdl token rm --ns <ns>
 wdl d1 <create|list|delete|execute|migrations> ...
 wdl r2 buckets list / wdl r2 objects <list|head|get|delete> ...
 wdl workflows <list|instances|status|pause|resume|restart|terminate> ...

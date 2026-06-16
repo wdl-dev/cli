@@ -81,6 +81,11 @@ So with a stored default you can run `wdl deploy`, `wdl doctor`, etc. without
 namespace comes from the store default, `wdl config explain` shows the source as
 `token store default`.
 
+The `wdl token` subcommands are the exception to that chain: `set`, `use`, and
+`rm` mutate the store, so they take the namespace from an explicit `--ns` (or
+`use`'s positional) only — never the ambient `WDL_NS` — so a stray shell value
+can't write, switch, or delete the wrong entry.
+
 The store is trusted (it lives in your home directory and you wrote it via
 `wdl token`, so its token and endpoint are same-source). A project `.env` is
 not: a `.env` that supplies a control endpoint without also supplying the token

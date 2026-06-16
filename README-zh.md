@@ -60,7 +60,7 @@ wdl tail hello          # 边访问 URL 边看实时日志
 
 Worker 此时位于 `https://<namespace>.<platform-domain>/hello/`。
 
-凭证也可以放进带命名空间分段的 `.env` 文件——复制 [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example)，来源优先级（flag 高于 shell env，高于 `.env`）见 [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md)。
+凭证也可以放进带命名空间分段的 `.env` 文件——复制 [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example)，来源优先级（flag 高于 shell env，高于 `.env`，高于 `wdl token` store）见 [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md)。
 
 ## 命令
 
@@ -70,7 +70,8 @@ wdl deploy <project-dir> [--ns <namespace>] [--env <name>] [--verbose]
 wdl tail <worker> [<worker>...] [--ns <namespace>] [--raw]
 wdl workers [--ns <namespace>]
 wdl secret <put|list|delete> (--worker <name> | --scope ns) [KEY] [--json]
-wdl token <set|list|use|rm> [--ns <namespace>] [--control-url <url>] [--label <text>] [--default]
+wdl token set --ns <ns> [--control-url <url>] [--label <text>] [--default]
+wdl token list [--json] / wdl token use <ns> / wdl token rm --ns <ns>
 wdl d1 <create|list|delete|execute|migrations> ...
 wdl r2 buckets list / wdl r2 objects <list|head|get|delete> ...
 wdl workflows <list|instances|status|pause|resume|restart|terminate> ...

@@ -25,7 +25,7 @@ Pick one in this order:
 In the examples below, treat `wdl` as a placeholder and substitute the form you
 resolved.
 
-## Credentials — one-time `.env` setup
+## Credentials — one-time setup
 
 The CLI needs three values:
 
@@ -35,18 +35,31 @@ The CLI needs three values:
 | `WDL_NS`      | Tenant namespace, e.g. `acme`, `demo-prod`.                                                                                        |
 | `CONTROL_URL` | Control-plane URL, provided by your operator (e.g. `https://api.wdl.dev`). The CLI has no built-in default; it must be configured. |
 
-**Recommended path (one-time per repo):** copy `.env.example` to `.env` and fill
-in the `[<ns>]` section. The CLI reads only `./.env` from the directory you run
-`wdl` in (there is no upward search), so run `wdl` from the directory that holds
-the `.env`. After that, commands only need `--ns <ns>` (or the `WDL_NS`
-environment variable), and the token never appears in shell history again.
+**Recommended path:** `wdl token set --ns <ns> --control-url <url>` reads the
+token at a hidden prompt, validates it against `/whoami`, and stores it `0600` in
+`~/.config/wdl/credentials` — so it never lands in a project file or shell
+history. The first stored namespace becomes the default, so later `wdl deploy`
+needs no `--ns`. One store serves every project on the machine; see
+[token.md](./token.md).
+
+**Per-repo alternative:** when a project should carry its own control URL /
+namespace, copy `.env.example` to `.env` and fill in the `[<ns>]` section (the
+committed `.env.example` also documents the shape for teammates). The CLI reads
+only `./.env` from the directory you run `wdl` in (there is no upward search), so
+run `wdl` from the directory that holds it. The token stays in the gitignored
+`.env`, never committed.
+
+**CI / automation:** inject `ADMIN_TOKEN`, `CONTROL_URL`, and `WDL_NS` as
+environment variables from your CI secret store — not the interactive token
+store, and never a committed `.env`.
 
 Bare control hosts get a scheme automatically; production hosts default to
 `https://`, local `.test` / `.local` or `:8080` hosts default to `http://`. To
 force a protocol, write `https://...` or `http://...` explicitly.
 
-Precedence: `CLI flag > shell env > .env [<ns>] section > .env base section`. If
-none supplies a value, the command fails — there is no built-in default.
+Precedence: `CLI flag > shell env > .env [<ns>] section > .env base section > wdl
+token store`. If none supplies a value, the command fails — there is no built-in
+default.
 
 When unsure which value won, run `wdl config explain`; to confirm which control
 the token actually reaches, plus the principal, platform version, and URL hints,
@@ -78,13 +91,15 @@ not add `route` / `routes` in a first-time setup.
 | Delete a worker (preview)  | `wdl delete worker <worker> --dry-run`                    |
 | Inspect Workflow instances | `wdl workflows instances <worker> <workflow>`             |
 
-`--ns` is optional whenever `WDL_NS` is set via env or `.env`. Every subcommand
-implements `--help` — run it when you don't know which flag to use.
+`--ns` is optional whenever `WDL_NS` is set via env or `.env`, or the `wdl token`
+store has a default namespace. Every subcommand implements `--help` — run it when
+you don't know which flag to use.
 
 ## Standard deploy flow
 
 1. **Resolve the CLI invocation form** (above).
-2. **Resolve credentials** — prefer `.env`; do not inline environment variables.
+2. **Resolve credentials** — prefer `.env` or the `wdl token` store; do not
+   inline environment variables.
 3. **Wrangler version check.** The bundling step requires `wrangler@^4`. If the
    project pins v3, stop and tell the user — do not silently upgrade.
 4. **Install worker dependencies** (`npm install` in the worker directory) if
@@ -160,7 +175,7 @@ Deleting a worker does **not** delete R2 data — see [r2.md](./r2.md).
 | Symptom                                                          | Cause / fix                                                                                                          |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `wdl: command not found`                                         | The CLI is not on PATH. Inside the wdl-cli repo use `node <repo>/bin/wdl.js`; otherwise run `npm i -g @wdl-dev/cli`. |
-| `Missing admin token`                                            | `ADMIN_TOKEN` is not set and `--token` was not passed. Check the `[<ns>]` section of `.env`.                         |
+| `Missing admin token`                                            | No token resolved. Run `wdl token set --ns <ns> --control-url <url>` (recommended), or set `ADMIN_TOKEN` / pass `--token` / use the `[<ns>]` section of `.env`.                         |
 | `401 unknown_token: unauthorized`                                | The token is invalid for this control plane / namespace. Re-check `ADMIN_TOKEN`.                                     |
 | `[vars] must be an object`                                       | Use a `[vars]` table/object; arrays are invalid.                                                                     |
 | `[vars] <NAME>: only string/number/boolean values are supported` | Remove nested values; move sensitive strings to a secret.                                                            |

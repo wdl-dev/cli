@@ -112,8 +112,9 @@ namespace resolves, section values are skipped and the command will fail
 normally if it needs a namespace or token. Pass `--ns` when you want to override
 the default for one command.
 
-These credentials can also come from a managed store instead of your shell or a
-`.env`: `wdl token set --ns <ns> --control-url <url>` reads the token with
+The recommended setup keeps these credentials in a managed store rather than a
+shell export or a project `.env`: `wdl token set --ns <ns> --control-url <url>`
+reads the token with
 hidden input, validates it against `/whoami`, and stores it under the namespace
 in `~/.config/wdl/credentials` (so it never lands in shell history or a project
 file). The store is the lowest-precedence layer — flags, shell env, and a
@@ -1003,7 +1004,7 @@ wdl tail hello
 
 | Symptom                                                                | Likely cause                                                                                                        | What to check                                                                                                           |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Missing admin token`                                                  | No tenant token was provided                                                                                        | Set `ADMIN_TOKEN` or pass `--token`                                                                                     |
+| `Missing admin token`                                                  | No tenant token was provided                                                                                        | Run `wdl token set --ns <ns> --control-url <url>` (recommended), set `ADMIN_TOKEN`, or pass `--token`                                                                                     |
 | `wrangler build failed`                                                | Wrangler could not bundle the Worker project                                                                        | Run `npx wrangler deploy --dry-run` inside the Worker project and fix local build/config errors                         |
 | Deploy succeeds but promote fails                                      | Route, custom host, or binding validation failed at promotion time                                                  | Check that custom hosts are enabled for your namespace and service-binding targets exist                                |
 | Worker URL returns 404                                                 | URL shape or worker name is wrong                                                                                   | Use `https://<namespace>.<platform-domain>/<worker-name>/`; include the worker name path segment                        |

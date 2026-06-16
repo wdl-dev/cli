@@ -364,6 +364,32 @@ test("token rm requires an explicit --ns and ignores ambient WDL_NS", async () =
   });
 });
 
+test("token set requires an explicit --ns and ignores ambient WDL_NS", async () => {
+  await withTempXdg(async (xdg) => {
+    // Default controlFetch authenticates the token as namespace "acme", so
+    // without the guard a WDL_NS=acme would let this store under acme.
+    const { deps: d } = deps(xdg, { stdin: stdinFrom("tok\n") });
+    d.env.WDL_NS = "acme";
+    await assert.rejects(
+      () => runTokenCommand(["set", "--control-url", "https://api.example"], d),
+      /requires --ns/
+    );
+    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), { defaultNs: null, namespaces: {} });
+  });
+});
+
+test("token use requires an explicit namespace and ignores ambient WDL_NS", async () => {
+  await withTempXdg(async (xdg) => {
+    const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    writeTokenStore(p, { defaultNs: "demo", namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } } });
+    const { deps: d } = deps(xdg);
+    // A stray WDL_NS must NOT make a bare `use` switch the default.
+    d.env.WDL_NS = "acme";
+    await assert.rejects(() => runTokenCommand(["use"], d), /requires a namespace/);
+    assert.equal(readTokenStore(p).defaultNs, "demo", "default unchanged");
+  });
+});
+
 test("token rm of the default promotes a sole survivor, clears it when ambiguous", async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });

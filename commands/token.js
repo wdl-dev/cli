@@ -28,7 +28,9 @@ import { readTokenStore, tokenStorePath, writeTokenStore } from "../lib/token-st
 const TOKEN_OPTIONS = [
   defineCliOption("label", { type: "string" }, "--label <text>", "Human label shown by `wdl token list` (set)."),
   defineCliOption("default", { type: "boolean" }, "--default", "Make this the default namespace, used when --ns is omitted (set)."),
-  "ns",
+  // Custom ns option: set/use/rm mutate the global store and ignore ambient
+  // WDL_NS, so the shared preset's "(env: WDL_NS)" wording would mislead here.
+  defineCliOption("ns", { type: "string" }, "--ns <ns>", "Namespace for set/use/rm (required; ignores WDL_NS)."),
   // `endpoint`, not `control`: the token is read from stdin, never a --token flag.
   "endpoint",
   // Custom json option: `list --json` prints the local store, not a control
@@ -63,7 +65,7 @@ async function runToken({ values, positionals, context }) {
       return tokenList({ values, context });
     case "use":
       if (rest.length > 1) throw new CliError(usageText());
-      return tokenUse({ context, nsArg: rest[0] });
+      return tokenUse({ values, context, nsArg: rest[0] });
     case "rm":
       return tokenRemove({ values, context });
     default:
@@ -72,7 +74,10 @@ async function runToken({ values, positionals, context }) {
 }
 
 async function tokenSet({ values, context }) {
-  const ns = context.resolveNamespace();
+  // set/use/rm mutate the global store, so they name the target namespace from
+  // an explicit --ns only -- never the ambient WDL_NS a user may have exported
+  // for an unrelated command.
+  const ns = flagSet(values, "ns") ? values.ns : null;
   if (!ns) throw new CliError("token set requires --ns <namespace>");
   // The namespace becomes a `[section]` key in the store file, so it must match
   // the same grammar store/.env sections use (tenant namespaces plus operator-
@@ -149,8 +154,11 @@ async function tokenSet({ values, context }) {
   }
 }
 
-function tokenUse({ context, nsArg }) {
-  const ns = nsArg || context.resolveNamespace();
+function tokenUse({ values, context, nsArg }) {
+  // For `use` the WDL_NS fallback is also pointless: it already overrides the
+  // store default at resolution time, so inheriting it here would only reswitch
+  // the default to a namespace the user did not name.
+  const ns = nsArg || (flagSet(values, "ns") ? values.ns : null);
   if (!ns) throw new CliError("token use requires a namespace: wdl token use <namespace>");
   const storePath = tokenStorePath(context.env);
   const store = readTokenStore(storePath);
@@ -175,10 +183,8 @@ function tokenList({ values, context }) {
 }
 
 function tokenRemove({ values, context }) {
-  // `rm` deletes and rewrites the store with no confirmation, so it takes the
-  // namespace only from an explicit --ns — never the ambient WDL_NS that the
-  // other subcommands fall back to. Otherwise a stray WDL_NS in the shell could
-  // silently delete a different namespace's stored token than the one named.
+  // For `rm` the stakes are highest -- it deletes and rewrites with no
+  // confirmation -- so it likewise takes an explicit --ns only.
   const ns = flagSet(values, "ns") ? values.ns : null;
   if (!ns) throw new CliError("token rm requires an explicit --ns <namespace>");
   const storePath = tokenStorePath(context.env);

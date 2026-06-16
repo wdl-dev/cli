@@ -15,16 +15,9 @@ import {
 } from "../lib/d1-format.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  confirmAction,
-  defineCliOption,
-  formatHelp,
-  isMain,
-  isPathInside,
-  optionHelp,
-  writeResult,
-} from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, isPathInside, optionHelp } from "../lib/common.js";
+import { confirmAction } from "../lib/stdin.js";
+import { writeResult } from "../lib/output.js";
 
 const D1_EXECUTE_MODES = ["all", "raw", "run", "exec"];
 

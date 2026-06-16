@@ -6,21 +6,10 @@
 // the local copy without revoking it.
 
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  defineCliOption,
-  escapeTerminalText,
-  flagSet,
-  formatHelp,
-  isMain,
-  maskToken,
-  optionHelp,
-  readSecretStdin,
-  resolveControlUrl,
-  warnIfInsecureControlUrl,
-  writeResult,
-  writeStatusLine,
-} from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { flagSet, resolveControlUrl, warnIfInsecureControlUrl } from "../lib/credentials.js";
+import { readSecretStdin } from "../lib/stdin.js";
+import { escapeTerminalText, maskToken, writeResult, writeStatusLine } from "../lib/output.js";
 import { isAdminAcceptableNs } from "../lib/ns-pattern.js";
 import { fetchWhoami, namespaceFromPrincipal } from "../lib/whoami.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../lib/token-store.js";

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
 import { isHelpAlias } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, handleCliError, isMain, optionHelp, optionParseOptions } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, handleCliError, isMain, isNonEmptyString, optionHelp, optionParseOptions } from "../lib/common.js";
 import { NS_PATTERN, RESERVED_TENANT_NS, isReservedNs } from "../lib/ns-pattern.js";
 
 const NAME_REGEX = /^[A-Za-z][A-Za-z0-9-]*$/;
@@ -217,7 +217,7 @@ async function writeStarter(targetDir, { packageName, workerName, ns }) {
 
 async function resolveWdlCliDep(env) {
   const localPath = env && env.WDL_CLI_LOCAL_PATH;
-  if (typeof localPath === "string" && localPath.length > 0) {
+  if (isNonEmptyString(localPath)) {
     return `file:${localPath}`;
   }
   return `^${(await readWdlCliPackage()).version}`;

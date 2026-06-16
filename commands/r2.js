@@ -7,16 +7,9 @@ import {
   UNLIMITED_CONTROL_BODY_BYTES,
 } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  confirmAction,
-  defineCliOption,
-  formatHelp,
-  isMain,
-  optionHelp,
-  writeResult,
-  writeStatusLine,
-} from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { confirmAction } from "../lib/stdin.js";
+import { writeResult, writeStatusLine } from "../lib/output.js";
 import { formatBucketList, formatObjectHead, formatObjectList } from "../lib/r2-format.js";
 
 const R2_OPTIONS = [

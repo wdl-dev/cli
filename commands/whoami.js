@@ -1,12 +1,7 @@
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  formatHelp,
-  isMain,
-  optionHelp,
-  warnIfInsecureControlUrl,
-  writeResult,
-} from "../lib/common.js";
+import { CliError, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { warnIfInsecureControlUrl } from "../lib/credentials.js";
+import { writeResult } from "../lib/output.js";
 import { resolveCliConfigState } from "../lib/config-state.js";
 import {
   displayRemoteValue,

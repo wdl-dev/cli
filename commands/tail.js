@@ -7,15 +7,8 @@ import http from "node:http";
 import https from "node:https";
 import { defineCommand } from "../lib/command.js";
 import { controlRequestOptions } from "../lib/control-fetch.js";
-import {
-  CliError,
-  defineCliOption,
-  escapeTerminalLines,
-  escapeTerminalText,
-  formatHelp,
-  isMain,
-  optionHelp,
-} from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
+import { escapeTerminalLines, escapeTerminalText } from "../lib/output.js";
 
 const RECONNECT_INITIAL_MS = 1_000;
 const RECONNECT_MAX_MS = 5_000;
@@ -395,7 +388,7 @@ function renderEvent({ event, raw, stdout, stderr, isMultiWorker }) {
     const name = payload.name ? `${payload.name}: ` : "";
     const headLine = `${name}${stringifyMessage(payload.message)}`;
     stdout(`${prefix}${ts} exception ${escapeTerminalLines(headLine)}`);
-    if (typeof payload.stack === "string" && payload.stack.length > 0) {
+    if (isNonEmptyString(payload.stack)) {
       const stack = payload.stack.startsWith(headLine + "\n")
         ? payload.stack.slice(headLine.length + 1)
         : payload.stack;

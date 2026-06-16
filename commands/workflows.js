@@ -1,13 +1,7 @@
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  confirmAction,
-  defineCliOption,
-  formatHelp,
-  isMain,
-  optionHelp,
-  writeResult,
-} from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { confirmAction } from "../lib/stdin.js";
+import { writeResult } from "../lib/output.js";
 import {
   formatInstanceList,
   formatInstanceStatus,

@@ -2,14 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  formatHelp,
-  isMain,
-  optionHelp,
-  warnIfInsecureControlUrl,
-  writeResult,
-} from "../lib/common.js";
+import { CliError, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
+import { warnIfInsecureControlUrl } from "../lib/credentials.js";
+import { writeResult } from "../lib/output.js";
 import { resolveCliConfigState } from "../lib/config-state.js";
 import { CLI_ROOT, readCliPackageJson } from "../lib/package-info.js";
 import {
@@ -258,7 +253,7 @@ function readInstalledWranglerVersion(cwd) {
   for (const dir of [cwd, CLI_ROOT]) {
     try {
       const pkg = JSON.parse(readFileSync(path.join(dir, "node_modules", "wrangler", "package.json"), "utf8"));
-      if (typeof pkg.version === "string" && pkg.version) return pkg.version;
+      if (isNonEmptyString(pkg.version)) return pkg.version;
     } catch {}
   }
   return "";

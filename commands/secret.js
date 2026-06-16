@@ -3,17 +3,9 @@
 // "meant worker, wrote ns" credential leaks.
 
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  confirmAction,
-  defineCliOption,
-  formatHelp,
-  isMain,
-  optionHelp,
-  readSecretStdin,
-  writeJsonOr,
-  writeStatusLine,
-} from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
+import { confirmAction, readSecretStdin } from "../lib/stdin.js";
+import { writeJsonOr, writeStatusLine } from "../lib/output.js";
 
 const SECRET_OPTIONS = [
   defineCliOption("worker", { type: "string" }, "--worker <w>", "Use worker-level secret scope."),
@@ -47,7 +39,7 @@ async function runSecret({ values, positionals, context }) {
     throw new CliError(usageText());
   }
 
-  const hasWorker = typeof values.worker === "string" && values.worker.length > 0;
+  const hasWorker = isNonEmptyString(values.worker);
   const hasScopeNs = values.scope === "ns";
   if (hasWorker && hasScopeNs) {
     throw new CliError("conflicting flags: --worker and --scope ns are mutually exclusive");

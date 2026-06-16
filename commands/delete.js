@@ -1,14 +1,7 @@
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  confirmAction,
-  defineCliOption,
-  defineHiddenCliOption,
-  formatHelp,
-  isMain,
-  optionHelp,
-  writeResult,
-} from "../lib/common.js";
+import { CliError, defineCliOption, defineHiddenCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { confirmAction } from "../lib/stdin.js";
+import { writeResult } from "../lib/output.js";
 import { formatVersionDelete, formatWorkerDelete } from "../lib/delete-format.js";
 
 const DELETE_OPTIONS = [

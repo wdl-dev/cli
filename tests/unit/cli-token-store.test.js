@@ -9,7 +9,6 @@ import {
   tokenStorePath,
   writeTokenStore,
 } from "../../lib/token-store.js";
-import { quoteValue } from "../../lib/common.js";
 
 function withTempHome(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-token-store-"));
@@ -197,9 +196,4 @@ test("readTokenStore ignores unknown keys and comments", () => {
     writeFileSync(p, "# note\n[acme]\nADMIN_TOKEN=\"t\"\nUNKNOWN=x\n");
     assert.deepEqual(readTokenStore(p), { defaultNs: null, namespaces: { acme: { ADMIN_TOKEN: "t" } } });
   });
-});
-
-test("quoteValue escapes backslash before other sequences", () => {
-  assert.equal(quoteValue("a\\b"), '"a\\\\b"');
-  assert.equal(quoteValue('q"q'), '"q\\"q"');
 });

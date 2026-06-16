@@ -15,7 +15,8 @@ import * as doctorCmd from "../commands/doctor.js";
 import * as whoamiCmd from "../commands/whoami.js";
 import * as tokenCmd from "../commands/token.js";
 import { isHelpAlias } from "../lib/command.js";
-import { commonCliOptions, flagSet, formatHelp, handleCliError, isMain, loadCliControlEnv } from "../lib/common.js";
+import { commonCliOptions, formatHelp, handleCliError, isMain } from "../lib/common.js";
+import { flagSet, loadCliControlEnv } from "../lib/credentials.js";
 import { currentCliVersion } from "../lib/package-info.js";
 import { readTokenStore, tokenStorePath } from "../lib/token-store.js";
 

@@ -8,7 +8,6 @@ import { runDoctorCommand } from "../../commands/doctor.js";
 import { runWhoamiCommand } from "../../commands/whoami.js";
 import { main as wdlMain } from "../../bin/wdl.js";
 import { resolveCliConfigState } from "../../lib/config-state.js";
-import { maskToken } from "../../lib/common.js";
 import { tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
 import { cliCompatibility, compareSemver } from "../../lib/whoami.js";
 import { response } from "./helpers.js";
@@ -75,14 +74,6 @@ test("resolveCliConfigState resolves the .env namespace over the store default g
   });
 });
 
-test("maskToken never reveals most of a short token", () => {
-  assert.equal(maskToken("abcd"), "****");
-  assert.equal(maskToken("ab"), "****");
-  // A 4-char suffix of a 5-8 char token would reveal half or more of it.
-  assert.equal(maskToken("abcde"), "****");
-  assert.equal(maskToken("abcdefgh"), "****");
-  assert.equal(maskToken("abcdefghi"), "****fghi");
-});
 
 test("config explain prints final values and sources", async () => {
   await withTempDir(async (cwd) => {

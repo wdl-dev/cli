@@ -4,17 +4,8 @@
 import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  defineCliOption,
-  escapeTerminalText,
-  formatKnownWarning,
-  formatHelp,
-  isMain,
-  optionHelp,
-  shellSingleQuote,
-  writeStatusLine,
-} from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { escapeTerminalText, formatKnownWarning, shellSingleQuote, writeStatusLine } from "../lib/output.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
 
 export const DEPLOY_JSON_BODY_MAX_BYTES = 32 * 1024 * 1024;

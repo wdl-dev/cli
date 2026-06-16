@@ -1,11 +1,6 @@
 import { defineCommand } from "../lib/command.js";
-import {
-  CliError,
-  formatHelp,
-  isMain,
-  optionHelp,
-  writeResult,
-} from "../lib/common.js";
+import { CliError, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { writeResult } from "../lib/output.js";
 import { resolveCliConfigState } from "../lib/config-state.js";
 
 const CONFIG_OPTIONS = ["ns", "control", "json", "help"];

@@ -74,37 +74,31 @@ the English set. Before packaging, run `npm audit --audit-level=moderate`,
 
 ## Release
 
-Releases are tag-driven, and the release workflow refuses a tag that does not
-match `version` in `package.json`. Published npm versions are immutable
-(unpublish is limited to 72 hours and a version number can never be reused), so
-stage every release through a pre-release candidate and never burn the final
-version on a rehearsal:
-
-1. Set `version` in `package.json` to the candidate (e.g. `1.0.0-rc.1`), write
-   the CHANGELOG entry, commit, then tag and push:
-
-   ```bash
-   git tag v1.0.0-rc.1
-   git push origin v1.0.0-rc.1
-   ```
-
-   Pre-release versions publish under the `next` dist-tag, so
-   `npm i -g @wdl-dev/cli` keeps resolving to the last stable release while
-   `@next` installs the candidate.
-
-2. When the candidate checks out, bump `version` to the final release (e.g.
-   `1.0.0`), commit, tag `v1.0.0`, and push the tag.
-
-`.github/workflows/release.yml` re-runs audit, lint, typecheck, and tests,
-verifies the tag matches `package.json`, then publishes `@wdl-dev/cli` to npmjs
+Releases are tag-driven. `.github/workflows/release.yml` re-runs audit, lint,
+typecheck, and tests, verifies the tag matches `version` in `package.json`, and
+runs `npm pack --dry-run` — all before any publish, so a broken release fails the
+tag's check job and never publishes. It then publishes `@wdl-dev/cli` to npmjs
 (with provenance) and to GitHub Packages (authenticated with the workflow's own
-`GITHUB_TOKEN`). It finishes by creating a GitHub Release for the tag: final
-releases take their notes from the matching `CHANGELOG.md` section, pre-releases
-fall back to generated notes and are marked Pre-release. Do not run
-`npm publish` by hand.
+`GITHUB_TOKEN`), and creates a GitHub Release for the tag: final releases take
+their notes from the matching `CHANGELOG.md` section, pre-releases fall back to
+generated notes and are marked Pre-release. Do not run `npm publish` by hand.
+
+Published npm versions are immutable (unpublish is limited to 72 hours and a
+version number can never be reused). The check job runs before any publish and
+fails the release if anything is wrong, so most releases — routine fixes,
+features, breaking removals, and dependency pins, all covered by the tests and
+`npm pack --dry-run` — tag the final version directly. The risk an RC guards
+against is narrower: the *published artifact* behaving differently from what the
+check job validated. Stage a pre-release candidate only for that — changes to
+packaging (the `files` allowlist, entry points, the bundle/publish pipeline), or
+a large release you want to smoke-test as a real `@next` install before
+committing the version. Then set `version` to e.g. `2.0.0-rc.1`, write the
+CHANGELOG entry, commit, and tag and push `v2.0.0-rc.1`; RC versions publish
+under the `next` dist-tag, so `npm i -g @wdl-dev/cli` keeps resolving to the last
+stable release while `@next` installs the candidate. Promote once it checks out.
 
 Tag final releases with a signed annotated tag
-(`git tag -s v1.2.3 -m "wdl-cli 1.2.3"`), and make sure `CHANGELOG.md` carries
+(`git tag -s v1.2.3 -m "Release 1.2.3"`), and make sure `CHANGELOG.md` carries
 the matching `## 1.2.3` section before pushing — the GitHub Release notes come
 from it.
 

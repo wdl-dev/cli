@@ -71,14 +71,14 @@ npm i -g @wdl-dev/cli
 
 Your platform operator provides three values: a namespace, a tenant token, and
 the control URL. The CLI has **no built-in endpoint** — commands fail with a
-configuration error until `CONTROL_URL` is set.
+configuration error until a control URL is configured.
 
 ```bash
-export WDL_NS=acme
-export ADMIN_TOKEN="<tenant-token>"
-export CONTROL_URL="https://<your-control-plane>"
+# Store the token once: hidden prompt, validated against /whoami, written 0600.
+# The first stored namespace becomes the default, so later commands need no --ns.
+wdl token set --ns acme --control-url "https://<your-control-plane>"
 
-wdl init hello --ns "$WDL_NS"
+wdl init hello
 cd hello
 npm install
 npm run deploy          # bundles locally, uploads, promotes
@@ -88,11 +88,12 @@ wdl tail hello          # live logs while you try the URL
 
 The worker is now at `https://<namespace>.<platform-domain>/hello/`.
 
-Credentials can also live in a `.env` file with per-namespace sections — copy
-[`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example) and see
-[docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md) for
-source precedence (flags beat shell env, which beats `.env`, which beats the
-`wdl token` store).
+Prefer not to store the token? Credentials can also come from shell env
+(`WDL_NS` / `ADMIN_TOKEN` / `CONTROL_URL`) or a project `.env` with per-namespace
+sections (copy [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example))
+— see [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md)
+for the full precedence (flags beat shell env, which beats `.env`, which beats
+the `wdl token` store).
 
 ## Commands
 

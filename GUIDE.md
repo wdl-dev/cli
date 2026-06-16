@@ -57,7 +57,8 @@ node /path/to/cli/bin/wdl.js deploy ./my-worker
 
 ### Configure Defaults
 
-Recommended shell / CI environment:
+The recommended setup is the `wdl token` store (see below); credentials can also
+come from your shell / CI environment:
 
 ```bash
 export WDL_NS=acme

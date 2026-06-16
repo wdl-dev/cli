@@ -43,14 +43,14 @@ npm i -g @wdl-dev/cli
 
 ## 快速开始
 
-平台运维方会提供三个值：命名空间、租户 token、控制面地址。CLI **没有内置端点**——`CONTROL_URL` 未配置时命令会直接报配置错误。
+平台运维方会提供三个值：命名空间、租户 token、控制面地址。CLI **没有内置端点**——未配置控制面地址时命令会直接报配置错误。
 
 ```bash
-export WDL_NS=acme
-export ADMIN_TOKEN="<tenant-token>"
-export CONTROL_URL="https://<your-control-plane>"
+# 把 token 存一次：隐藏输入、调 /whoami 校验、以 0600 写入。
+# 第一个存入的 namespace 成为默认，之后命令不用再带 --ns。
+wdl token set --ns acme --control-url "https://<your-control-plane>"
 
-wdl init hello --ns "$WDL_NS"
+wdl init hello
 cd hello
 npm install
 npm run deploy          # 本地打包、上传、promote
@@ -60,7 +60,7 @@ wdl tail hello          # 边访问 URL 边看实时日志
 
 Worker 此时位于 `https://<namespace>.<platform-domain>/hello/`。
 
-凭证也可以放进带命名空间分段的 `.env` 文件——复制 [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example)，来源优先级（flag 高于 shell env，高于 `.env`，高于 `wdl token` store）见 [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md)。
+不想用存储？凭证也可以来自 shell env（`WDL_NS` / `ADMIN_TOKEN` / `CONTROL_URL`）或带命名空间分段的项目 `.env`（复制 [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example)）——完整优先级（flag 高于 shell env，高于 `.env`，高于 `wdl token` store）见 [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md)。
 
 ## 命令
 

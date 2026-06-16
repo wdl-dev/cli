@@ -50,7 +50,7 @@ node /path/to/cli/bin/wdl.js deploy ./my-worker
 
 ### 配置默认值
 
-建议在 CI 或本机 shell 中设置：
+推荐的做法是 `wdl token` 存储（见下文）；凭证也可以来自本机或 CI 的 shell：
 
 ```bash
 export WDL_NS=acme

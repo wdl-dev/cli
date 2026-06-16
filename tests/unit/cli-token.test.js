@@ -9,6 +9,8 @@ import { loadCliControlEnv, protectedEnvKeys, readSecretStdin, readTtyLine } fro
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
 import { response } from "./helpers.js";
 
+const ESC = String.fromCharCode(27);
+
 async function withTempXdg(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-token-cmd-"));
   try {
@@ -135,6 +137,21 @@ test("token set does not claim a deliberately-cleared default in an ambiguous st
   });
 });
 
+test("token set with --default claims the default in a deliberately-cleared ambiguous store", async () => {
+  await withTempXdg(async (xdg) => {
+    const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    writeTokenStore(p, { defaultNs: null, namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } } });
+    await runTokenCommand(
+      ["set", "--ns", "demo", "--control-url", "https://api.example", "--default"],
+      deps(xdg, {
+        stdin: stdinFrom("tok\n"),
+        controlFetch: async () => response({ ok: true, principal: { kind: "ns", ns: "demo" } }),
+      }).deps
+    );
+    assert.equal(readTokenStore(p).defaultNs, "demo");
+  });
+});
+
 test("token set stores and preserves a --label", async () => {
   await withTempXdg(async (xdg) => {
     await runTokenCommand(
@@ -225,8 +242,7 @@ test("token set rejects a namespace that is not a valid section name", async () 
 
 test("token set escapes terminal controls in a principal-mismatch error", async () => {
   await withTempXdg(async (xdg) => {
-    const esc = String.fromCharCode(27);
-    const controlFetch = async () => response({ ok: true, principal: { kind: "ns", ns: `other${esc}[2J` } });
+    const controlFetch = async () => response({ ok: true, principal: { kind: "ns", ns: `other${ESC}[2J` } });
     await assert.rejects(
       () => runTokenCommand(
         ["set", "--ns", "acme", "--control-url", "https://api.example"],
@@ -234,7 +250,7 @@ test("token set escapes terminal controls in a principal-mismatch error", async 
       ),
       (err) => {
         const message = /** @type {Error} */ (err).message;
-        assert.doesNotMatch(message, new RegExp(esc), "raw ESC must not be in the error");
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not be in the error");
         assert.match(message, /token principal is namespace/);
         return true;
       }
@@ -244,11 +260,10 @@ test("token set escapes terminal controls in a principal-mismatch error", async 
 
 test("token set escapes a masked token suffix containing terminal controls", async () => {
   await withTempXdg(async (xdg) => {
-    const esc = String.fromCharCode(27);
-    const { lines, deps: d } = deps(xdg, { stdin: stdinFrom(`tok-secret${esc}[2J\n`) });
+    const { lines, deps: d } = deps(xdg, { stdin: stdinFrom(`tok-secret${ESC}[2J\n`) });
     await runTokenCommand(["set", "--ns", "acme", "--control-url", "https://api.example"], d);
     const out = lines.join("\n");
-    assert.doesNotMatch(out, new RegExp(esc), "raw ESC must not reach stdout via the masked suffix");
+    assert.doesNotMatch(out, new RegExp(ESC), "raw ESC must not reach stdout via the masked suffix");
     assert.match(out, /Stored token for acme/);
   });
 });
@@ -323,10 +338,9 @@ test("token list prints a placeholder when empty", async () => {
 
 test("token use/rm escape terminal controls in the not-found error", async () => {
   await withTempXdg(async (xdg) => {
-    const esc = String.fromCharCode(27);
-    const bad = `ghost${esc}[2J`;
+    const bad = `ghost${ESC}[2J`;
     const noEsc = (err) => {
-      assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(esc), "raw ESC must not reach the error");
+      assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(ESC), "raw ESC must not reach the error");
       return true;
     };
     await assert.rejects(() => runTokenCommand(["use", bad], deps(xdg).deps), noEsc);
@@ -341,7 +355,10 @@ test("token rm removes a stored namespace and errors when absent", async () => {
 
     const { lines, deps: d } = deps(xdg);
     await runTokenCommand(["rm", "--ns", "acme"], d);
-    assert.deepEqual(Object.keys(readTokenStore(p).namespaces), ["demo"]);
+    const afterRm = readTokenStore(p);
+    assert.deepEqual(Object.keys(afterRm.namespaces), ["demo"]);
+    // Two down to one: the survivor is promoted to default, not left null.
+    assert.equal(afterRm.defaultNs, "demo");
     assert.match(lines.join("\n"), /does not revoke it on the control plane/);
 
     await assert.rejects(
@@ -490,6 +507,16 @@ test("readSecretStdin reads a piped value to EOF, trimming one trailing newline"
   assert.equal(await readSecretStdin(stdin), "secret");
 });
 
+test("readSecretStdin preserves a piped value with no trailing newline", async () => {
+  const stdin = Object.assign(new EventEmitter(), { setEncoding() {} });
+  queueMicrotask(() => {
+    stdin.emit("data", "sec");
+    stdin.emit("data", "ret");
+    stdin.emit("end");
+  });
+  assert.equal(await readSecretStdin(stdin), "secret");
+});
+
 test("readSecretStdin trims only one trailing newline (multi-line value)", async () => {
   const stdin = Object.assign(new EventEmitter(), { setEncoding() {} });
   queueMicrotask(() => {
@@ -519,16 +546,16 @@ test("readTtyLine escapes terminal controls in the prompt at the write point", a
   const errs = [];
   const stdin = Object.assign(new EventEmitter(), { setEncoding() {}, pause() {} });
   queueMicrotask(() => stdin.emit("data", "y\n"));
-  await readTtyLine(stdin, { prompt: `confirm ${String.fromCharCode(27)}[2J?`, stderr: (s) => errs.push(s) });
-  assert.doesNotMatch(errs.join(""), new RegExp(String.fromCharCode(27)), "raw ESC from the prompt must not reach stderr");
+  await readTtyLine(stdin, { prompt: `confirm ${ESC}[2J?`, stderr: (s) => errs.push(s) });
+  assert.doesNotMatch(errs.join(""), new RegExp(ESC), "raw ESC from the prompt must not reach stderr");
 });
+
+// --- resolution integration (the global store as the lowest-precedence layer) ---
 
 test("protectedEnvKeys protects only non-empty string values", () => {
   const keys = protectedEnvKeys(/** @type {any} */ ({ A: "x", EMPTY: "", MISSING: undefined, B: "y" }));
   assert.deepEqual([...keys].sort(), ["A", "B"]);
 });
-
-// --- resolution integration (the global store as the lowest-precedence layer) ---
 
 test("loadCliControlEnv fills control URL and token from the store as a gap-filler", () => {
   const env = { WDL_NS: "acme" };

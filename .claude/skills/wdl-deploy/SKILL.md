@@ -44,6 +44,11 @@ Open the relevant doc before answering:
 Each doc has a Chinese twin at `docs/<name>-zh.md`; both languages are
 authoritative, and agent-facing references use the English set.
 
+Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
+overrides the TCP target the admin token connects to (Host header + TLS SNI
+still track `CONTROL_URL`), and a stale value in a CI or production shell could
+route the token to an unintended host. GUIDE covers the details.
+
 `templates/AGENTS.md` is the generic agent entrypoint that `wdl init` copies
 into every new project. It points at the same `docs/` through
 `node_modules/@wdl-dev/cli/docs/<name>.md` paths.

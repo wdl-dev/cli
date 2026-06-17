@@ -114,6 +114,13 @@ namespace resolves, section values are skipped and the command will fail
 normally if it needs a namespace or token. Pass `--ns` when you want to override
 the default for one command.
 
+`CONTROL_CONNECT_HOST` is a local-dev / debug override: it changes the TCP target
+the request connects to while the HTTP Host header and TLS SNI keep tracking
+`CONTROL_URL` (so over HTTPS the control plane's certificate still rejects a
+redirected connection; plain http has no such check). Use it only for local
+development — never set it persistently in a CI or production shell, where a
+stale value could route the admin token to an unintended target.
+
 The recommended setup keeps these credentials in a managed store rather than a
 shell export or a project `.env`: `wdl token set --ns <ns> --control-url <url>`
 reads the token with

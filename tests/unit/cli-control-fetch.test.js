@@ -29,6 +29,21 @@ test("readControlResponse rejects oversized response bodies", async () => {
   await assert.rejects(promise, /control response exceeded 3 bytes/);
 });
 
+test("readControlResponse aborts the stream and ignores further chunks once the cap is exceeded", async () => {
+  let destroyed = false;
+  const res = Object.assign(new EventEmitter(), {
+    statusCode: 200,
+    headers: {},
+    destroy() { destroyed = true; },
+  });
+  const promise = readControlResponse(res, { maxBodyBytes: 3 });
+  res.emit("data", Buffer.from("over")); // over the cap -> reject + destroy
+  res.emit("data", Buffer.from("more")); // must be ignored, not re-accumulated
+  res.emit("end"); // a late end must not flip the rejection into a resolve
+  await assert.rejects(promise, /control response exceeded 3 bytes/);
+  assert.equal(destroyed, true, "the stream is destroyed to stop draining the body");
+});
+
 test("readControlResponse can disable the response body cap", async () => {
   const res = fakeResponse();
   const promise = readControlResponse(res, { maxBodyBytes: 0 });

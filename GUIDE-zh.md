@@ -628,13 +628,17 @@ service = "billing-worker"
 entrypoint = "Billing"
 ```
 
-跨 namespace 调用需要目标 Worker 在自己的配置中授权：
+跨 namespace 调用需要**目标** Worker 在自己的 `[[exports]]` 里授权你要调用的 entrypoint（默认 fetch handler 用 `entrypoint = "default"`，命名 entrypoint 用类名）：
 
 ```toml
+[[exports]]
+entrypoint = "default"
 allowed_callers = ["acme"]
 ```
 
-Service binding 在部署时解析并绑定到目标当时的线上版本。目标 Worker 后续升级不会自动影响已经部署的调用方；调用方重新部署后才会绑定到目标的新版本。如果目标修改了 `allowed_callers`、`[[exports]]` 或 `required_caller_secrets`，已经部署的调用方仍会使用旧的解析结果，直到调用方重新部署。
+顶层 `allowed_callers` 不支持 —— 授权只写在目标的 `[[exports]]` 里，`wdl deploy` 会直接拒绝顶层写法。
+
+Service binding 在部署时解析并绑定到目标当时的线上版本。目标 Worker 后续升级不会自动影响已经部署的调用方；调用方重新部署后才会绑定到目标的新版本。如果目标修改了它的 `[[exports]]`（`allowed_callers` 或 `required_caller_secrets`），已经部署的调用方仍会使用旧的解析结果，直到调用方重新部署。
 
 `export default function(request, env, ctx)` 会被当作 fetch handler 简写，并通过 `.fetch(...)` 暴露；它不是可直接调用的 default RPC method。RPC method 应放在命名 `WorkerEntrypoint` 上，或放在 default object / class 的方法上。
 

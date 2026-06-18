@@ -840,18 +840,25 @@ service = "billing-worker"
 entrypoint = "Billing"
 ```
 
-Cross-namespace calls require the target Worker to authorize your namespace in
-its own configuration:
+Cross-namespace calls require the **target** Worker to authorize your namespace
+on the entrypoint you bind. The target declares this in its own `[[exports]]`
+(use `entrypoint = "default"` for the default fetch handler, or the class name
+for a named entrypoint):
 
 ```toml
+[[exports]]
+entrypoint = "default"
 allowed_callers = ["acme"]
 ```
+
+A top-level `allowed_callers` is not supported — authorization lives only in the
+target's `[[exports]]`, and `wdl deploy` rejects it.
 
 Service bindings are resolved at deploy time and pinned to the target's live
 version at that moment. Later target upgrades do not automatically affect
 already-deployed callers; redeploy the caller to bind to the target's newer
-version. If the target changes `allowed_callers`, `[[exports]]`, or
-`required_caller_secrets`, already-deployed callers keep their old resolved
+version. If the target changes its `[[exports]]` (`allowed_callers` or
+`required_caller_secrets`), already-deployed callers keep their old resolved
 binding until they redeploy.
 
 `export default function(request, env, ctx)` is treated as fetch-handler

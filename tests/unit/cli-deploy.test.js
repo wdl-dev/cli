@@ -990,6 +990,28 @@ test("validateUnsupportedWranglerConfig: rejects unsupported config inside the s
   );
 });
 
+test("validateUnsupportedWranglerConfig: top-level allowed_callers is rejected with the [[exports]] migration path", () => {
+  assert.throws(
+    () => validateUnsupportedWranglerConfig({
+      name: "demo",
+      main: "src/index.js",
+      allowed_callers: ["acme"],
+    }, null, "wrangler.toml"),
+    /top-level allowed_callers — removed.*\[\[exports\]\]/
+  );
+});
+
+test("validateUnsupportedWranglerConfig: env-scoped allowed_callers is rejected too", () => {
+  assert.throws(
+    () => validateUnsupportedWranglerConfig({
+      name: "demo",
+      main: "src/index.js",
+      env: { staging: { allowed_callers: ["acme"] } },
+    }, "staging", "wrangler.toml"),
+    /env\.staging uses top-level allowed_callers — removed/
+  );
+});
+
 test("validateUnsupportedWranglerConfig rejects unmapped wrangler binding sections", () => {
   for (const key of ["ai", "vectorize", "hyperdrive", "browser", "mtls_certificates"]) {
     assert.throws(

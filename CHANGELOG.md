@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.2.0
+
+### Added
+
+- `--no-token-store` (and `WDL_TOKEN_STORE=off`) resolves credentials from flags
+  / env / `.env` only, never reading the global token store — for deploying
+  less-trusted projects, or for deterministic credential resolution in CI.
+- `wdl doctor` reports the global token store: how many namespaces it holds and
+  that project build code can read it during a deploy.
+
+### Changed
+
+- Documentation now recommends the local token store (`wdl token set`) as the
+  default way to supply a control URL and admin token, ahead of a per-shell
+  export or a project `.env`.
+- `CONTROL_CONNECT_HOST` is documented (GUIDE, the `wdl-deploy` skill) as a
+  local-dev / debug-only override for the TCP connection target — the HTTP Host
+  header and TLS SNI still track `CONTROL_URL`, and it must not be set
+  persistently in a CI or production shell.
+
+### Removed
+
+- **Breaking:** top-level `allowed_callers` in `wrangler.toml` / `.jsonc` is no
+  longer accepted. Cross-namespace service-binding access is declared on the
+  **target** Worker via `[[exports]]` (`entrypoint = "default"` for the default
+  handler, or the class name for a named entrypoint, with `allowed_callers`).
+  `wdl deploy` now fails fast before bundling with the migration path, matching
+  the control plane, which rejects a deploy carrying a worker-level
+  `allowedCallers`. `[[exports]]`-based ACLs are unchanged.
+
+### Security
+
+- Control-plane error context keys are now escaped before printing, as the
+  values already were. A malicious or compromised control plane could put
+  terminal control bytes (ESC / OSC / C1) in a JSON error property name and have
+  them written unescaped to stderr (OSC 52 clipboard writes, display spoofing).
+- Control-plane responses now abort the connection when the body exceeds the
+  10 MiB cap, instead of rejecting the result while continuing to read the
+  stream — the cap bounds resource use, not just the returned value.
+- The trusted-publishing release job pins the npm CLI to an exact reviewed
+  version instead of installing `npm@latest`, so a compromised npm release can't
+  run in the job that holds the npm OIDC token and publish a tampered,
+  provenance-signed artifact.
+- Documented that `wdl deploy` runs project-local build code as your OS user,
+  which can read the on-disk token store (the environment scrub closes only the
+  env path, not the file). Deploy only projects you trust; `--no-token-store`
+  resolves credentials without reading the store. See `docs/token.md`.
+- Bump the bundled `wrangler` to `^4.102.0`, which vendors a patched undici
+  (7.28.0) and clears a high-severity advisory (TLS validation bypass / shared
+  cache disclosure) reachable only through the miniflare dev server, which the
+  CLI never runs.
+
 ## 1.1.0
 
 ### Added

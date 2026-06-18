@@ -1,6 +1,6 @@
 {
   "name": "@wdl-dev/cli",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Tenant-facing CLI for deploying Cloudflare Workers-style projects, managing WDL resources, and tailing live worker logs.",
   "author": "The WDL Authors",
   "license": "Apache-2.0",
@@ -45,7 +45,7 @@
   ],
   "dependencies": {
     "smol-toml": "^1.3.1",
-    "wrangler": "^4.100.0"
+    "wrangler": "^4.102.0"
   },
   "engines": {
     "node": ">=22"
@@ -65,11 +65,5 @@
     "eslint": "^10.4.1",
     "globals": "^17.6.0",
     "typescript": "^6.0.3"
-  },
-  "overrides": {
-    "wrangler": {
-      "esbuild": "^0.28.1"
-    },
-    "ws": "^8.21.0"
   }
 }

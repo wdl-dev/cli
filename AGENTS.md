@@ -69,8 +69,8 @@ defaults change. The per-feature docs are bilingual pairs — `docs/<name>.md`
 (English) and `docs/<name>-zh.md` (Chinese) — and both languages are
 authoritative: update the pair in the same change. Agent-facing references
 (`templates/AGENTS.md`, the wdl-deploy skill, generated projects) point only at
-the English set. Before packaging, run `npm audit --audit-level=moderate`,
-`npm test`, and `npm pack --dry-run`.
+the English set. Before packaging, re-run the audit, test, and `npm pack
+--dry-run` checks from Build, Test, and Development Commands.
 
 ## Release
 
@@ -83,19 +83,17 @@ tag's check job and never publishes. It then publishes `@wdl-dev/cli` to npmjs
 their notes from the matching `CHANGELOG.md` section, pre-releases fall back to
 generated notes and are marked Pre-release. Do not run `npm publish` by hand.
 
-Published npm versions are immutable (unpublish is limited to 72 hours and a
-version number can never be reused). The check job runs before any publish and
-fails the release if anything is wrong, so most releases — routine fixes,
-features, breaking removals, and dependency pins, all covered by the tests and
-`npm pack --dry-run` — tag the final version directly. The risk an RC guards
-against is narrower: the *published artifact* behaving differently from what the
-check job validated. Stage a pre-release candidate only for that — changes to
-packaging (the `files` allowlist, entry points, the bundle/publish pipeline), or
-a large release you want to smoke-test as a real `@next` install before
-committing the version. Then set `version` to e.g. `2.0.0-rc.1`, write the
-CHANGELOG entry, commit, and tag and push `v2.0.0-rc.1`; RC versions publish
-under the `next` dist-tag, so `npm i -g @wdl-dev/cli` keeps resolving to the last
-stable release while `@next` installs the candidate. Promote once it checks out.
+Published npm versions are immutable (no reuse; unpublish only within 72 hours),
+but the check job gates every publish, so most releases tag the final version
+directly. This project ships documented breaking removals in 1.x minors (called
+out in the CHANGELOG) — do not hold or re-version a release for generic SemVer
+reasons. Stage a pre-release only for the narrower risk an RC actually guards:
+the *published artifact* differing from what the check job validated — packaging
+changes (the `files` allowlist, entry points, the bundle/publish pipeline) or a
+large release you want to smoke-test as a real `@next` install. For an RC, set
+`version` to e.g. `2.0.0-rc.1`, write the CHANGELOG entry, commit, and tag
+`v2.0.0-rc.1`; RC versions publish under the `next` dist-tag, so stable installs
+stay put while `@next` installs the candidate. Promote once it checks out.
 
 Tag final releases with a signed annotated tag
 (`git tag -s v1.2.3 -m "Release 1.2.3"`), and make sure `CHANGELOG.md` carries
@@ -109,13 +107,14 @@ publishing needs (>= 11.5); there is no `NPM_TOKEN`.
 
 ## Commit & Pull Request Guidelines
 
-The Git history is currently short, so no detailed local convention has emerged
-yet. Use short, imperative commit subjects such as `Add queue parser validation`
-or `Fix secret list output`. Pull requests should describe the user-visible
-change, list tests run, link relevant issues, and include CLI output examples
-when behavior changes.
+Use short, imperative commit subjects such as `Add queue parser validation` or
+`Fix secret list output`. Pull requests should describe the user-visible change,
+list tests run, link relevant issues, and include CLI output examples when
+behavior changes.
 
 ## Security & Configuration Tips
+
+### Credentials and the token store
 
 Credential resolution layers, highest precedence first: CLI flags, shell/CI env,
 the project `./.env` (sectioned by namespace, with a cross-origin guard that
@@ -127,15 +126,30 @@ itself follows the same shape — `--ns > shell WDL_NS > project .env WDL_NS >
 store default (base WDL_NS)` — so the store's default namespace is the lowest
 selector, materialized into `env.WDL_NS` before the per-key gap-fill. Keep that
 ordering and the guard intact when touching `loadCliControlEnv` or
-`lib/token-store.js`.
+`lib/token-store.js`; `--no-token-store` / `WDL_TOKEN_STORE=off` (via
+`tokenStoreReader`, read from the process env, not a project `.env`) must keep
+opting the store out of resolution entirely. Do not commit tenant tokens or
+generated secrets; read credentials from the environment and keep example
+configuration generic.
 
-Do not commit tenant tokens or generated secrets. Read credentials from the
-environment (`ADMIN_TOKEN`, `CONTROL_URL`, `WDL_NS`) and keep example
-configuration generic. When adding deploy features, validate unsupported
-Wrangler fields loudly to avoid silent misconfiguration. The `overrides` entry
-in package.json lifts wrangler's transitive esbuild onto a patched line
-(GHSA-gv7w-rqvm-qjhr, GHSA-g7r4-m6w7-qqqr); drop the override once wrangler
-ships esbuild >= 0.28.1.
+### Deploy runs project code as you
+
+`wdl deploy` runs the project's local Wrangler dry-run and build hooks as the OS
+user, so scrubbing WDL variables from the Wrangler child env is not a sandbox —
+the on-disk token store stays readable, and only trusted projects should be
+deployed with a global store in play. Escape control-plane-derived strings with
+`escapeTerminalText` before printing; both error values and property keys have
+been terminal-injection vectors.
+
+### Wrangler validation and dependency advisories
+
+When adding deploy features, validate unsupported Wrangler fields loudly to
+avoid silent misconfiguration (e.g. top-level `allowed_callers` is rejected —
+service-binding ACLs are declared via `[[exports]]`). Transitive dependency
+advisories from `npm audit` (e.g. wrangler's miniflare → esbuild / ws / undici)
+are normally cleared by bumping `wrangler` to a release that vendors the patched
+versions; reach for a package.json `overrides` entry only as a stopgap when
+wrangler hasn't shipped the fix yet.
 
 ## Helping Users Deploy
 

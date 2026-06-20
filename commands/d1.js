@@ -125,6 +125,9 @@ async function runD1({ values, positionals, context }) {
         throw new CliError("--params must be a JSON array");
       }
       if (!Array.isArray(params)) throw new CliError("--params must be a JSON array");
+      if (mode === "exec" && params.length > 0) {
+        throw new CliError("--mode exec does not accept --params");
+      }
     }
     const body = await context.fetchJson(context.nsUrl("d1", "databases", databaseRef, "query"), {
       method: "POST",

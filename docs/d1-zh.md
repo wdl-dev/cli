@@ -105,6 +105,8 @@ wdl d1 execute main --sql "DELETE FROM tmp" --mode run   # all | raw | run | exe
 
 `wdl d1 execute` 既能读也能写。破坏性语句之前先跑只读版本（例如 `DELETE` 之前先 `SELECT COUNT(*)`）。
 
+`--mode` 选结果形态（`all` / `raw` / `run` / `exec`）；`exec` 跑一批语句，不接受 `--params`——这个组合 CLI 会在本地直接拒掉。
+
 D1 请求在执行前会被限流：binary query body 最大 8 MiB；解码后的请求最多 1000 条 SQL 语句，SQL 加 params 聚合最大 8 MiB；每条语句最多返回 65,536 行（对齐 Cloudflare D1，超限报 `limit-exceeded`）；结果 body 受平台默认 16 MiB 聚合上限保护。多语句 `exec()` 在同一个 SQLite transaction 中执行；如果后面的语句失败，这次 `exec()` 里之前已经执行的语句会回滚。
 
 ## 删除数据库

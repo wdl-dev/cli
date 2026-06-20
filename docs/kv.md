@@ -88,8 +88,9 @@ opaque WDL cursor and must be passed back verbatim. `limit` is a target page
 size capped at 1000; the response does not include a total count. When you need
 stable ordering, sort the returned keys on the application side.
 
-KV values are capped at 25 MiB before proxying; key byte-size is not currently
-checked against Cloudflare KV's 512-byte limit.
+KV values are capped at 25 MiB before proxying, and keys (and list prefixes) are
+capped at 512 bytes, matching Cloudflare KV's limit — a longer key fails with
+`KV key exceeds 512 byte limit`.
 
 When you need to keep a small amount of extra information alongside a value,
 `put(..., { metadata })`, `getWithMetadata()`, and `list({ metadata: true })`

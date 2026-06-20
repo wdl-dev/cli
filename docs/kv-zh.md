@@ -70,7 +70,7 @@ export default {
 
 `list()` 支持 `prefix`、`limit`、`cursor` 分页，也支持 `list({ metadata: true })` 返回每个 key 的 metadata 而不读取完整 value。返回顺序不保证字典序；cursor 是不透明的 WDL cursor，必须原样传回。 `limit` 是目标页大小，最多 1000；响应不会返回总数。需要稳定排序时，在业务侧对返回的 key 排序。
 
-KV value 在代理前限制为 25 MiB；key 的字节长度目前不会按 Cloudflare KV 的 512B 限制额外拦截。
+KV value 在代理前限制为 25 MiB；key（和 list 前缀）的字节长度限制为 512B，与 Cloudflare KV 一致——超过会报 `KV key exceeds 512 byte limit`。
 
 需要随 value 保存少量附加信息时，也支持 `put(..., { metadata })`、 `getWithMetadata()` 和 `list({ metadata: true })`；普通计数器、开关和缓存不需要用它。带 `expirationTtl` 或 `expiration` 的 key 到期后，value 和 metadata 会一起消失；不带过期时间重新 `put` 会清掉之前的过期设置。
 

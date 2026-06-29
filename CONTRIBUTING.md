@@ -22,7 +22,8 @@ resolution) is exercisable offline. To try commands end to end, point
 ## Architecture
 
 The CLI is plain ESM JavaScript — no build step; `tsc --noEmit` typechecks the
-JSDoc types.
+JSDoc types under `strict`, so new code needs real JSDoc annotations on
+parameters and returns (no implicit `any`).
 
 | Path                                    | Role                                                                                                                                                                                                        |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

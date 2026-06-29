@@ -12,7 +12,7 @@ import { tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
 import { cliCompatibility, compareSemver, ensureControlContextFromConfigState } from "../../lib/whoami.js";
 import { response } from "./helpers.js";
 
-/** @typedef {{ url: string, init: import("../../lib/control-fetch.js").ControlFetchInit }} ControlCall */
+/** @typedef {import("./helpers.js").ControlCall} ControlCall */
 
 /**
  * @template T

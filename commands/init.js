@@ -260,9 +260,6 @@ async function resolveWranglerDep() {
 /**
  * @returns {Promise<{ version: string, dependencies?: Record<string, string> }>}
  */
-/**
- * @returns {Promise<{ version: string, dependencies?: Record<string, string> }>}
- */
 async function readWdlCliPackage() {
   const text = await fs.readFile(path.join(CLI_ROOT, "package.json"), "utf8");
   const parsed = /** @type {{ version?: unknown, dependencies?: Record<string, string> }} */ (JSON.parse(text));

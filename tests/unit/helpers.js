@@ -1,6 +1,12 @@
 // Shared fixtures for the CLI unit tests. Not a test file itself (the test
 // runner only globs cli-*.test.js).
 
+/**
+ * A recorded control-plane call: the URL and the init passed to controlFetch.
+ * Shared by the tests that assert on what mockDeps recorded.
+ * @typedef {{ url: string, init: import("../../lib/control-fetch.js").ControlFetchInit }} ControlCall
+ */
+
 // A minimal fetch Response stand-in. Accepts an object (JSON) or string body
 // and exposes json()/text()/arrayBuffer() so it works for control-plane JSON
 // responses and R2 streaming/byte tests alike. json() parses the text

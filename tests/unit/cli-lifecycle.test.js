@@ -20,13 +20,7 @@ import {
 } from "../../lib/control-fetch.js";
 import { mockDeps, response } from "./helpers.js";
 
-/**
- * A recorded control-plane call: the URL and the request init the command
- * passed to `controlFetch`. `init` is the loose `ControlFetchInit` shape, so
- * fields like `method`, `headers`, `body`, `timeoutMs`, and `maxBodyBytes` are
- * all optional.
- * @typedef {{ url: string, init: import("../../lib/control-fetch.js").ControlFetchInit }} ControlCall
- */
+/** @typedef {import("./helpers.js").ControlCall} ControlCall */
 
 /**
  * The options bag the dispatcher passes to an injected `loadEnv`. Matches the

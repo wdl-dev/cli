@@ -58,7 +58,10 @@ async function runSecret({ values, positionals, context }) {
     throw new CliError(usageText());
   }
 
-  const hasWorker = isNonEmptyString(values.worker);
+  // Narrow values.worker to a string once; reuse `worker`/`hasWorker` below so
+  // the worker-presence predicate lives in exactly one place.
+  const worker = isNonEmptyString(values.worker) ? values.worker : null;
+  const hasWorker = worker !== null;
   const hasScopeNs = values.scope === "ns";
   if (hasWorker && hasScopeNs) {
     throw new CliError("conflicting flags: --worker and --scope ns are mutually exclusive");
@@ -71,10 +74,8 @@ async function runSecret({ values, positionals, context }) {
   }
 
   const { headers } = context.resolveControl();
-  const secretPath = isNonEmptyString(values.worker)
-    ? ["worker", values.worker, "secrets"]
-    : ["secrets"];
-  const scopeLabel = isNonEmptyString(values.worker) ? `${ns}/${values.worker}` : `${ns} (ns)`;
+  const secretPath = worker ? ["worker", worker, "secrets"] : ["secrets"];
+  const scopeLabel = worker ? `${ns}/${worker}` : `${ns} (ns)`;
 
   if (subcommand === "list") {
     const body = /** @type {SecretResponse} */ (await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list"));

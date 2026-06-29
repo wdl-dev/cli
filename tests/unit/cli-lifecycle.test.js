@@ -20,8 +20,30 @@ import {
 } from "../../lib/control-fetch.js";
 import { mockDeps, response } from "./helpers.js";
 
+/**
+ * A recorded control-plane call: the URL and the request init the command
+ * passed to `controlFetch`. `init` is the loose `ControlFetchInit` shape, so
+ * fields like `method`, `headers`, `body`, `timeoutMs`, and `maxBodyBytes` are
+ * all optional.
+ * @typedef {{ url: string, init: import("../../lib/control-fetch.js").ControlFetchInit }} ControlCall
+ */
+
+/**
+ * The options bag the dispatcher passes to an injected `loadEnv`. Matches the
+ * third parameter of `loadCliDotEnv`.
+ * @typedef {NonNullable<Parameters<typeof import("../../lib/credentials.js").loadCliDotEnv>[2]>} LoadEnvOptions
+ */
+
+/**
+ * The `loadEnv` override shape accepted by `wdlMain`. The test fakes record the
+ * options and otherwise ignore the contract return value.
+ * @typedef {typeof import("../../lib/credentials.js").loadCliDotEnv} LoadEnvFn
+ */
+
+/** @param {string} value */
 function stdinFrom(value) {
   const stdin = Object.assign(new EventEmitter(), {
+    /** @param {string} _encoding */
     setEncoding(_encoding) {},
   });
   queueMicrotask(() => {
@@ -31,11 +53,14 @@ function stdinFrom(value) {
   return stdin;
 }
 
+/** @param {string} value */
 function ttyStdinLine(value) {
   const stdin = Object.assign(new EventEmitter(), {
     isTTY: true,
     paused: false,
+    /** @param {string} _encoding */
     setEncoding(_encoding) {},
+    /** @param {boolean} _mode */
     setRawMode(_mode) {}, // a real TTY has this; hidden input requires it
     pause() {
       this.paused = true;
@@ -167,21 +192,23 @@ test("readJsonOrFail surfaces warnings arrays attached to error bodies", async (
 });
 
 test("commands warn when the admin token would travel over plain http to a non-local host", async () => {
+  /** @type {string[]} */
   const warnings = [];
   await runWorkersCommand(["--ns", "demo", "--control-url", "http://ctl.prod.example"], {
     env: { ADMIN_TOKEN: "tok" },
     stdout: () => {},
-    warn: (line) => warnings.push(line),
+    warn: (/** @type {string} */ line) => warnings.push(line),
     controlFetch: async () => response({ workers: [] }),
   });
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /plain http on a non-local host/);
 
+  /** @type {string[]} */
   const quiet = [];
   await runWorkersCommand(["--ns", "demo", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
     stdout: () => {},
-    warn: (line) => quiet.push(line),
+    warn: (/** @type {string} */ line) => quiet.push(line),
     controlFetch: async () => response({ workers: [] }),
   });
   assert.deepEqual(quiet, []);
@@ -200,11 +227,12 @@ test("workers command lists namespace worker state", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/workers");
-  assert.deepEqual(calls[0].init.headers, { "x-admin-token": "tok" });
+  assert.deepEqual(/** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (calls[0].init).headers, { "x-admin-token": "tok" });
   assert.deepEqual(lines, ["api\tactive=v2\tversions=v1,v2\tsecrets=yes"]);
 });
 
 test("workers command does not double-slash paths when CONTROL_URL has a trailing slash", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
   await runWorkersCommand(["--ns", "demo"], {
     env: {
@@ -212,7 +240,7 @@ test("workers command does not double-slash paths when CONTROL_URL has a trailin
       CONTROL_URL: "http://ctl.test/",
     },
     stdout: () => {},
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       calls.push({ url, init });
       return response({ namespace: "demo", workers: [] });
     },
@@ -233,10 +261,11 @@ test("workers command rejects unexpected positional arguments", async () => {
 });
 
 test("wdl workers escapes control sequences from the control plane but keeps tab columns", async () => {
+  /** @type {string[]} */
   const lines = [];
   await runWorkersCommand(["--ns", "demo", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
-    stdout: (line) => lines.push(line),
+    stdout: (/** @type {string} */ line) => lines.push(line),
     controlFetch: async () => response({
       workers: [{ name: "ev\u001bil", activeVersion: "v1", versions: ["v1"], hasSecrets: false }],
     }),
@@ -249,42 +278,52 @@ test("wdl workers escapes control sequences from the control plane but keeps tab
 
 test("formatWorkersList handles empty and deploy-only entries", () => {
   assert.deepEqual(formatWorkersList({ workers: [] }), ["(no workers)"]);
+  // NOTE: lib/workers-format.js types `activeVersion` as `string | undefined`,
+  // but the control plane (and this test) sends `null` for an undeployed
+  // worker. `formatWorkersList` handles it (`w.activeVersion || "-"`); the
+  // typedef just omits `null`. Cast through the real param type so the test
+  // keeps exercising the null path without widening the lib type here.
   assert.deepEqual(
-    formatWorkersList({
-      workers: [{ name: "draft", activeVersion: null, versions: ["v1"], hasSecrets: false }],
-    }),
+    formatWorkersList(/** @type {Parameters<typeof formatWorkersList>[0]} */ (
+      /** @type {unknown} */ ({
+        workers: [{ name: "draft", activeVersion: null, versions: ["v1"], hasSecrets: false }],
+      })
+    )),
     ["draft\tactive=-\tversions=v1\tsecrets=no"]
   );
 });
 
 test("tenant lifecycle commands default namespace from WDL_NS", async () => {
+  /** @type {ControlCall[]} */
   const workerCalls = [];
   await runWorkersCommand(["--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
     stdout: () => {},
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       workerCalls.push({ url, init });
       return response({ namespace: "demo", workers: [] });
     },
   });
   assert.equal(workerCalls[0].url, "http://ctl.test/ns/demo/workers");
 
+  /** @type {ControlCall[]} */
   const secretCalls = [];
   await runSecretCommand(["list", "--worker", "api", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
     stdout: () => {},
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       secretCalls.push({ url, init });
       return response({ keys: [] });
     },
   });
   assert.equal(secretCalls[0].url, "http://ctl.test/ns/demo/worker/api/secrets");
 
+  /** @type {ControlCall[]} */
   const deleteCalls = [];
   await runDeleteCommand(["version", "api", "v1", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
     stdout: () => {},
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       deleteCalls.push({ url, init });
       return response({
         namespace: "demo",
@@ -313,7 +352,7 @@ test("delete version calls the version hard-delete endpoint", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/worker/api/versions/v1");
-  assert.equal(calls[0].init.method, "DELETE");
+  assert.equal(/** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (calls[0].init).method, "DELETE");
   assert.deepEqual(lines, ["OK demo/api@v1 deleted"]);
 });
 
@@ -385,17 +424,18 @@ test("delete worker supports dry-run query and raw json output", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/worker/api/delete?dry_run=1");
-  assert.equal(calls[0].init.method, "POST");
+  assert.equal(/** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (calls[0].init).method, "POST");
   assert.deepEqual(lines, [JSON.stringify(body, null, 2)]);
 });
 
 test("delete worker requires confirmation unless --yes or --dry-run is used", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
     () => runDeleteCommand(["worker", "--ns", "demo", "api", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom(""),
-      controlFetch: async (url, init = {}) => {
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({});
       },
@@ -407,7 +447,7 @@ test("delete worker requires confirmation unless --yes or --dry-run is used", as
   await runDeleteCommand(["worker", "--ns", "demo", "api", "--yes", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
     stdout: () => {},
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       calls.push({ url, init });
       return response({
         namespace: "demo",
@@ -422,16 +462,18 @@ test("delete worker requires confirmation unless --yes or --dry-run is used", as
 });
 
 test("delete worker proceeds after interactive confirmation", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const prompts = [];
   const stdin = ttyStdinLine("yes\n");
 
   await runDeleteCommand(["worker", "--ns", "demo", "api", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
     stdin,
-    stderr: (text) => prompts.push(text),
+    stderr: (/** @type {string} */ text) => prompts.push(text),
     stdout: () => {},
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       calls.push({ url, init });
       return response({
         namespace: "demo",
@@ -473,14 +515,16 @@ test("secret list accepts flags before the subcommand", async () => {
 });
 
 test("secret list uses encoded namespace and worker path segments", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["list", "--ns", "demo space", "--worker", "api/slash", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
-      stdout: (line) => lines.push(line),
-      controlFetch: async (url, init = {}) => {
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({ keys: ["A", "B"] });
       },
@@ -494,12 +538,13 @@ test("secret list uses encoded namespace and worker path segments", async () => 
 });
 
 test("secret list supports raw json output", async () => {
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["list", "--json", "--ns", "demo", "--scope", "ns", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
-      stdout: (line) => lines.push(line),
+      stdout: (/** @type {string} */ line) => lines.push(line),
       controlFetch: async () => response({ namespace: "demo", keys: ["A", "B"] }),
     }
   );
@@ -508,12 +553,13 @@ test("secret list supports raw json output", async () => {
 });
 
 test("secret list tolerates a response without a keys array", async () => {
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["list", "--ns", "demo", "--scope", "ns", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
-      stdout: (line) => lines.push(line),
+      stdout: (/** @type {string} */ line) => lines.push(line),
       controlFetch: async () => response({ namespace: "demo" }),
     }
   );
@@ -521,15 +567,17 @@ test("secret list tolerates a response without a keys array", async () => {
 });
 
 test("secret put reads stdin, trims one newline, and encodes key", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["put", "--ns", "demo", "--scope", "ns", "KEY/ONE", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom("secret-value\n"),
-      stdout: (line) => lines.push(line),
-      controlFetch: async (url, init = {}) => {
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({ deleted: false });
       },
@@ -545,13 +593,14 @@ test("secret put reads stdin, trims one newline, and encodes key", async () => {
 
 test("secret put escapes terminal controls from a raw keyArg in the status line", async () => {
   const esc = String.fromCharCode(27);
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["put", "--ns", "demo", "--scope", "ns", `KEY${esc}[2J`, "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom("v\n"),
-      stdout: (line) => lines.push(line),
+      stdout: (/** @type {string} */ line) => lines.push(line),
       controlFetch: async () => response({ deleted: false }),
     }
   );
@@ -560,7 +609,9 @@ test("secret put escapes terminal controls from a raw keyArg in the status line"
 });
 
 test("secret put reads one tty line without waiting for EOF", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const prompts = [];
   const stdin = ttyStdinLine("typed-value\n");
   await runSecretCommand(
@@ -569,8 +620,8 @@ test("secret put reads one tty line without waiting for EOF", async () => {
       env: { ADMIN_TOKEN: "tok" },
       stdin,
       stdout: () => {},
-      stderr: (text) => prompts.push(text),
-      controlFetch: async (url, init = {}) => {
+      stderr: (/** @type {string} */ text) => prompts.push(text),
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({ deleted: false });
       },
@@ -585,15 +636,17 @@ test("secret put reads one tty line without waiting for EOF", async () => {
 });
 
 test("secret put reports worker version promotion", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["put", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom("secret-value\n"),
-      stdout: (line) => lines.push(line),
-      controlFetch: async (url, init = {}) => {
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({ previousVersion: "v1", version: "v2" });
       },
@@ -607,15 +660,17 @@ test("secret put reports worker version promotion", async () => {
 });
 
 test("secret put and delete support raw json output", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const putLines = [];
   await runSecretCommand(
     ["put", "--json", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom("secret-value\n"),
-      stdout: (line) => putLines.push(line),
-      controlFetch: async (url, init = {}) => {
+      stdout: (/** @type {string} */ line) => putLines.push(line),
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({ previousVersion: "v1", version: "v2" });
       },
@@ -623,13 +678,14 @@ test("secret put and delete support raw json output", async () => {
   );
   assert.deepEqual(putLines, [JSON.stringify({ previousVersion: "v1", version: "v2" }, null, 2)]);
 
+  /** @type {string[]} */
   const deleteLines = [];
   await runSecretCommand(
     ["delete", "--json", "--ns", "demo", "--worker", "api", "KEY", "--yes", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
-      stdout: (line) => deleteLines.push(line),
-      controlFetch: async (url, init = {}) => {
+      stdout: (/** @type {string} */ line) => deleteLines.push(line),
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({ deleted: true, previousVersion: "v2", version: "v3" });
       },
@@ -639,11 +695,12 @@ test("secret put and delete support raw json output", async () => {
 });
 
 test("secret list refuses ambiguous scope before calling control", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
     () => runSecretCommand(["list", "--ns", "demo", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
-      controlFetch: async (url, init = {}) => {
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({});
       },
@@ -655,14 +712,16 @@ test("secret list refuses ambiguous scope before calling control", async () => {
 });
 
 test("secret delete calls worker endpoint and reports promoted bump", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["delete", "--ns", "demo", "--worker", "api", "KEY", "--yes", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
-      stdout: (line) => lines.push(line),
-      controlFetch: async (url, init = {}) => {
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({ deleted: true, previousVersion: "v1", version: "v2" });
       },
@@ -676,12 +735,13 @@ test("secret delete calls worker endpoint and reports promoted bump", async () =
 });
 
 test("secret delete requires confirmation unless --yes is used", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
     () => runSecretCommand(["delete", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom(""),
-      controlFetch: async (url, init = {}) => {
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({});
       },
@@ -692,16 +752,18 @@ test("secret delete requires confirmation unless --yes is used", async () => {
 });
 
 test("secret delete proceeds after interactive confirmation", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const prompts = [];
   const stdin = ttyStdinLine("y\n");
 
   await runSecretCommand(["delete", "--ns", "demo", "--scope", "ns", "KEY", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
     stdin,
-    stderr: (text) => prompts.push(text),
+    stderr: (/** @type {string} */ text) => prompts.push(text),
     stdout: () => {},
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       calls.push({ url, init });
       return response({ deleted: true });
     },
@@ -714,12 +776,13 @@ test("secret delete proceeds after interactive confirmation", async () => {
 });
 
 test("secret delete warning does not claim deletion when control reports deleted=false", async () => {
+  /** @type {string[]} */
   const lines = [];
   await runSecretCommand(
     ["delete", "--ns", "demo", "--worker", "api", "KEY", "--yes", "--control-url", "http://ctl.test"],
     {
       env: { ADMIN_TOKEN: "tok" },
-      stdout: (line) => lines.push(line),
+      stdout: (/** @type {string} */ line) => lines.push(line),
       controlFetch: async () => response({
         deleted: false,
         warnings: [
@@ -736,8 +799,11 @@ test("secret delete warning does not claim deletion when control reports deleted
 });
 
 test("r2 buckets and objects commands call encoded control endpoints", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const lines = [];
+  /** @type {string[]} */
   const bytes = [];
   const stdoutStream = new Writable({
     write(chunk, _encoding, callback) {
@@ -747,9 +813,9 @@ test("r2 buckets and objects commands call encoded control endpoints", async () 
   });
   const deps = {
     env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
-    stdout: (line) => lines.push(line),
+    stdout: (/** @type {string} */ line) => lines.push(line),
     stdoutStream,
-    controlFetch: async (url, init = {}) => {
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       calls.push({ url, init });
       if (init.method === "DELETE") {
         return response({ namespace: "demo space", bucket: "uploads", key: "dir/file.txt", status: "ok" });
@@ -824,10 +890,11 @@ test("r2 buckets and objects commands call encoded control endpoints", async () 
 });
 
 test("r2 object head --json keeps a __proto__ metadata key and drops a bare x-amz-meta-", async () => {
+  /** @type {string[]} */
   const lines = [];
   const deps = {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-    stdout: (line) => lines.push(line),
+    stdout: (/** @type {string} */ line) => lines.push(line),
     controlFetch: async () => ({
       status: 200,
       ok: true,
@@ -841,7 +908,7 @@ test("r2 object head --json keeps a __proto__ metadata key and drops a bare x-am
     }),
   };
   await runR2Command(["objects", "head", "--ns", "demo", "uploads", "k", "--json", "--control-url", "http://ctl.test"], deps);
-  const meta = JSON.parse(lines.find((l) => l.trim().startsWith("{"))).customMetadata;
+  const meta = JSON.parse(/** @type {string} */ (lines.find((l) => l.trim().startsWith("{")))).customMetadata;
   // JSON.parse re-materializes __proto__ as an own data property, so read the
   // descriptor — `meta.__proto__` would go through the prototype accessor instead.
   assert.equal(Object.getOwnPropertyDescriptor(meta, "__proto__")?.value, "pwned");
@@ -858,8 +925,10 @@ test("r2 buckets list accepts flags before the group/action", async () => {
 });
 
 test("r2 object get waits for stdout backpressure", async () => {
+  /** @type {string[]} */
   const events = [];
   const stdoutStream = Object.assign(new EventEmitter(), {
+    /** @param {Buffer} chunk */
     write(chunk) {
       events.push(`write:${Buffer.from(chunk).toString("utf8")}`);
       if (events.length === 1) {
@@ -893,12 +962,13 @@ test("r2 object get --out escapes a control-char path in the success line", asyn
   try {
     const esc = String.fromCharCode(27);
     const outPath = path.join(dir, `file${esc}[2J.bin`);
-    const lines = [];
+    /** @type {string[]} */
+  const lines = [];
     await runR2Command(
       ["objects", "get", "--ns", "demo", "uploads", "file.txt", "--out", outPath, "--control-url", "http://ctl.test"],
       {
         env: { ADMIN_TOKEN: "tok" },
-        stdout: (line) => lines.push(line),
+        stdout: (/** @type {string} */ line) => lines.push(line),
         controlFetch: async () => ({
           status: 200,
           ok: true,
@@ -965,12 +1035,13 @@ test("r2 streaming commands format JSON control errors", async () => {
 });
 
 test("r2 object delete requires confirmation unless --yes is used", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
     () => runR2Command(["objects", "delete", "--ns", "demo", "uploads", "a.txt", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom(""),
-      controlFetch: async (url, init = {}) => {
+      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
         calls.push({ url, init });
         return response({});
       },
@@ -981,12 +1052,14 @@ test("r2 object delete requires confirmation unless --yes is used", async () => 
 });
 
 test("workflows commands call encoded control endpoints", async () => {
+  /** @type {ControlCall[]} */
   const calls = [];
+  /** @type {string[]} */
   const lines = [];
   const deps = {
     env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
-    stdout: (line) => lines.push(line),
-    controlFetch: async (url, init = {}) => {
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
       calls.push({ url, init });
       if (url.endsWith("/workflows")) {
         return response({
@@ -1051,6 +1124,7 @@ test("workflows list accepts flags before the subcommand", async () => {
 });
 
 test("workflows commands reject unexpected positional arguments", async () => {
+  /** @type {boolean[]} */
   const calls = [];
   const deps = {
     env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
@@ -1078,6 +1152,7 @@ test("workflows commands reject unexpected positional arguments", async () => {
 test("wdl dispatcher routes documented commands and rejects unknown commands", async () => {
   const oldExit = process.exit;
   const oldError = console.error;
+  /** @type {string[]} */
   const seen = [];
 
   process.exit = (code) => {
@@ -1087,18 +1162,18 @@ test("wdl dispatcher routes documented commands and rejects unknown commands", a
 
   try {
     await assert.rejects(() => wdlMain(["help"], { loadEnv: null }), /exit:0/);
-    assert.ok(seen.at(-1).includes("wdl <command> [args] [options]"));
+    assert.ok(/** @type {string} */ (seen.at(-1)).includes("wdl <command> [args] [options]"));
     // Top-level help must list the common control flags too, matching command
     // help — --no-token-store was missing here once.
-    assert.ok(seen.at(-1).includes("--no-token-store"), "top-level help lists --no-token-store");
+    assert.ok(/** @type {string} */ (seen.at(-1)).includes("--no-token-store"), "top-level help lists --no-token-store");
     // The command table is derived from each command's { name, summary }; assert
     // the metadata content renders (and the alias note) without pinning column spacing.
-    assert.ok(seen.at(-1).includes("Manage D1 databases, SQL execution, and migrations."));
-    assert.ok(seen.at(-1).includes("Manage namespace-level or worker-level secrets. (alias: secrets)"));
-    assert.ok(seen.at(-1).includes("Inspect and delete R2 virtual bucket data."));
-    assert.ok(seen.at(-1).includes("Live-tail worker console output and uncaught exceptions."));
+    assert.ok(/** @type {string} */ (seen.at(-1)).includes("Manage D1 databases, SQL execution, and migrations."));
+    assert.ok(/** @type {string} */ (seen.at(-1)).includes("Manage namespace-level or worker-level secrets. (alias: secrets)"));
+    assert.ok(/** @type {string} */ (seen.at(-1)).includes("Inspect and delete R2 virtual bucket data."));
+    assert.ok(/** @type {string} */ (seen.at(-1)).includes("Live-tail worker console output and uncaught exceptions."));
     // workflows is the widest name, so its summary sits one space after it.
-    assert.ok(seen.at(-1).includes("workflows Inspect and control Workflow instances."));
+    assert.ok(/** @type {string} */ (seen.at(-1)).includes("workflows Inspect and control Workflow instances."));
 
     await assert.rejects(() => wdlMain(["del"], { loadEnv: null }), /exit:1/);
     assert.ok(seen.some((line) => line.includes("unknown command: del")));
@@ -1113,6 +1188,7 @@ test("wdl dispatcher routes documented commands and rejects unknown commands", a
 
 test("wdl dispatcher prints the CLI version for --version, -v, and version", async () => {
   const oldLog = console.log;
+  /** @type {string[]} */
   const lines = [];
   console.log = (msg) => lines.push(String(msg));
   try {
@@ -1128,9 +1204,11 @@ test("wdl dispatcher prints the CLI version for --version, -v, and version", asy
 
 // Stub process.exit (throws `exit:<code>`) and capture console.error lines
 // for dispatcher-level tests that drive bin/wdl.js end to end.
+/** @param {(errors: string[]) => Promise<void>} fn */
 async function withMockedExit(fn) {
   const oldExit = process.exit;
   const oldError = console.error;
+  /** @type {string[]} */
   const errors = [];
   process.exit = (code) => {
     throw new Error(`exit:${code}`);
@@ -1146,6 +1224,7 @@ async function withMockedExit(fn) {
 }
 
 test("wdl dispatcher loads base dotenv before namespace section overlay", async () => {
+  /** @type {LoadEnvOptions[]} */
   const calls = [];
   // secret's missing-subcommand CliError fires after autoload, keeping the
   // dispatch harmless without needing a control-plane mock.
@@ -1153,7 +1232,7 @@ test("wdl dispatcher loads base dotenv before namespace section overlay", async 
     await assert.rejects(
       () => wdlMain(["secret", "--ns", "demo"], {
         env: {},
-        loadEnv: (_env, _path, options) => calls.push(options),
+        loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
       }),
       /exit:1/
     );
@@ -1171,12 +1250,13 @@ test("wdl dispatcher loads base dotenv before namespace section overlay", async 
 });
 
 test("wdl dispatcher overlays the LAST --ns occurrence, matching parseArgs", async () => {
+  /** @type {LoadEnvOptions[]} */
   const calls = [];
   await withMockedExit(async () => {
     await assert.rejects(
       () => wdlMain(["secret", "--ns", "first", "--ns=last"], {
         env: {},
-        loadEnv: (_env, _path, options) => calls.push(options),
+        loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
       }),
       /exit:1/
     );
@@ -1187,23 +1267,24 @@ test("wdl dispatcher overlays the LAST --ns occurrence, matching parseArgs", asy
 });
 
 test("wdl dispatcher skips dotenv when help is requested", async () => {
+  /** @type {LoadEnvOptions[]} */
   const calls = [];
   const oldLog = console.log;
   console.log = () => {};
   try {
     await wdlMain(["workers", "--ns", "demo", "--help"], {
       env: {},
-      loadEnv: (_env, _path, options) => calls.push(options),
+      loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
     });
     // The positional alias form must skip autoload too — including with
     // flags present — so a broken .env cannot block `wdl <command> help`.
     await wdlMain(["workers", "help"], {
       env: {},
-      loadEnv: (_env, _path, options) => calls.push(options),
+      loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
     });
     await wdlMain(["workers", "--ns", "demo", "help"], {
       env: {},
-      loadEnv: (_env, _path, options) => calls.push(options),
+      loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
     });
   } finally {
     console.log = oldLog;
@@ -1234,7 +1315,9 @@ test("wdl dispatcher reports a malformed .env without a Node stack", async () =>
 test("wdl dispatcher skips dotenv for top-level help and unknown commands", async () => {
   const oldExit = process.exit;
   const oldError = console.error;
+  /** @type {string[]} */
   const errors = [];
+  /** @type {string[]} */
   const calls = [];
 
   process.exit = (code) => {
@@ -1244,11 +1327,11 @@ test("wdl dispatcher skips dotenv for top-level help and unknown commands", asyn
 
   try {
     await assert.rejects(
-      () => wdlMain(["help"], { loadEnv: () => calls.push("help") }),
+      () => wdlMain(["help"], { loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("help"))) }),
       /exit:0/
     );
     await assert.rejects(
-      () => wdlMain(["bogus"], { loadEnv: () => calls.push("bogus") }),
+      () => wdlMain(["bogus"], { loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("bogus"))) }),
       /exit:1/
     );
     assert.deepEqual(calls, []);
@@ -1262,6 +1345,7 @@ test("wdl dispatcher skips dotenv for top-level help and unknown commands", asyn
 test("wdl dispatcher prints parseArgs errors without a Node stack", async () => {
   const oldExit = process.exit;
   const oldError = console.error;
+  /** @type {string[]} */
   const errors = [];
 
   process.exit = (code) => {
@@ -1285,6 +1369,7 @@ test("wdl dispatcher prints parseArgs errors without a Node stack", async () => 
 });
 
 test("SseParser dispatches event/id/data on blank line per SSE rules", () => {
+  /** @type {import("../../commands/tail.js").SseEvent[]} */
   const events = [];
   const parser = new SseParser((event) => events.push(event));
 
@@ -1301,6 +1386,7 @@ test("SseParser dispatches event/id/data on blank line per SSE rules", () => {
 });
 
 test("SseParser handles CRLF line endings and flushes trailing events", () => {
+  /** @type {import("../../commands/tail.js").SseEvent[]} */
   const events = [];
   const parser = new SseParser((event) => events.push(event));
 
@@ -1347,12 +1433,13 @@ test("wdl tail requires at least one positional worker", async () => {
 });
 
 test("wdl tail help short-circuits before max-reconnects validation", async () => {
+  /** @type {string[]} */
   const stdoutLines = [];
   await runTailCommand(
     ["--help", "--max-reconnects", "forever"],
     {
       env: {},
-      stdout: (line) => stdoutLines.push(line),
+      stdout: (/** @type {string} */ line) => stdoutLines.push(line),
       stderr: () => {},
     }
   );
@@ -1362,6 +1449,10 @@ test("wdl tail help short-circuits before max-reconnects validation", async () =
 
 test("wdl tail escapes control error details", async () => {
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} _opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(_opts, cb) {
       const req = fakeHttpReq();
       setImmediate(() => {
@@ -1390,24 +1481,35 @@ test("wdl tail escapes control error details", async () => {
   );
 });
 
+/** @returns {import("../../lib/control-fetch.js").ControlClientRequest} */
 function fakeHttpReq() {
-  return Object.assign(new EventEmitter(), {
-    end() {},
-    destroy() {},
-  });
+  return /** @type {import("../../lib/control-fetch.js").ControlClientRequest} */ (
+    /** @type {unknown} */ (Object.assign(new EventEmitter(), {
+      end() {},
+      destroy() {},
+    }))
+  );
 }
 
+/** @returns {import("node:http").IncomingMessage} */
 function fakeHttpRes() {
-  return Object.assign(new EventEmitter(), {
-    statusCode: 200,
-    headers: {},
-    setEncoding() {},
-  });
+  return /** @type {import("node:http").IncomingMessage} */ (
+    /** @type {unknown} */ (Object.assign(new EventEmitter(), {
+      statusCode: 200,
+      headers: {},
+      setEncoding() {},
+    }))
+  );
 }
 
 test("wdl tail renders fetch, scheduled, and queue invocation events", async () => {
+  /** @type {string[]} */
   const stdoutLines = [];
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} _opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(_opts, cb) {
       const req = fakeHttpReq();
       setImmediate(() => {
@@ -1457,7 +1559,7 @@ test("wdl tail renders fetch, scheduled, and queue invocation events", async () 
       ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
       {
         env: {},
-        stdout: (line) => stdoutLines.push(line),
+        stdout: (/** @type {string} */ line) => stdoutLines.push(line),
         stderr: () => {},
         transport: fakeTransport,
       }
@@ -1472,9 +1574,14 @@ test("wdl tail renders fetch, scheduled, and queue invocation events", async () 
 });
 
 test("wdl tail escapes terminal control sequences in rendered events", async () => {
+  /** @type {string[]} */
   const stdoutLines = [];
   let emitted = false;
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} _opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(_opts, cb) {
       const req = fakeHttpReq();
       setImmediate(() => {
@@ -1509,7 +1616,7 @@ test("wdl tail escapes terminal control sequences in rendered events", async () 
       ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
       {
         env: {},
-        stdout: (line) => stdoutLines.push(line),
+        stdout: (/** @type {string} */ line) => stdoutLines.push(line),
         stderr: () => {},
         transport: fakeTransport,
         sleepFn: async () => {},
@@ -1526,8 +1633,13 @@ test("wdl tail escapes terminal control sequences in rendered events", async () 
 });
 
 test("wdl tail accepts bare CONTROL_URL hosts by defaulting to https", async () => {
+  /** @type {import("node:https").RequestOptions[]} */
   const requestsSeen = [];
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(opts, cb) {
       requestsSeen.push(opts);
       const req = fakeHttpReq();
@@ -1559,15 +1671,20 @@ test("wdl tail accepts bare CONTROL_URL hosts by defaulting to https", async () 
 
   assert.equal(requestsSeen[0].host, "ctl.uat.example");
   assert.equal(requestsSeen[0].port, 443);
-  assert.equal(requestsSeen[0].headers.Host, "ctl.uat.example");
+  assert.equal(/** @type {import("node:http").OutgoingHttpHeaders} */ (requestsSeen[0].headers).Host, "ctl.uat.example");
   assert.equal(requestsSeen[0].path, "/ns/demo/logs/tail?worker=kv-demo");
 });
 
 test("wdl tail sends --since on the initial URL, not duplicated as Last-Event-ID", async () => {
+  /** @type {Array<{ path: import("node:https").RequestOptions["path"], headers: import("node:http").OutgoingHttpHeaders }>} */
   const requestsSeen = [];
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { ...opts.headers } });
+      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
@@ -1597,10 +1714,15 @@ test("wdl tail sends --since on the initial URL, not duplicated as Last-Event-ID
 });
 
 test("wdl tail keeps --since on reconnect until the server provides an event id", async () => {
+  /** @type {Array<{ path: import("node:https").RequestOptions["path"], headers: import("node:http").OutgoingHttpHeaders }>} */
   const requestsSeen = [];
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { ...opts.headers } });
+      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
@@ -1636,10 +1758,15 @@ test("wdl tail keeps --since on reconnect until the server provides an event id"
 });
 
 test("wdl tail switches from --since to Last-Event-ID after receiving an event id", async () => {
+  /** @type {Array<{ path: import("node:https").RequestOptions["path"], headers: import("node:http").OutgoingHttpHeaders }>} */
   const requestsSeen = [];
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { ...opts.headers } });
+      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
@@ -1681,8 +1808,13 @@ test("wdl tail switches from --since to Last-Event-ID after receiving an event i
 });
 
 test("wdl tail prints a connected status after SSE handshake", async () => {
+  /** @type {string[]} */
   const stderrLines = [];
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} _opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(_opts, cb) {
       const req = fakeHttpReq();
       setImmediate(() => {
@@ -1700,7 +1832,7 @@ test("wdl tail prints a connected status after SSE handshake", async () => {
       {
         env: {},
         stdout: () => {},
-        stderr: (line) => stderrLines.push(line),
+        stderr: (/** @type {string} */ line) => stderrLines.push(line),
         transport: fakeTransport,
       }
     ),
@@ -1711,11 +1843,17 @@ test("wdl tail prints a connected status after SSE handshake", async () => {
 });
 
 test("wdl tail reconnects with Last-Event-ID after transport errors", async () => {
+  /** @type {Array<{ path: import("node:https").RequestOptions["path"], headers: import("node:http").OutgoingHttpHeaders }>} */
   const requestsSeen = [];
+  /** @type {string[]} */
   const stderrLines = [];
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { ...opts.headers } });
+      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
@@ -1748,7 +1886,7 @@ test("wdl tail reconnects with Last-Event-ID after transport errors", async () =
       {
         env: {},
         stdout: () => {},
-        stderr: (line) => stderrLines.push(line),
+        stderr: (/** @type {string} */ line) => stderrLines.push(line),
         transport: fakeTransport,
         sleepFn: async () => {},
       }
@@ -1763,11 +1901,17 @@ test("wdl tail reconnects with Last-Event-ID after transport errors", async () =
 });
 
 test("wdl tail increases backoff until a stable session resets it", async () => {
+  /** @type {number[]} */
   const sleepCalls = [];
+  /** @type {string[]} */
   const stderrLines = [];
   let nowMs = 0;
   let requestCount = 0;
   const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} _opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
     request(_opts, cb) {
       requestCount += 1;
       const req = fakeHttpReq();
@@ -1797,10 +1941,10 @@ test("wdl tail increases backoff until a stable session resets it", async () => 
       {
         env: {},
         stdout: () => {},
-        stderr: (line) => stderrLines.push(line),
+        stderr: (/** @type {string} */ line) => stderrLines.push(line),
         transport: fakeTransport,
         now: () => nowMs,
-        sleepFn: async (ms) => {
+        sleepFn: async (/** @type {number} */ ms) => {
           sleepCalls.push(ms);
           nowMs += ms;
         },
@@ -1844,7 +1988,9 @@ test("cli source imports stay inside the package and its declared dependencies",
   assert.deepEqual(offenders, []);
 });
 
+/** @param {string} source */
 function importSpecifiers(source) {
+  /** @type {string[]} */
   const specs = [];
   const patterns = [
     /^\s*(?:import|export)\s+(?:[^"'()]*?\s+from\s+)?["']([^"']+)["']/gm,
@@ -1852,12 +1998,14 @@ function importSpecifiers(source) {
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
   ];
   for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) specs.push(match[1]);
+    for (const match of source.matchAll(pattern)) specs.push(/** @type {string} */ (match[1]));
   }
   return specs;
 }
 
+/** @param {string} root */
 function listCliJsFiles(root) {
+  /** @type {string[]} */
   const out = [];
   for (const dir of ["bin", "commands", "lib"]) {
     out.push(...listJsFiles(path.join(root, dir)));
@@ -1865,7 +2013,12 @@ function listCliJsFiles(root) {
   return out;
 }
 
+/**
+ * @param {string} dir
+ * @returns {string[]}
+ */
 function listJsFiles(dir) {
+  /** @type {string[]} */
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);

@@ -4,6 +4,9 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { controlFetch, readControlResponse } from "../../lib/control-fetch.js";
 
+/**
+ * @param {{ statusCode?: number, headers?: import("node:http").IncomingHttpHeaders }} [init]
+ */
 function fakeResponse({ statusCode = 200, headers = {} } = {}) {
   return Object.assign(new EventEmitter(), { statusCode, headers });
 }
@@ -76,15 +79,17 @@ test("controlFetch keeps timeout active while streaming the response body", asyn
     statusCode: 200,
     headers: { "content-type": "application/octet-stream" },
   });
-  let requestDestroyError = /** @type {Error | null} */ (null);
+  let requestDestroyError = /** @type {Error | null | undefined} */ (null);
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
   const transport = {
     request(_opts, onResponse) {
       return Object.assign(new EventEmitter(), {
         write() {},
         end() {
-          onResponse(res);
+          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
           res.write("partial");
         },
+        /** @param {Error} [err] */
         destroy(err) {
           requestDestroyError = err;
         },
@@ -98,9 +103,10 @@ test("controlFetch keeps timeout active while streaming the response body", asyn
     transport,
   });
 
+  const body = /** @type {import("node:stream").Readable} */ (response.body);
   await assert.rejects(
     async () => {
-      for await (const _chunk of response.body) {
+      for await (const _chunk of body) {
         // Wait for the transport timeout to destroy the stalled stream.
       }
     },
@@ -115,12 +121,13 @@ test("controlFetch streaming timeout is idle-based after headers", async () => {
     statusCode: 200,
     headers: { "content-type": "application/octet-stream" },
   });
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
   const transport = {
     request(_opts, onResponse) {
       return Object.assign(new EventEmitter(), {
         write() {},
         end() {
-          onResponse(res);
+          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
           setTimeout(() => res.write("a"), 10);
           setTimeout(() => res.write("b"), 25);
           setTimeout(() => res.end("c"), 40);
@@ -136,8 +143,10 @@ test("controlFetch streaming timeout is idle-based after headers", async () => {
     transport,
   });
 
+  /** @type {string[]} */
   const chunks = [];
-  for await (const chunk of response.body) {
+  const body = /** @type {import("node:stream").Readable} */ (response.body);
+  for await (const chunk of body) {
     chunks.push(Buffer.from(chunk).toString("utf8"));
   }
   assert.equal(chunks.join(""), "abc");
@@ -148,12 +157,13 @@ test("controlFetch buffers early streaming chunks until caller consumes body", a
     statusCode: 200,
     headers: { "content-type": "application/octet-stream" },
   });
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
   const transport = {
     request(_opts, onResponse) {
       return Object.assign(new EventEmitter(), {
         write() {},
         end() {
-          onResponse(res);
+          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
           res.write("early");
           setTimeout(() => res.end("late"), 5);
         },
@@ -169,8 +179,10 @@ test("controlFetch buffers early streaming chunks until caller consumes body", a
   });
   await new Promise((resolve) => setTimeout(resolve, 10));
 
+  /** @type {string[]} */
   const chunks = [];
-  for await (const chunk of response.body) {
+  const body = /** @type {import("node:stream").Readable} */ (response.body);
+  for await (const chunk of body) {
     chunks.push(Buffer.from(chunk).toString("utf8"));
   }
   assert.equal(chunks.join(""), "earlylate");
@@ -181,12 +193,13 @@ test("controlFetch forwards streaming source errors to the consumer", async () =
     statusCode: 200,
     headers: { "content-type": "application/octet-stream" },
   });
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
   const transport = {
     request(_opts, onResponse) {
       return Object.assign(new EventEmitter(), {
         write() {},
         end() {
-          onResponse(res);
+          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
           res.write("partial");
           setTimeout(() => res.emit("error", new Error("socket lost")), 5);
         },
@@ -201,9 +214,10 @@ test("controlFetch forwards streaming source errors to the consumer", async () =
     transport,
   });
 
+  const body = /** @type {import("node:stream").Readable} */ (response.body);
   await assert.rejects(
     async () => {
-      for await (const _chunk of response.body) {
+      for await (const _chunk of body) {
         // Consume until the upstream response error is forwarded.
       }
     },
@@ -212,15 +226,17 @@ test("controlFetch forwards streaming source errors to the consumer", async () =
 });
 
 test("controlFetch carries the URL port in Host and strips IPv6 brackets for the socket", async () => {
+  /** @type {Array<import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }>} */
   const seen = [];
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
   const transport = {
     request(opts, onResponse) {
-      seen.push(opts);
+      seen.push(/** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (opts));
       return Object.assign(new EventEmitter(), {
         write() {},
         end() {
           const res = fakeResponse();
-          onResponse(res);
+          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
           res.emit("data", Buffer.from("{}"));
           res.emit("end");
         },

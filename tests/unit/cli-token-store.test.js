@@ -11,6 +11,11 @@ import {
   writeTokenStore,
 } from "../../lib/token-store.js";
 
+/**
+ * @template T
+ * @param {(dir: string) => T} fn
+ * @returns {T}
+ */
 function withTempDir(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-token-store-"));
   try {
@@ -194,7 +199,9 @@ test("writeTokenStore sets 0600 file and 0700 dir permissions", () => {
 
 test("assertStoreDirSecure refuses a group/world-writable store dir", () => {
   if (process.platform === "win32") return;
+  /** @type {string[]} */
   const made = [];
+  /** @param {number} mode */
   const mkdir = (mode) => {
     const d = mkdtempSync(path.join(tmpdir(), "wdl-store-secure-"));
     chmodSync(d, mode);

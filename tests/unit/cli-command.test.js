@@ -4,12 +4,18 @@ import { defineCommand } from "../../lib/command.js";
 import { CliError, defineCliOption } from "../../lib/common.js";
 import { response } from "./helpers.js";
 
+/** @typedef {Parameters<typeof defineCommand>[0]} CommandSpec */
+/** @typedef {import("../../lib/command.js").CommandContext} CommandContext */
+
 // Most tests don't care about name/summary; default them so each case only
 // states the fields it exercises.
+/** @param {Omit<CommandSpec, "name" | "summary"> & { name?: string, summary?: string }} spec */
 const define = (spec) => defineCommand({ name: "t", summary: "t", ...spec });
 
 test("defineCommand assembles flag presets and custom options", async () => {
-  let seen = /** @type {any} */ (null);
+  let seen = /** @type {{ values: Record<string, unknown>, positionals: string[] }} */ (
+    /** @type {unknown} */ (null)
+  );
   const cmd = define({
     options: ["ns", "control", "json", "help", defineCliOption("tag", { type: "string" }, "--tag <tag>", "Tag.")],
     usage: () => "usage",
@@ -47,47 +53,62 @@ test("defineCommand rejects an unknown option preset", () => {
 
 test("defineCommand rejects raw parse option objects", () => {
   assert.throws(
-    () => define({ options: [{ tag: { type: "string" } }], usage: () => "", run: () => {} }),
+    () => define({
+      // A raw parse-option object is not a valid OptionListItem; the command
+      // must reject it at runtime, so feed it through an unknown cast.
+      options: [/** @type {import("../../lib/common.js").OptionListItem} */ (/** @type {unknown} */ ({ tag: { type: "string" } }))],
+      usage: () => "",
+      run: () => {},
+    }),
     /option entries must be preset names or option specs/,
   );
 });
 
 test("defineCommand validates required fields", () => {
+  /** @type {CommandSpec} */
   const ok = { name: "n", summary: "s", usage: () => "", run: () => {} };
-  assert.throws(() => defineCommand(/** @type {any} */ ({ ...ok, name: "" })), /name must be a non-empty string/);
-  assert.throws(() => defineCommand(/** @type {any} */ ({ ...ok, summary: "" })), /summary must be a non-empty string/);
-  assert.throws(() => defineCommand(/** @type {any} */ ({ ...ok, usage: undefined })), /usage must be a function/);
-  assert.throws(() => defineCommand(/** @type {any} */ ({ ...ok, run: undefined })), /run must be a function/);
+  // Each case feeds a deliberately invalid spec to exercise runtime validation;
+  // cast through unknown since the bad shapes do not satisfy CommandSpec.
+  /** @param {object} spec @returns {CommandSpec} */
+  const badSpec = (spec) => /** @type {CommandSpec} */ (/** @type {unknown} */ (spec));
+  assert.throws(() => defineCommand(badSpec({ ...ok, name: "" })), /name must be a non-empty string/);
+  assert.throws(() => defineCommand(badSpec({ ...ok, summary: "" })), /summary must be a non-empty string/);
+  assert.throws(() => defineCommand(badSpec({ ...ok, usage: undefined })), /usage must be a function/);
+  assert.throws(() => defineCommand(badSpec({ ...ok, run: undefined })), /run must be a function/);
 });
 
 test("--help prints usage and skips the run body", async () => {
   let ran = false;
+  /** @type {string[]} */
   const lines = [];
   const cmd = define({
     options: ["help"],
     usage: () => "USAGE TEXT",
     run: () => { ran = true; },
   });
-  await cmd.run(["--help"], { stdout: (line) => lines.push(line) });
+  await cmd.run(["--help"], { stdout: (/** @type {string} */ line) => lines.push(line) });
   assert.equal(ran, false);
   assert.deepEqual(lines, ["USAGE TEXT"]);
 });
 
 test("positional help prints usage and skips the run body", async () => {
   let ran = false;
+  /** @type {string[]} */
   const lines = [];
   const cmd = define({
     options: ["help"],
     usage: () => "USAGE TEXT",
     run: () => { ran = true; },
   });
-  await cmd.run(["help"], { stdout: (line) => lines.push(line) });
+  await cmd.run(["help"], { stdout: (/** @type {string} */ line) => lines.push(line) });
   assert.equal(ran, false);
   assert.deepEqual(lines, ["USAGE TEXT"]);
 });
 
 test("context applies dep defaults, injected overrides, and passthrough deps", async () => {
-  let ctx = /** @type {any} */ (null);
+  let ctx = /** @type {CommandContext & Record<string, unknown>} */ (
+    /** @type {unknown} */ (null)
+  );
   const cmd = define({
     options: ["help"],
     defaults: { custom: "default-custom" },
@@ -103,6 +124,7 @@ test("context applies dep defaults, injected overrides, and passthrough deps", a
 });
 
 test("context.nsUrl builds an encoded namespace URL", async () => {
+  /** @type {string | undefined} */
   let url;
   const cmd = define({
     options: ["ns", "control"],
@@ -129,7 +151,9 @@ test("context.nsUrl throws when the namespace is unresolved", async () => {
 });
 
 test("context.fetchJson fetches with the given init and parses JSON", async () => {
-  let got = /** @type {any} */ (null);
+  let got = /** @type {{ url: string, init: import("../../lib/control-fetch.js").ControlFetchInit }} */ (
+    /** @type {unknown} */ (null)
+  );
   const cmd = define({
     options: [],
     usage: () => "",
@@ -137,6 +161,7 @@ test("context.fetchJson fetches with the given init and parses JSON", async () =
   });
   const body = await cmd.run([], {
     env: {},
+    /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} init */
     controlFetch: async (url, init) => { got = { url, init }; return response({ ok: 1 }); },
   });
   assert.deepEqual(body, { ok: 1 });
@@ -202,9 +227,13 @@ test("context.fetchStream returns the raw response after a status check", async 
 });
 
 test("context.resolveControl memoizes; resolveNamespace reads values then env", async () => {
-  let c1 = /** @type {any} */ (null);
-  let c2 = /** @type {any} */ (null);
-  let nsFromFlag, nsFromEnv;
+  /** @typedef {ReturnType<CommandContext["resolveControl"]>} ResolvedControl */
+  let c1 = /** @type {ResolvedControl} */ (/** @type {unknown} */ (null));
+  let c2 = /** @type {ResolvedControl} */ (/** @type {unknown} */ (null));
+  /** @type {string | undefined} */
+  let nsFromFlag;
+  /** @type {string | undefined} */
+  let nsFromEnv;
   const cmd = define({
     options: ["ns", "control"],
     usage: () => "",

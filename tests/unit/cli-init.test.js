@@ -9,6 +9,7 @@ import { main, __test__ } from "../../commands/init.js";
 const { parseArgs, validateNs, validateWorker, resolveWdlCliDep } = __test__;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
+/** @param {(dir: string) => Promise<unknown>} fn */
 async function withTempCwd(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-init-test-"));
   const previous = process.cwd();
@@ -21,17 +22,19 @@ async function withTempCwd(fn) {
   }
 }
 
+/** @param {() => Promise<unknown>} fn */
 async function captureExit(fn) {
+  /** @type {string | number | null | undefined} */
   let exitCode = null;
   let errOutput = "";
   const originalExit = process.exit;
   const originalErr = process.stderr.write.bind(process.stderr);
-  process.exit = (code) => { exitCode = code; throw new Error("__test_exit__"); };
-  process.stderr.write = (chunk) => { errOutput += chunk; return true; };
+  process.exit = /** @type {typeof process.exit} */ ((code) => { exitCode = code; throw new Error("__test_exit__"); });
+  process.stderr.write = /** @type {typeof process.stderr.write} */ ((chunk) => { errOutput += chunk; return true; });
   try {
     await fn();
   } catch (err) {
-    if (err.message !== "__test_exit__") throw err;
+    if (!(err instanceof Error) || err.message !== "__test_exit__") throw err;
   } finally {
     process.exit = originalExit;
     process.stderr.write = originalErr;
@@ -183,9 +186,11 @@ test("init scaffolds without --ns; the deploy script omits the namespace", async
 
 test("init positional help prints usage to stdout and exits successfully", async () => {
   await withTempCwd(async () => {
+    /** @type {string[]} */
     const logs = [];
     const oldLog = console.log;
-    console.log = (msg) => logs.push(String(msg));
+    console.log = (/** @type {unknown} */ msg) => logs.push(String(msg));
+    /** @type {string | number | null | undefined} */
     let exitCode;
     try {
       ({ exitCode } = await captureExit(() => main(["help"])));

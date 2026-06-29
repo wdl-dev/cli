@@ -7,6 +7,10 @@
 // representation like fetch does, so a string body must be valid JSON to be
 // consumed through json(), and callers never share a reference with the
 // fixture object.
+/**
+ * @param {unknown} body  Object (JSON-encoded) or pre-serialized string body.
+ * @param {number} [status]
+ */
 export function response(body, status = 200) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   const bytes = Buffer.from(text);
@@ -23,15 +27,23 @@ export function response(body, status = 200) {
 // Records control-plane calls and stdout lines, returning deps for a command
 // runner. env defaults to a bare admin token; pass a richer env (e.g. with
 // WDL_NS) when the command resolves the namespace from the environment.
+/**
+ * @param {unknown} body
+ * @param {NodeJS.ProcessEnv} [env]
+ */
 export function mockDeps(body, env = { ADMIN_TOKEN: "tok" }) {
+  /** @type {Array<{ url: string, init: object }>} */
   const calls = [];
+  /** @type {string[]} */
   const lines = [];
   return {
     calls,
     lines,
     deps: {
       env,
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
+      /** @param {string} url @param {object} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response(body);

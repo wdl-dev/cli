@@ -106,6 +106,7 @@ test("loadCliDotEnv loads an explicit .env without overriding explicit env", () 
       ].join("\n")
     );
 
+    /** @type {NodeJS.ProcessEnv} */
     const env = { ADMIN_TOKEN: "from-shell" };
     assert.deepEqual(loadCliDotEnv(env, file), [
       "CONTROL_URL",
@@ -403,6 +404,7 @@ test("loadCliDotEnv ignores WDL_NS in selected section with a warning", () => {
       ].join("\n")
     );
 
+    /** @type {string[]} */
     const warnings = [];
     const env = emptyEnv();
     const protectedKeys = new Set();
@@ -438,6 +440,7 @@ test("loadCliDotEnv does not warn for WDL_NS in an unselected section", () => {
       ].join("\n")
     );
 
+    /** @type {string[]} */
     const warnings = [];
     const env = emptyEnv();
     const protectedKeys = new Set();
@@ -469,6 +472,7 @@ test("loadCliControlEnv drops a .env control endpoint when the token is from the
     writeFileSync(path.join(dir, ".env"), "CONTROL_URL=https://ctl.attacker.example\n");
     /** @type {NodeJS.ProcessEnv} */
     const env = { ADMIN_TOKEN: "shell-token" };
+    /** @type {string[]} */
     const warned = [];
     loadCliControlEnv(env, {
       dotenvPath: path.join(dir, ".env"),
@@ -491,6 +495,7 @@ test("loadCliControlEnv treats a .env endpoint as cross-origin when --token is u
     writeFileSync(path.join(dir, ".env"), "ADMIN_TOKEN=decoy\nCONTROL_URL=https://ctl.attacker.example\n");
     /** @type {NodeJS.ProcessEnv} */
     const env = {};
+    /** @type {string[]} */
     const warned = [];
     loadCliControlEnv(env, {
       dotenvPath: path.join(dir, ".env"),
@@ -511,6 +516,7 @@ test("loadCliControlEnv trusts a .env control endpoint when the token is also fr
     writeFileSync(path.join(dir, ".env"), "ADMIN_TOKEN=env-token\nCONTROL_URL=https://ctl.mine.example\n");
     /** @type {NodeJS.ProcessEnv} */
     const env = {};
+    /** @type {string[]} */
     const warned = [];
     loadCliControlEnv(env, {
       dotenvPath: path.join(dir, ".env"),
@@ -531,6 +537,7 @@ test("loadCliControlEnv keeps the documented multi-ns layout (URL in base, token
       "CONTROL_URL=https://ctl.shared.example\nWDL_NS=acme\n\n[acme]\nADMIN_TOKEN=acme-token\n");
     /** @type {NodeJS.ProcessEnv} */
     const env = {};
+    /** @type {string[]} */
     const warned = [];
     loadCliControlEnv(env, {
       dotenvPath: path.join(dir, ".env"),
@@ -545,11 +552,12 @@ test("loadCliControlEnv keeps the documented multi-ns layout (URL in base, token
 });
 
 test("protectedEnvKeys protects only non-empty string values", () => {
-  const keys = protectedEnvKeys(/** @type {any} */ ({ A: "x", EMPTY: "", MISSING: undefined, B: "y" }));
+  const keys = protectedEnvKeys(/** @type {NodeJS.ProcessEnv} */ ({ A: "x", EMPTY: "", MISSING: undefined, B: "y" }));
   assert.deepEqual([...keys].sort(), ["A", "B"]);
 });
 
 test("loadCliControlEnv fills control URL and token from the store as a gap-filler", () => {
+  /** @type {NodeJS.ProcessEnv} */
   const env = { WDL_NS: "acme" };
   loadCliControlEnv(env, {
     nsFromFlag: "acme",
@@ -575,6 +583,7 @@ test("loadCliControlEnv selects the store's default namespace when nothing else 
 });
 
 test("loadCliControlEnv lets an explicit namespace override the store default", () => {
+  /** @type {NodeJS.ProcessEnv} */
   const env = { WDL_NS: "demo" };
   loadCliControlEnv(env, {
     loadEnv: () => [],
@@ -592,10 +601,17 @@ test("loadCliControlEnv lets an explicit namespace override the store default", 
 });
 
 test("loadCliControlEnv lets a project .env namespace beat the store default over an empty shell WDL_NS", () => {
+  /** @type {NodeJS.ProcessEnv} */
   const env = { WDL_NS: "" };
   loadCliControlEnv(env, {
     // Simulate the real loader: only set the .env WDL_NS when it is not protected.
-    loadEnv: (e, _path, { protectedKeys }) => {
+    /**
+     * @param {NodeJS.ProcessEnv} [e]
+     * @param {string} [_path]
+     * @param {{ protectedKeys?: Set<string> }} [options]
+     * @returns {string[]}
+     */
+    loadEnv: (e = process.env, _path, { protectedKeys = new Set() } = {}) => {
       if (protectedKeys.has("WDL_NS")) return [];
       e.WDL_NS = "acme";
       return ["WDL_NS"];
@@ -624,6 +640,7 @@ test("loadCliControlEnv ignores a store default with no stored entry", () => {
 });
 
 test("loadCliControlEnv lets shell env win over the store (gap-fill only)", () => {
+  /** @type {NodeJS.ProcessEnv} */
   const env = { WDL_NS: "acme", ADMIN_TOKEN: "shell-tok" };
   loadCliControlEnv(env, {
     nsFromFlag: "acme",
@@ -636,6 +653,7 @@ test("loadCliControlEnv lets shell env win over the store (gap-fill only)", () =
 });
 
 test("loadCliControlEnv does not fill a flag-covered slot from the store", () => {
+  /** @type {NodeJS.ProcessEnv} */
   const env = { WDL_NS: "acme" };
   // --control-url supplies the endpoint, so the store fills only the token and
   // never writes its own CONTROL_URL into env.
@@ -702,10 +720,17 @@ test("an empty .env ADMIN_TOKEN does not mark a .env endpoint same-source", () =
   // Malicious cwd .env: a control endpoint + an EMPTY `ADMIN_TOKEN=` placeholder.
   // The empty token must not make the endpoint same-source.
   const env = /** @type {NodeJS.ProcessEnv} */ ({});
+  /** @type {string[]} */
   const warnings = [];
   loadCliControlEnv(env, {
     nsFromFlag: "acme",
-    loadEnv: (e, _path, opts) => {
+    /**
+     * @param {NodeJS.ProcessEnv} [e]
+     * @param {string} [_path]
+     * @param {{ resolvedNs?: string }} [opts]
+     * @returns {string[]}
+     */
+    loadEnv: (e = process.env, _path, opts = {}) => {
       if (!opts.resolvedNs) {
         e.CONTROL_URL = "https://evil.example";
         e.ADMIN_TOKEN = "";
@@ -726,10 +751,17 @@ test("a project .env endpoint is still dropped when the token comes from the sto
   // token (and a trusted endpoint). The guard must drop the project endpoint
   // before the store fills it, so the store token is never sent to the .env host.
   const env = /** @type {NodeJS.ProcessEnv} */ ({});
+  /** @type {string[]} */
   const warnings = [];
   loadCliControlEnv(env, {
     nsFromFlag: "acme",
-    loadEnv: (e, _path, opts) => {
+    /**
+     * @param {NodeJS.ProcessEnv} [e]
+     * @param {string} [_path]
+     * @param {{ resolvedNs?: string }} [opts]
+     * @returns {string[]}
+     */
+    loadEnv: (e = process.env, _path, opts = {}) => {
       if (!opts.resolvedNs) {
         e.CONTROL_URL = "https://evil.example";
         return ["CONTROL_URL"];

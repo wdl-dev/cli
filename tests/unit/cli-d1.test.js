@@ -7,8 +7,47 @@ import { runD1Command } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { mockDeps as sharedMockDeps, response } from "./helpers.js";
 
+/** @typedef {import("../../lib/control-fetch.js").ControlFetchInit} ControlFetchInit */
+/** @typedef {{ url: string, init: ControlFetchInit }} RecordedCall */
+
+// The shared mockDeps types recorded `init` as the broad `object`; the d1 tests
+// read concrete request fields (method/body/headers/timeoutMs), so view a
+// recorded call through the control-fetch init shape it actually carries.
+/**
+ * @param {{ url: string, init: object }} call
+ * @returns {RecordedCall}
+ */
+const asCall = (call) => /** @type {RecordedCall} */ (call);
+
+// Request bodies in these tests are always JSON strings; narrow the broader
+// `body` union before parsing.
+/**
+ * @param {ControlFetchInit["body"]} body
+ * @returns {unknown}
+ */
+const parseBody = (body) => JSON.parse(typeof body === "string" ? body : String(body));
+
+/**
+ * @typedef {object} MigrationEntry
+ * @property {string} id
+ * @property {string} sql
+ * @property {string} checksum
+ */
+
+/**
+ * The migrations-apply request body the command sends.
+ * @typedef {{ migrations: MigrationEntry[] }} MigrationsBody
+ */
+
+/**
+ * @param {ControlFetchInit["body"]} body
+ * @returns {MigrationsBody}
+ */
+const parseMigrationsBody = (body) => /** @type {MigrationsBody} */ (parseBody(body));
+
 // d1 commands resolve the namespace from WDL_NS, so the shared factory gets a
 // richer env than its bare-token default.
+/** @param {unknown} body */
 const mockDeps = (body) => sharedMockDeps(body, { ADMIN_TOKEN: "tok", WDL_NS: "demo" });
 
 test("d1 list calls the namespace database endpoint", async () => {
@@ -19,14 +58,16 @@ test("d1 list calls the namespace database endpoint", async () => {
   await runD1Command(["list", "--control-url", "http://ctl.test"], deps);
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases");
-  assert.deepEqual(calls[0].init.headers, { "x-admin-token": "tok" });
+  assert.deepEqual(asCall(calls[0]).init.headers, { "x-admin-token": "tok" });
   assert.deepEqual(lines, ["d1_main\tname=main\tcreated=today"]);
 });
 
 test("d1 positional help prints help without resolving control", async () => {
+  /** @type {string[]} */
   const lines = [];
   await runD1Command(["help"], {
     env: {},
+    /** @param {string} line */
     stdout: (line) => lines.push(line),
     controlFetch: async () => {
       throw new Error("controlFetch should not be called");
@@ -58,8 +99,8 @@ test("d1 create posts a database name", async () => {
 
   await runD1Command(["create", "main", "--control-url", "http://ctl.test"], deps);
 
-  assert.equal(calls[0].init.method, "POST");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { databaseName: "main" });
+  assert.equal(asCall(calls[0]).init.method, "POST");
+  assert.deepEqual(parseBody(asCall(calls[0]).init.body), { databaseName: "main" });
   assert.deepEqual(lines, ["OK demo/d1_main created name=main"]);
 });
 
@@ -80,9 +121,9 @@ test("d1 execute sends SQL mode and JSON params", async () => {
   ], deps);
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/query");
-  assert.equal(calls[0].init.method, "POST");
-  assert.equal(calls[0].init.timeoutMs, LONG_CONTROL_TIMEOUT_MS);
-  assert.deepEqual(JSON.parse(calls[0].init.body), {
+  assert.equal(asCall(calls[0]).init.method, "POST");
+  assert.equal(asCall(calls[0]).init.timeoutMs, LONG_CONTROL_TIMEOUT_MS);
+  assert.deepEqual(parseBody(asCall(calls[0]).init.body), {
     sql: "select ? as n",
     mode: "all",
     params: [1],
@@ -145,6 +186,7 @@ test("d1 execute --file accepts a path inside the project", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-file-inside-"));
   try {
     writeFileSync(path.join(dir, "inside.sql"), "SELECT 1;");
+    /** @type {RecordedCall[]} */
     const calls = [];
 
     await runD1Command([
@@ -158,6 +200,7 @@ test("d1 execute --file accepts a path inside the project", async () => {
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
+      /** @param {string} url @param {ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response({ result: { results: [] } });
@@ -166,7 +209,7 @@ test("d1 execute --file accepts a path inside the project", async () => {
 
     assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/query");
     assert.equal(calls[0].init.method, "POST");
-    assert.deepEqual(JSON.parse(calls[0].init.body), {
+    assert.deepEqual(parseBody(calls[0].init.body), {
       sql: "SELECT 1;",
       mode: "all",
     });
@@ -183,7 +226,9 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
     writeFileSync(path.join(migrations, "002_add.sql"), "alter table users add column name text;");
     writeFileSync(path.join(migrations, "001_init.sql"), "create table users (id integer);");
 
+    /** @type {RecordedCall[]} */
     const calls = [];
+    /** @type {string[]} */
     const lines = [];
     await runD1Command([
       "migrations",
@@ -196,7 +241,9 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
     ], {
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
+      /** @param {string} url @param {ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response({ applied: [{ id: "001_init.sql", statementCount: 1 }], skipped: [] });
@@ -205,7 +252,7 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
 
     assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/migrations/apply");
     assert.equal(calls[0].init.timeoutMs, LONG_CONTROL_TIMEOUT_MS);
-    const body = JSON.parse(calls[0].init.body);
+    const body = parseMigrationsBody(calls[0].init.body);
     assert.deepEqual(body.migrations.map((migration) => migration.id), [
       "001_init.sql",
       "002_add.sql",
@@ -234,6 +281,7 @@ test("d1 migrations_dir from wrangler config cannot escape the project", async (
       "",
     ].join("\n"));
 
+    /** @type {RecordedCall[]} */
     const calls = [];
     await assert.rejects(
       () => runD1Command([
@@ -245,6 +293,7 @@ test("d1 migrations_dir from wrangler config cannot escape the project", async (
       ], {
         cwd: dir,
         env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        /** @param {string} url @param {ControlFetchInit} [init] */
         controlFetch: async (url, init = {}) => {
           calls.push({ url, init });
           return response({});
@@ -299,6 +348,7 @@ test("d1 migrations apply orders unpadded numeric prefixes numerically", async (
       writeFileSync(path.join(migrations, name), `-- ${name}`);
     }
 
+    /** @type {RecordedCall[]} */
     const calls = [];
     await runD1Command([
       "migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test",
@@ -306,13 +356,14 @@ test("d1 migrations apply orders unpadded numeric prefixes numerically", async (
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
+      /** @param {string} url @param {ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response({ applied: [], skipped: [] });
       },
     });
 
-    const body = JSON.parse(calls[0].init.body);
+    const body = parseMigrationsBody(calls[0].init.body);
     assert.deepEqual(body.migrations.map((m) => m.id), [
       "1_init.sql",
       "2_two.sql",
@@ -330,6 +381,7 @@ test("d1 migrations --dir accepts a project subdirectory whose name starts with 
     mkdirSync(migrations);
     writeFileSync(path.join(migrations, "0001_init.sql"), "create table t (id integer);");
 
+    /** @type {RecordedCall[]} */
     const calls = [];
     await runD1Command([
       "migrations", "apply", "main", "--dir", "..hidden", "--control-url", "http://ctl.test",
@@ -337,13 +389,14 @@ test("d1 migrations --dir accepts a project subdirectory whose name starts with 
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
+      /** @param {string} url @param {ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response({ applied: [], skipped: [] });
       },
     });
 
-    const body = JSON.parse(calls[0].init.body);
+    const body = parseMigrationsBody(calls[0].init.body);
     assert.deepEqual(body.migrations.map((m) => m.id), ["0001_init.sql"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -382,6 +435,7 @@ test("d1 execute rejects an unknown --mode before calling control", async () => 
 
 test("d1 execute accepts all valid --mode values", async () => {
   for (const mode of ["all", "raw", "run", "exec"]) {
+    /** @type {RecordedCall[]} */
     const calls = [];
     await runD1Command([
       "execute",
@@ -395,6 +449,7 @@ test("d1 execute accepts all valid --mode values", async () => {
     ], {
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
+      /** @param {string} url @param {ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response({ result: { results: [] } });
@@ -402,12 +457,13 @@ test("d1 execute accepts all valid --mode values", async () => {
     });
 
     assert.equal(calls.length, 1);
-    assert.equal(JSON.parse(calls[0].init.body).mode, mode);
+    assert.equal(/** @type {{ mode: string }} */ (parseBody(calls[0].init.body)).mode, mode);
   }
 });
 
 test("d1 execute rejects --mode exec with any --params before calling control", async () => {
   let fetched = false;
+  /** @param {string} paramsJson */
   const run = (paramsJson) => runD1Command(
     ["execute", "main", "--sql", "SELECT 1", "--mode", "exec", "--params", paramsJson, "--control-url", "http://ctl.test"],
     { env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" }, stdout: () => {}, controlFetch: async () => { fetched = true; return response({}); } }
@@ -420,6 +476,7 @@ test("d1 execute rejects --mode exec with any --params before calling control", 
 
 test("d1 execute rejects an invalid --params before calling control", async () => {
   let fetched = false;
+  /** @param {string} paramsJson */
   const run = (paramsJson) => runD1Command(
     ["execute", "main", "--sql", "SELECT 1", "--mode", "all", "--params", paramsJson, "--control-url", "http://ctl.test"],
     { env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" }, stdout: () => {}, controlFetch: async () => { fetched = true; return response({}); } }

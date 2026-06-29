@@ -219,6 +219,7 @@ test("loadCliDotEnv supports section-only files", () => {
     );
 
     const env = emptyEnv();
+    /** @type {Set<string>} */
     const protectedKeys = new Set();
     assert.deepEqual(loadCliDotEnv(env, file, { protectedKeys }), []);
     assert.deepEqual(loadCliDotEnv(env, file, { resolvedNs: "demo", loadBase: false, protectedKeys }), [
@@ -250,6 +251,7 @@ test("loadCliDotEnv switches adjacent sections without blank lines", () => {
     );
 
     const env = emptyEnv();
+    /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
     assert.deepEqual(loadCliDotEnv(env, file, {
@@ -363,6 +365,7 @@ test("loadCliDotEnv accepts opaque operator reserved namespace sections", () => 
     );
 
     const env = emptyEnv();
+    /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
     loadCliDotEnv(env, file, { resolvedNs: resolveNamespace({}, env), loadBase: false, protectedKeys });
@@ -407,6 +410,7 @@ test("loadCliDotEnv ignores WDL_NS in selected section with a warning", () => {
     /** @type {string[]} */
     const warnings = [];
     const env = emptyEnv();
+    /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
     assert.deepEqual(loadCliDotEnv(env, file, {
@@ -443,6 +447,7 @@ test("loadCliDotEnv does not warn for WDL_NS in an unselected section", () => {
     /** @type {string[]} */
     const warnings = [];
     const env = emptyEnv();
+    /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
     assert.deepEqual(loadCliDotEnv(env, file, {

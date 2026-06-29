@@ -497,6 +497,15 @@ test("parseServicesFromCfg: parses wrangler [[services]] entries", () => {
     () => parseServicesFromCfg({ services: [{ binding: "X" }] }),
     /needs both 'binding' and 'service'/
   );
+  // A present-but-empty value gets the specific non-empty-string error, not "needs both".
+  assert.throws(
+    () => parseServicesFromCfg({ services: [{ binding: "", service: "y" }] }),
+    /binding must be a non-empty string/
+  );
+  assert.throws(
+    () => parseServicesFromCfg({ services: [{ binding: "X", service: "" }] }),
+    /service must be a non-empty string/
+  );
   // A non-string truthy `service` must be rejected, not passed into the manifest.
   assert.throws(
     () => parseServicesFromCfg({ services: [{ binding: "X", service: 123 }] }),

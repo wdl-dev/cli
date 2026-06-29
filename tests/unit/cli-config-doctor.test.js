@@ -9,7 +9,7 @@ import { runWhoamiCommand } from "../../commands/whoami.js";
 import { main as wdlMain } from "../../bin/wdl.js";
 import { resolveCliConfigState } from "../../lib/config-state.js";
 import { tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
-import { cliCompatibility, compareSemver } from "../../lib/whoami.js";
+import { cliCompatibility, compareSemver, ensureControlContextFromConfigState } from "../../lib/whoami.js";
 import { response } from "./helpers.js";
 
 /** @typedef {{ url: string, init: import("../../lib/control-fetch.js").ControlFetchInit }} ControlCall */
@@ -459,6 +459,38 @@ test("cliCompatibility treats a pre-release CLI as older than the release minimu
   assert.equal(cliCompatibility("0.9.0-beta.1", "0.9.0").ok, false);
   assert.equal(cliCompatibility("0.9.1-beta.1", "0.9.0").ok, true);
   assert.equal(cliCompatibility("0.9.0", "0.9.0").ok, true);
+});
+
+test("ensureControlContextFromConfigState fails closed on an unresolved control URL", () => {
+  const token = { value: "tok", display: "****", source: "--token", error: null };
+  // value:null with no error shouldn't happen, but must never be returned as a string.
+  assert.throws(
+    () => ensureControlContextFromConfigState({
+      controlUrl: { value: null, display: "(unset)", source: "(unset)", error: null },
+      token,
+    }),
+    /No control URL configured/
+  );
+  // An explicit resolver error is surfaced verbatim.
+  assert.throws(
+    () => ensureControlContextFromConfigState({
+      controlUrl: { value: null, display: "(unset)", source: "--control-url", error: "boom" },
+      token,
+    }),
+    /boom/
+  );
+  // A fully resolved state yields the admin-token header.
+  assert.deepEqual(
+    ensureControlContextFromConfigState({
+      controlUrl: { value: "https://api.example", display: "https://api.example", source: "--control-url", error: null },
+      token,
+    }),
+    {
+      controlUrl: "https://api.example",
+      token: "tok",
+      headers: { "x-admin-token": "tok" },
+    }
+  );
 });
 
 test("whoami and doctor warn when the token would travel over plain http to a non-local host", async () => {

@@ -474,6 +474,17 @@ test("parseServicesFromCfg: parses wrangler [[services]] entries", () => {
     () => parseServicesFromCfg({ services: [{ binding: "X" }] }),
     /needs both 'binding' and 'service'/
   );
+  // A non-string truthy `service` must be rejected, not passed into the manifest.
+  assert.throws(
+    () => parseServicesFromCfg({ services: [{ binding: "X", service: 123 }] }),
+    /service must be a non-empty string/
+  );
+  // A non-string `binding` (truthy array) must not be String()-coerced past the
+  // binding-name regex.
+  assert.throws(
+    () => parseServicesFromCfg({ services: [{ binding: ["AB"], service: "y" }] }),
+    /binding must be a non-empty string/
+  );
   assert.throws(
     () => parseServicesFromCfg({ services: [{ binding: "X", service: "y", entrypoint: "1bad" }] }),
     /entrypoint must be a JS identifier/

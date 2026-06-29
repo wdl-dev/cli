@@ -803,6 +803,20 @@ test("collectAssets reports ignored entries via onIgnore, excluding .assetsignor
   }
 });
 
+test("resolveAssetsDir: rejects a missing, empty, or non-string assets.directory", () => {
+  const project = mkdtempSync(path.join(tmpdir(), "wdl-assets-dir-type-"));
+  try {
+    for (const bad of ["", "   ", 123, true, ["public"], { directory: "public" }, null, undefined]) {
+      assert.throws(
+        () => resolveAssetsDir(project, bad),
+        /assets\.directory must be a non-empty string/
+      );
+    }
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
 test("resolveAssetsDir: rejects assets.directory that escapes project root", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "wdl-assets-escape-"));
   const project = path.join(parent, "proj");

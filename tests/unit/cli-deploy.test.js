@@ -11,6 +11,7 @@ import {
 import {
   collectAssets,
   collectModules,
+  collectRoutes,
   loadWranglerConfig,
   MAX_ASSET_FILE_BYTES,
   parseD1DatabasesFromCfg,
@@ -446,6 +447,28 @@ test("parseDurableObjectsFromCfg: rejects runtime-internal binding names", () =>
       migrations: [{ tag: "v1", new_classes: ["Room"] }],
     }),
     /runtime-internal bindings/
+  );
+});
+
+test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays", () => {
+  assert.deepEqual(collectRoutes({}, "wrangler.toml"), []);
+  assert.deepEqual(collectRoutes({ route: "dev.example.com/*" }, "wrangler.toml"), ["dev.example.com/*"]);
+  assert.deepEqual(
+    collectRoutes({ routes: ["a.example.com/*", { pattern: "b.example.com/*" }] }, "wrangler.toml"),
+    ["a.example.com/*", "b.example.com/*"]
+  );
+  // A non-array `routes` must fail fast, not be silently dropped.
+  assert.throws(
+    () => collectRoutes({ routes: "a.example.com/*" }, "wrangler.toml"),
+    /"routes" must be an array/
+  );
+  assert.throws(
+    () => collectRoutes({ routes: { pattern: "a.example.com/*" } }, "wrangler.toml"),
+    /"routes" must be an array/
+  );
+  assert.throws(
+    () => collectRoutes({ route: "a", routes: ["b"] }, "wrangler.toml"),
+    /specify either "route" or "routes"/
   );
 });
 

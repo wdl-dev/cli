@@ -175,6 +175,7 @@ async function runDeploy({ values, positionals, context }) {
   const { controlUrl, headers: authHeaders } = context.resolveControl();
   const selectedEnv = values.env || env.CLOUDFLARE_ENV || null;
 
+  // Cast past packWranglerProject's defaults-inferred (narrower) param types.
   const packOptions = /** @type {Parameters<typeof packWranglerProject>[0]} */ ({
     cwd,
     projectDir,

@@ -175,10 +175,6 @@ async function runDeploy({ values, positionals, context }) {
   const { controlUrl, headers: authHeaders } = context.resolveControl();
   const selectedEnv = values.env || env.CLOUDFLARE_ENV || null;
 
-  // packWranglerProject's parameter types are inferred from its defaults (e.g.
-  // envName defaults to null, stderr to (_line?) => void), which are narrower
-  // than the real values passed here; cast the option bag to its declared
-  // parameter type rather than weaken any of these honest local types.
   const packOptions = /** @type {Parameters<typeof packWranglerProject>[0]} */ ({
     cwd,
     projectDir,

@@ -97,7 +97,7 @@ async function runR2({ values, positionals, context }) {
       maxBodyBytes: UNLIMITED_CONTROL_BODY_BYTES,
       streamResponse: true,
     }, "get R2 object");
-    // streamResponse: true guarantees a body; narrow off the optional type.
+    // streamResponse: true always yields a body.
     const responseBody = /** @type {import("node:stream").Readable} */ (res.body);
     if (values.out) {
       const bytesWritten = await writeBodyToFile(responseBody, values.out);

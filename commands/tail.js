@@ -32,10 +32,12 @@ const TAIL_OPTIONS = [
   "help",
 ];
 
+/** @param {unknown} err */
 function isExpectedAbortError(err) {
-  if (!err) return false;
-  if (err.name === "AbortError") return true;
-  if (typeof err.code === "string" && ABORT_TOLERATED_ERRORS.has(err.code)) return true;
+  if (!err || typeof err !== "object") return false;
+  const e = /** @type {{ name?: unknown, code?: unknown }} */ (err);
+  if (e.name === "AbortError") return true;
+  if (typeof e.code === "string" && ABORT_TOLERATED_ERRORS.has(e.code)) return true;
   return false;
 }
 
@@ -45,8 +47,8 @@ const command = defineCommand({
   options: TAIL_OPTIONS,
   // tail writes line-at-a-time to both streams with an explicit newline.
   defaults: {
-    stdout: (line) => process.stdout.write(line + "\n"),
-    stderr: (line) => process.stderr.write(line + "\n"),
+    stdout: (/** @type {string} */ line) => process.stdout.write(line + "\n"),
+    stderr: (/** @type {string} */ line) => process.stderr.write(line + "\n"),
     transport: null,
     sleepFn: sleep,
     now: () => Date.now(),
@@ -59,8 +61,61 @@ export const main = command.main;
 export const runTailCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext & { transport: any, sleepFn: (ms: number, signal?: AbortSignal) => Promise<void>, now: () => number } }} arg */
-async function runTail({ values, positionals, context }) {
+/**
+ * A parsed SSE event handed to the renderer.
+ * @typedef {object} SseEvent
+ * @property {string} event   The SSE `event:` field (defaults to "message").
+ * @property {string | null} id   The last seen SSE `id:` field, if any.
+ * @property {string} data    The concatenated `data:` payload.
+ */
+
+/**
+ * The shape this command reads off a decoded tail event payload. Tail events
+ * carry arbitrary worker-controlled fields; only the ones consumed here are
+ * declared, all optional and loosely typed since they cross the wire.
+ * @typedef {object} TailPayload
+ * @property {string} [event]
+ * @property {unknown} [raw]
+ * @property {string} [code]
+ * @property {string} [message]
+ * @property {number} [ts]
+ * @property {string} [worker]
+ * @property {string} [console_level]
+ * @property {string} [name]
+ * @property {string} [stack]
+ * @property {string} [phase]
+ * @property {unknown} [cron]
+ * @property {unknown} [scheduled_time]
+ * @property {string} [outcome]
+ * @property {unknown} [duration_ms]
+ * @property {unknown} [error]
+ * @property {string} [queue]
+ * @property {unknown} [batch_size]
+ * @property {string} [method]
+ * @property {string} [path]
+ * @property {boolean} [path_truncated]
+ * @property {unknown} [status]
+ */
+
+/**
+ * The result of one SSE connection lifecycle: empty on a clean end, or
+ * `{ fatal }` carrying an error detail to surface and stop reconnecting.
+ * @typedef {{ fatal?: string }} StreamResult
+ */
+
+/**
+ * The tail run context: the framework base plus the injectable transport and
+ * timing hooks declared in this command's `defaults`.
+ * @typedef {import("../lib/command.js").CommandContext & {
+ *   transport: import("../lib/control-fetch.js").ControlTransport | null,
+ *   sleepFn: (ms: number, signal?: AbortSignal) => Promise<void>,
+ *   now: () => number,
+ * }} TailContext
+ */
+
+/** @param {{ values: { raw?: boolean, since?: string, "max-reconnects"?: string, ns?: string, control?: string }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+async function runTail({ values, positionals, context: baseContext }) {
+  const context = /** @type {TailContext} */ (baseContext);
   const { stdout, stderr, transport, sleepFn, now } = context;
 
   // Non-negative integer; 0 = unlimited. Reject other shapes loudly
@@ -205,6 +260,7 @@ async function runTail({ values, positionals, context }) {
   }
 }
 
+/** @param {{ baseUrl: string, workers: string[], since?: string }} arg */
 function buildTailUrl({ baseUrl, workers, since }) {
   const u = new URL(baseUrl);
   for (const w of workers) u.searchParams.append("worker", w);
@@ -212,6 +268,11 @@ function buildTailUrl({ baseUrl, workers, since }) {
   return u.toString();
 }
 
+/**
+ * @param {number} ms
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<void>}
+ */
 function sleep(ms, signal) {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
@@ -227,8 +288,21 @@ function sleep(ms, signal) {
 // One SSE connection lifecycle. Returns when the body ends (clean) or on
 // a non-2xx status (returns {fatal} for caller to surface). Throws on
 // transport-level errors so the reconnect loop sees them.
+/**
+ * @param {{
+ *   url: string,
+ *   headers: Record<string, string>,
+ *   signal: AbortSignal | undefined,
+ *   transport: import("../lib/control-fetch.js").ControlTransport | null,
+ *   onEvent: (event: SseEvent) => void,
+ *   onConnected?: () => void,
+ * }} arg
+ * @returns {Promise<StreamResult>}
+ */
 function streamSse({ url, headers, signal, transport, onEvent, onConnected }) {
+  /** @type {() => void} */
   let onAbort;
+  /** @type {Promise<StreamResult>} */
   const promise = new Promise((resolve, reject) => {
     const u = new URL(url);
     const lib = transport || (u.protocol === "https:" ? https : http);
@@ -236,24 +310,26 @@ function streamSse({ url, headers, signal, transport, onEvent, onConnected }) {
     reqOpts.method = "GET";
     reqOpts.headers = { ...reqOpts.headers, Accept: "text/event-stream", ...headers };
 
-    const req = lib.request(reqOpts, (res) => {
+    const req = lib.request(reqOpts, (/** @type {import("node:http").IncomingMessage} */ res) => {
       const status = res.statusCode || 0;
+      /** @param {unknown} err */
       const onResponseError = (err) => {
         if (signal?.aborted && isExpectedAbortError(err)) return resolve({});
         reject(err);
       };
       res.on("error", onResponseError);
       if (status < 200 || status >= 300) {
+        /** @type {Buffer[]} */
         const chunks = [];
         let total = 0;
-        res.on("data", (c) => {
+        res.on("data", (/** @type {Buffer} */ c) => {
           total += c.length;
           if (total <= TAIL_ERROR_BODY_MAX_BYTES) chunks.push(c);
         });
         res.on("end", () => {
           let detail;
           try {
-            const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            const body = /** @type {{ message?: string, error?: string }} */ (JSON.parse(Buffer.concat(chunks).toString("utf8")));
             detail = escapeTerminalText(body.message || body.error || `HTTP ${status}`);
           } catch {
             detail = `HTTP ${status}`;
@@ -265,10 +341,10 @@ function streamSse({ url, headers, signal, transport, onEvent, onConnected }) {
       onConnected?.();
       const parser = new SseParser((event) => onEvent(event));
       res.setEncoding("utf8");
-      res.on("data", (chunk) => parser.push(chunk));
+      res.on("data", (/** @type {string} */ chunk) => parser.push(chunk));
       res.on("end", () => { parser.flush(); resolve({}); });
     });
-    req.on("error", (err) => {
+    req.on("error", (/** @type {unknown} */ err) => {
       if (signal?.aborted && isExpectedAbortError(err)) return resolve({});
       reject(err);
     });
@@ -290,13 +366,17 @@ function streamSse({ url, headers, signal, transport, onEvent, onConnected }) {
 // Field-value parse rule: optional single space after the colon is
 // trimmed (per W3C SSE spec).
 export class SseParser {
+  /** @param {(event: SseEvent) => void} onEvent */
   constructor(onEvent) {
     this.onEvent = onEvent;
     this.buffer = "";
     this.event = "message";
+    /** @type {string | null} */
     this.id = null;
+    /** @type {string[]} */
     this.data = [];
   }
+  /** @param {string} chunk */
   push(chunk) {
     this.buffer += chunk;
     let idx;
@@ -314,6 +394,7 @@ export class SseParser {
     }
     this.dispatch();
   }
+  /** @param {string} line */
   consumeLine(line) {
     if (line === "") {
       this.dispatch();
@@ -348,7 +429,17 @@ export class SseParser {
   }
 }
 
+/**
+ * @param {{
+ *   event: SseEvent,
+ *   raw: boolean,
+ *   stdout: (line: string) => void,
+ *   stderr: (line: string) => void,
+ *   isMultiWorker: boolean,
+ * }} arg
+ */
 function renderEvent({ event, raw, stdout, stderr, isMultiWorker }) {
+  /** @type {TailPayload} */
   let payload;
   try { payload = JSON.parse(event.data); }
   catch { payload = { event: event.event, raw: event.data }; }
@@ -439,6 +530,10 @@ function renderEvent({ event, raw, stdout, stderr, isMultiWorker }) {
   stdout(`${prefix}${ts} ${escapeTerminalText(eventType)} ${escapeTerminalText(JSON.stringify(payload))}`);
 }
 
+/**
+ * @param {TailPayload} payload
+ * @returns {string | null}
+ */
 function formatFetchDisplayPath(payload) {
   if (typeof payload.path !== "string") return null;
   if (typeof payload.worker !== "string" || payload.worker.length === 0) {
@@ -451,6 +546,7 @@ function formatFetchDisplayPath(payload) {
 // Workerd's tail event surfaces console.log("a", "b") as message=["a","b"]
 // (varargs preserved). Render "console.log-style": one arg unwrapped,
 // many args space-separated, each non-string lossless via JSON.
+/** @param {unknown} message */
 function formatConsoleArgs(message) {
   if (Array.isArray(message)) {
     return message.map(stringifyMessage).join(" ");
@@ -458,6 +554,7 @@ function formatConsoleArgs(message) {
   return stringifyMessage(message);
 }
 
+/** @param {unknown} value */
 function stringifyMessage(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;

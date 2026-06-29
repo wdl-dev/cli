@@ -41,7 +41,11 @@ export const main = command.main;
 export const runTokenCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/**
+ * @typedef {{ label?: string, default?: boolean, ns?: string, "control-url"?: string, json?: boolean }} TokenValues
+ */
+
+/** @param {{ values: TokenValues, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runToken({ values, positionals, context }) {
   const [sub, ...rest] = positionals;
   // `use` takes the namespace as a positional (`wdl token use acme`); the
@@ -62,6 +66,7 @@ async function runToken({ values, positionals, context }) {
   }
 }
 
+/** @param {{ values: TokenValues, context: import("../lib/command.js").CommandContext }} arg */
 async function tokenSet({ values, context }) {
   // set/use/rm mutate the global store, so they name the target namespace from
   // an explicit --ns only -- never the ambient WDL_NS a user may have exported
@@ -143,6 +148,7 @@ async function tokenSet({ values, context }) {
   }
 }
 
+/** @param {{ values: TokenValues, context: import("../lib/command.js").CommandContext, nsArg: string | undefined }} arg */
 function tokenUse({ values, context, nsArg }) {
   // For `use` the WDL_NS fallback is also pointless: it already overrides the
   // store default at resolution time, so inheriting it here would only reswitch
@@ -159,6 +165,7 @@ function tokenUse({ values, context, nsArg }) {
   writeStatusLine(context.stdout, `Default namespace set to ${ns} (used when --ns is omitted).`);
 }
 
+/** @param {{ values: TokenValues, context: import("../lib/command.js").CommandContext }} arg */
 function tokenList({ values, context }) {
   const store = readTokenStore(tokenStorePath(context.env));
   const rows = Object.keys(store.namespaces).sort().map((ns) => ({
@@ -168,9 +175,10 @@ function tokenList({ values, context }) {
     controlUrl: store.namespaces[ns].CONTROL_URL || "",
     token: maskToken(store.namespaces[ns].ADMIN_TOKEN),
   }));
-  writeResult(values.json, rows, () => formatTokenList(rows), context.stdout);
+  writeResult(Boolean(values.json), rows, () => formatTokenList(rows), context.stdout);
 }
 
+/** @param {{ values: TokenValues, context: import("../lib/command.js").CommandContext }} arg */
 function tokenRemove({ values, context }) {
   // For `rm` the stakes are highest -- it deletes and rewrites with no
   // confirmation -- so it likewise takes an explicit --ns only.
@@ -191,7 +199,17 @@ function tokenRemove({ values, context }) {
   writeStatusLine(context.stdout, `Removed the stored token for ${ns}. This does not revoke it on the control plane.`);
 }
 
+/**
+ * @typedef {object} TokenListRow
+ * @property {boolean} default
+ * @property {string} namespace
+ * @property {string} label
+ * @property {string} controlUrl
+ * @property {string} token
+ */
+
 // Returns an array of lines; writeResult escapes each one at its choke point.
+/** @param {TokenListRow[]} rows */
 function formatTokenList(rows) {
   if (rows.length === 0) return ["(no stored tokens)"];
   const header = ["", "NAMESPACE", "LABEL", "CONTROL URL", "TOKEN"];

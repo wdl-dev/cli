@@ -37,10 +37,17 @@ export const main = command.main;
 export const runDoctorCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext & { execFile: typeof execFileSync } }} arg */
-async function runDoctor({ values, positionals, context }) {
+/**
+ * The doctor run context: the framework base plus the injectable `execFile`
+ * declared in this command's `defaults`.
+ * @typedef {import("../lib/command.js").CommandContext & { execFile: typeof execFileSync }} DoctorContext
+ */
+
+/** @param {{ values: { ns?: string, control?: string, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+async function runDoctor({ values, positionals, context: baseContext }) {
   if (positionals.length > 0) throw new CliError(usageText());
 
+  const context = /** @type {DoctorContext} */ (baseContext);
   const state = resolveCliConfigState({ values, env: context.env, cwd: context.cwd, warn: context.warn });
   const checks = [
     checkNode(),
@@ -60,12 +67,23 @@ async function runDoctor({ values, positionals, context }) {
   checks.push(...remote.checks);
 
   const body = { checks, whoami: remote.whoami, whoamiError: remote.error };
-  writeResult(values.json, body, () => formatDoctor(checks), context.stdout);
+  writeResult(Boolean(values.json), body, () => formatDoctor(checks), context.stdout);
 }
+
+/**
+ * The resolved CLI config state doctor inspects.
+ * @typedef {ReturnType<typeof resolveCliConfigState>} ConfigState
+ */
+
+/**
+ * One readiness check row.
+ * @typedef {{ ok: boolean, label: string, detail: string }} DoctorCheck
+ */
 
 function checkNode() {
   const pkg = readCliPackageJson();
-  const expected = pkg.engines?.node || "(unspecified)";
+  const engines = /** @type {{ node?: string } | undefined} */ (pkg.engines);
+  const expected = engines?.node || "(unspecified)";
   const ok = satisfiesNodeEngine(process.versions.node, expected);
   return check({
     ok,
@@ -81,6 +99,7 @@ function checkCliVersion() {
   });
 }
 
+/** @param {{ cwd: string, env: NodeJS.ProcessEnv, execFile: typeof execFileSync }} arg */
 function checkWrangler({ cwd, env, execFile }) {
   // The resolver throws on win32 when nothing runnable exists; doctor must
   // report that as a failed check, not crash the whole run.
@@ -91,7 +110,7 @@ function checkWrangler({ cwd, env, execFile }) {
     return check({
       ok: false,
       label: "Wrangler",
-      detail: err?.message || String(err),
+      detail: err instanceof Error && err.message ? err.message : String(err),
     });
   }
   try {
@@ -118,11 +137,12 @@ function checkWrangler({ cwd, env, execFile }) {
     return check({
       ok: false,
       label: "Wrangler",
-      detail: err?.message || String(err),
+      detail: err instanceof Error && err.message ? err.message : String(err),
     });
   }
 }
 
+/** @param {ConfigState} state */
 function checkControlUrl(state) {
   return check({
     ok: !state.controlUrl.error,
@@ -131,6 +151,7 @@ function checkControlUrl(state) {
   });
 }
 
+/** @param {ConfigState} state */
 function checkToken(state) {
   return check({
     ok: Boolean(state.token.value),
@@ -139,6 +160,7 @@ function checkToken(state) {
   });
 }
 
+/** @param {ConfigState} state */
 function checkNamespace(state) {
   return check({
     ok: Boolean(state.namespace.value),
@@ -147,6 +169,7 @@ function checkNamespace(state) {
   });
 }
 
+/** @param {ConfigState} state */
 function checkTokenStore(state) {
   if (state.tokenStoreDisabled) {
     // The opt-out promises the CLI never reads the store, so don't read it here
@@ -178,6 +201,7 @@ function checkTokenStore(state) {
   });
 }
 
+/** @param {string} cwd */
 function checkWranglerConfig(cwd) {
   const name = ["wrangler.toml", "wrangler.jsonc", "wrangler.json"].find((candidate) =>
     existsSync(path.join(cwd, candidate))
@@ -189,6 +213,13 @@ function checkWranglerConfig(cwd) {
   });
 }
 
+/**
+ * @param {{
+ *   state: ConfigState,
+ *   controlFetch: import("../lib/command.js").CommandContext["controlFetch"],
+ *   warn: (line: string) => void,
+ * }} arg
+ */
 async function checkRemoteWhoami({ state, controlFetch, warn }) {
   let control;
   try {
@@ -196,7 +227,7 @@ async function checkRemoteWhoami({ state, controlFetch, warn }) {
   } catch (err) {
     return {
       whoami: null,
-      error: err?.message || String(err),
+      error: err instanceof Error && err.message ? err.message : String(err),
       checks: [],
     };
   }
@@ -208,7 +239,7 @@ async function checkRemoteWhoami({ state, controlFetch, warn }) {
       headers: control.headers,
       controlFetch,
     }));
-    const tokenNs = namespaceFromPrincipal(remote.principal);
+    const tokenNs = namespaceFromPrincipal(remote.principal ?? undefined);
     const checks = [
       check({
         ok: true,
@@ -246,20 +277,25 @@ async function checkRemoteWhoami({ state, controlFetch, warn }) {
   } catch (err) {
     return {
       whoami: null,
-      error: err?.message || String(err),
+      error: err instanceof Error && err.message ? err.message : String(err),
       checks: [check({
         ok: false,
         label: "Control /whoami",
-        detail: err?.message || String(err),
+        detail: err instanceof Error && err.message ? err.message : String(err),
       })],
     };
   }
 }
 
+/**
+ * @param {{ ok: boolean, label: string, detail?: string }} arg
+ * @returns {DoctorCheck}
+ */
 function check({ ok, label, detail = "" }) {
   return { ok, label, detail };
 }
 
+/** @param {DoctorCheck[]} checks */
 function formatDoctor(checks) {
   return checks.map((item) => {
     const line = `${item.ok ? "✓" : "✗"} ${item.label}`;
@@ -267,6 +303,10 @@ function formatDoctor(checks) {
   });
 }
 
+/**
+ * @param {string} version
+ * @param {string} engine
+ */
 function satisfiesNodeEngine(version, engine) {
   // Doctor only needs the package's current simple ">=N" engine shape. If the
   // project later adopts a richer range, avoid false negatives until a real
@@ -276,15 +316,18 @@ function satisfiesNodeEngine(version, engine) {
   return Number(version.split(".")[0]) >= Number(min[1]);
 }
 
+/** @param {unknown} output */
 function formatWranglerVersion(output) {
   const text = String(output).trim();
   const match = text.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/);
   return match ? match[0] : "";
 }
 
+/** @param {string} cwd */
 function readInstalledWranglerVersion(cwd) {
   for (const dir of [cwd, CLI_ROOT]) {
     try {
+      /** @type {{ version?: unknown }} */
       const pkg = JSON.parse(readFileSync(path.join(dir, "node_modules", "wrangler", "package.json"), "utf8"));
       if (isNonEmptyString(pkg.version)) return pkg.version;
     } catch {}

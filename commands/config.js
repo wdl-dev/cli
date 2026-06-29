@@ -18,7 +18,7 @@ export const main = command.main;
 export const runConfigCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: { json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runConfig({ values, positionals, context }) {
   const [subcommand, extra] = positionals;
   if (subcommand !== "explain" || extra) throw new CliError(usageText());
@@ -29,10 +29,22 @@ async function runConfig({ values, positionals, context }) {
     controlUrl: publicEntry(state.controlUrl),
     token: publicEntry(state.token),
   };
-  writeResult(values.json, body, () => formatConfigExplain(body), context.stdout);
+  writeResult(values.json === true, body, () => formatConfigExplain(body), context.stdout);
 }
 
+/**
+ * @typedef {object} PublicConfigEntry
+ * @property {string} value
+ * @property {string} source
+ * @property {string} [error]
+ */
+
+/**
+ * @param {import("../lib/config-state.js").ConfigEntry} entry
+ * @returns {PublicConfigEntry}
+ */
 function publicEntry(entry) {
+  /** @type {PublicConfigEntry} */
   const out = {
     value: entry.display,
     source: entry.source,
@@ -41,6 +53,9 @@ function publicEntry(entry) {
   return out;
 }
 
+/**
+ * @param {{ namespace: PublicConfigEntry, controlUrl: PublicConfigEntry, token: PublicConfigEntry }} body
+ */
 function formatConfigExplain(body) {
   return [
     ...formatBlock("namespace", body.namespace),
@@ -51,6 +66,10 @@ function formatConfigExplain(body) {
   ];
 }
 
+/**
+ * @param {string} name
+ * @param {PublicConfigEntry} entry
+ */
 function formatBlock(name, entry) {
   const lines = [
     `${name}:`,

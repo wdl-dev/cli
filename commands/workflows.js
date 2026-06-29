@@ -33,7 +33,7 @@ export const main = command.main;
 export const runWorkflowsCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: { limit?: string, cursor?: string, "include-steps"?: boolean, "step-limit"?: string, yes?: boolean, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runWorkflows({ values, positionals, context }) {
   const { stdout, stderr, stdin } = context;
 
@@ -45,8 +45,10 @@ async function runWorkflows({ values, positionals, context }) {
 
   if (subcommand === "list") {
     requireNoExtraPositionals(positionals, 1, "workflows list");
-    const body = await context.fetchJson(context.nsUrl("workflows"), { headers }, "list workflows");
-    writeResult(values.json, body, () => formatWorkflowList(body), stdout);
+    const body = /** @type {{ workflows?: import("../lib/workflows-format.js").WorkflowSummary[] }} */ (
+      await context.fetchJson(context.nsUrl("workflows"), { headers }, "list workflows")
+    );
+    writeResult(Boolean(values.json), body, () => formatWorkflowList(body), stdout);
     return;
   }
 
@@ -55,8 +57,10 @@ async function runWorkflows({ values, positionals, context }) {
     const url = new URL(context.nsUrl("workflows", worker, workflow, "instances"));
     if (values.limit) url.searchParams.set("limit", values.limit);
     if (values.cursor) url.searchParams.set("cursor", values.cursor);
-    const body = await context.fetchJson(url.href, { headers }, "list workflow instances");
-    writeResult(values.json, body, () => formatInstanceList(body), stdout);
+    const body = /** @type {{ instances?: import("../lib/workflows-format.js").WorkflowInstance[], cursor?: string }} */ (
+      await context.fetchJson(url.href, { headers }, "list workflow instances")
+    );
+    writeResult(Boolean(values.json), body, () => formatInstanceList(body), stdout);
     return;
   }
 
@@ -65,8 +69,10 @@ async function runWorkflows({ values, positionals, context }) {
     const url = new URL(context.nsUrl("workflows", worker, workflow, "instances", instanceId));
     if (values["include-steps"]) url.searchParams.set("includeSteps", "true");
     if (values["step-limit"]) url.searchParams.set("stepLimit", values["step-limit"]);
-    const body = await context.fetchJson(url.href, { headers }, "get workflow instance status");
-    writeResult(values.json, body, () => formatInstanceStatus(body), stdout);
+    const body = /** @type {Parameters<typeof formatInstanceStatus>[0]} */ (
+      await context.fetchJson(url.href, { headers }, "get workflow instance status")
+    );
+    writeResult(Boolean(values.json), body, () => formatInstanceStatus(body), stdout);
     return;
   }
 
@@ -81,12 +87,12 @@ async function runWorkflows({ values, positionals, context }) {
         action: `${subcommand} workflow instance "${ns}/${worker}/${workflow}/${instanceId}"`,
       });
     }
-    const body = await context.fetchJson(
+    const body = /** @type {{ id?: string, status?: string }} */ (await context.fetchJson(
       context.nsUrl("workflows", worker, workflow, "instances", instanceId, subcommand),
       { method: "POST", headers },
       `${subcommand} workflow instance`,
-    );
-    writeResult(values.json, body, () => [
+    ));
+    writeResult(Boolean(values.json), body, () => [
       `OK ${ns}/${worker}/${workflow}/${body.id || instanceId} ${subcommand} status=${body.status || "-"}`,
     ], stdout);
     return;
@@ -95,6 +101,10 @@ async function runWorkflows({ values, positionals, context }) {
   throw new CliError(`unknown workflows subcommand: ${subcommand}\n${usageText()}`);
 }
 
+/**
+ * @param {string[]} positionals
+ * @param {string} label
+ */
 function requireWorkflowRef(positionals, label) {
   requireNoExtraPositionals(positionals, 3, label);
   const worker = positionals[1];
@@ -103,6 +113,10 @@ function requireWorkflowRef(positionals, label) {
   return { worker, workflow };
 }
 
+/**
+ * @param {string[]} positionals
+ * @param {string} label
+ */
 function requireInstanceRef(positionals, label) {
   requireNoExtraPositionals(positionals, 4, label);
   const worker = positionals[1];
@@ -112,6 +126,11 @@ function requireInstanceRef(positionals, label) {
   return { worker, workflow, instanceId };
 }
 
+/**
+ * @param {string[]} positionals
+ * @param {number} expected
+ * @param {string} label
+ */
 function requireNoExtraPositionals(positionals, expected, label) {
   if (positionals.length > expected) {
     throw new CliError(`${label} received unexpected argument: ${positionals[expected]}`);

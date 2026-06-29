@@ -29,7 +29,26 @@ export const main = command.main;
 export const runSecretCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/**
+ * A deferred-reload warning surfaced by control on put/delete.
+ * @typedef {object} PromoteWarning
+ * @property {string} [kind]
+ * @property {string} [reason]
+ * @property {string} [nextPickup]
+ */
+
+/**
+ * The fields this command reads off control's /secrets responses. Control may
+ * return more; only these are consumed here.
+ * @typedef {object} SecretResponse
+ * @property {string[]} [keys]
+ * @property {boolean} [deleted]
+ * @property {string} [version]
+ * @property {string} [previousVersion]
+ * @property {PromoteWarning[]} [warnings]
+ */
+
+/** @param {{ values: { worker?: string, scope?: string, yes?: boolean, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runSecret({ values, positionals, context }) {
   const { stdout, stderr, stdin } = context;
 
@@ -52,14 +71,14 @@ async function runSecret({ values, positionals, context }) {
   }
 
   const { headers } = context.resolveControl();
-  const secretPath = hasWorker
+  const secretPath = isNonEmptyString(values.worker)
     ? ["worker", values.worker, "secrets"]
     : ["secrets"];
-  const scopeLabel = hasWorker ? `${ns}/${values.worker}` : `${ns} (ns)`;
+  const scopeLabel = isNonEmptyString(values.worker) ? `${ns}/${values.worker}` : `${ns} (ns)`;
 
   if (subcommand === "list") {
-    const body = await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list");
-    if (writeJsonOr(values.json, body, stdout)) return;
+    const body = /** @type {SecretResponse} */ (await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list"));
+    if (writeJsonOr(Boolean(values.json), body, stdout)) return;
     const keys = Array.isArray(body.keys) ? body.keys : [];
     if (keys.length === 0) writeStatusLine(stdout, "(no secrets)");
     else for (const k of keys) writeStatusLine(stdout, String(k));
@@ -73,12 +92,12 @@ async function runSecret({ values, positionals, context }) {
       prompt: `Enter secret value for ${scopeLabel}/${keyArg} (input hidden): `,
       stderr,
     });
-    const body = await context.fetchJson(context.nsUrl(...secretPath, keyArg), {
+    const body = /** @type {SecretResponse} */ (await context.fetchJson(context.nsUrl(...secretPath, keyArg), {
       method: "PUT",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ value }),
-    }, "put");
-    if (writeJsonOr(values.json, body, stdout)) return;
+    }, "put"));
+    if (writeJsonOr(Boolean(values.json), body, stdout)) return;
     const warning = pickPromoteWarning(body);
     if (warning) {
       writeStatusLine(stdout, `⚠ ${scopeLabel}/${keyArg} set — stored, reload deferred: ${warning.reason}`);
@@ -102,11 +121,11 @@ async function runSecret({ values, positionals, context }) {
       prompt: `Are you sure you want to delete secret "${scopeLabel}/${keyArg}"? [y/N] `,
       action: `delete secret "${scopeLabel}/${keyArg}"`,
     });
-    const body = await context.fetchJson(context.nsUrl(...secretPath, keyArg), {
+    const body = /** @type {SecretResponse} */ (await context.fetchJson(context.nsUrl(...secretPath, keyArg), {
       method: "DELETE",
       headers,
-    }, "delete");
-    if (writeJsonOr(values.json, body, stdout)) return;
+    }, "delete"));
+    if (writeJsonOr(Boolean(values.json), body, stdout)) return;
     const warning = pickPromoteWarning(body);
     if (!body.deleted && !warning) writeStatusLine(stdout, `(${keyArg} was not set)`);
     else if (warning && body.deleted) {
@@ -126,6 +145,10 @@ async function runSecret({ values, positionals, context }) {
   throw new CliError(`unknown subcommand: ${subcommand}`);
 }
 
+/**
+ * @param {SecretResponse} body
+ * @returns {PromoteWarning | null}
+ */
 function pickPromoteWarning(body) {
   const warnings = Array.isArray(body?.warnings) ? body.warnings : [];
   return warnings.find((w) => w?.kind === "promote_failed") || null;

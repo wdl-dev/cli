@@ -69,6 +69,10 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 
+/**
+ * @param {string[]} argv
+ * @returns {{ target: string | null, ns: string | null, worker: string | null, help: boolean }}
+ */
 function parseArgs(argv) {
   let parsed;
   try {
@@ -80,7 +84,7 @@ function parseArgs(argv) {
   } catch (err) {
     // node:util phrases this as "Unknown option '--x'."; re-map to the historical
     // "unknown flag: <flag>" wording (flag name best-effort from the message).
-    if (err && err.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
+    if (err instanceof Error && /** @type {{ code?: unknown }} */ (err).code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
       const flag = /'([^']+)'/.exec(err.message)?.[1] ?? "";
       throw new CliError(`unknown flag: ${flag}`);
     }
@@ -102,6 +106,10 @@ function parseArgs(argv) {
   };
 }
 
+/**
+ * @param {string} target
+ * @returns {{ targetDir: string, packageName: string, isInPlace: boolean }}
+ */
 function resolveTarget(target) {
   if (target === ".") {
     const targetDir = process.cwd();
@@ -118,6 +126,10 @@ function resolveTarget(target) {
   };
 }
 
+/**
+ * @param {string} value
+ * @param {string} label
+ */
 function validateNs(value, label) {
   if (!TENANT_NS_RE.test(value) || RESERVED_TENANT_NS.has(value) || isReservedNs(value)) {
     throw new CliError(
@@ -127,6 +139,10 @@ function validateNs(value, label) {
   }
 }
 
+/**
+ * @param {string} value
+ * @param {string} label
+ */
 function validateWorker(value, label) {
   if (!WORKER_NAME_REGEX.test(value)) {
     throw new CliError(
@@ -136,12 +152,16 @@ function validateWorker(value, label) {
   }
 }
 
+/**
+ * @param {string} dir
+ * @param {boolean} isInPlace
+ */
 async function ensureEmpty(dir, isInPlace) {
   let entries;
   try {
     entries = await fs.readdir(dir);
   } catch (err) {
-    if (err && err.code === "ENOENT") return;
+    if (err instanceof Error && /** @type {{ code?: unknown }} */ (err).code === "ENOENT") return;
     throw err;
   }
   const offending = entries.filter(name => !IGNORABLE_DIR_ENTRIES.has(name));
@@ -154,6 +174,10 @@ async function ensureEmpty(dir, isInPlace) {
   );
 }
 
+/**
+ * @param {string} targetDir
+ * @param {{ packageName: string, workerName: string, ns: string | null }} arg
+ */
 async function writeStarter(targetDir, { packageName, workerName, ns }) {
   const [wdlCliDep, wranglerDep] = await Promise.all([
     resolveWdlCliDep(process.env),
@@ -215,6 +239,7 @@ async function writeStarter(targetDir, { packageName, workerName, ns }) {
   ]);
 }
 
+/** @param {NodeJS.ProcessEnv} env */
 async function resolveWdlCliDep(env) {
   const localPath = env && env.WDL_CLI_LOCAL_PATH;
   if (isNonEmptyString(localPath)) {
@@ -232,22 +257,29 @@ async function resolveWranglerDep() {
   return dep;
 }
 
+/**
+ * @returns {Promise<{ version: string, dependencies?: Record<string, string> }>}
+ */
+/**
+ * @returns {Promise<{ version: string, dependencies?: Record<string, string> }>}
+ */
 async function readWdlCliPackage() {
   const text = await fs.readFile(path.join(CLI_ROOT, "package.json"), "utf8");
-  const parsed = JSON.parse(text);
+  const parsed = /** @type {{ version?: unknown, dependencies?: Record<string, string> }} */ (JSON.parse(text));
   if (typeof parsed.version !== "string" || parsed.version.length === 0) {
     throw new CliError("could not read wdl-cli version from package.json");
   }
-  return parsed;
+  return /** @type {{ version: string, dependencies?: Record<string, string> }} */ (parsed);
 }
 
+/** @param {string} targetDir */
 async function copyAgentsDoc(targetDir) {
   const src = path.join(CLI_ROOT, "templates", "AGENTS.md");
   const dest = path.join(targetDir, "AGENTS.md");
   try {
     await fs.copyFile(src, dest);
   } catch (err) {
-    if (err && err.code === "ENOENT") {
+    if (err instanceof Error && /** @type {{ code?: unknown }} */ (err).code === "ENOENT") {
       throw new CliError(
         `templates/AGENTS.md missing from the wdl-cli package. ` +
         `If you installed from npm, please re-install; ` +
@@ -258,6 +290,10 @@ async function copyAgentsDoc(targetDir) {
   }
 }
 
+/**
+ * @param {string} target
+ * @param {{ packageName: string, workerName: string, ns: string | null, isInPlace: boolean }} arg
+ */
 function printNextSteps(target, { packageName, workerName, ns, isInPlace }) {
   const url = `https://${ns || "<namespace>"}.<platform-domain>/${workerName}/`;
   const lines = [
@@ -289,6 +325,7 @@ function printNextSteps(target, { packageName, workerName, ns, isInPlace }) {
   console.log(lines.join("\n"));
 }
 
+/** @param {number} exitCode */
 function printHelp(exitCode) {
   console.log(formatHelp({
     usage: [

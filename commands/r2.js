@@ -38,9 +38,18 @@ export const main = command.main;
 export const runR2Command = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext & { stdoutStream: NodeJS.WritableStream } }} arg */
+/**
+ * @param {{
+ *   values: { prefix?: string, delimiter?: string, cursor?: string, limit?: string, out?: string, yes?: boolean, json?: boolean },
+ *   positionals: string[],
+ *   context: import("../lib/command.js").CommandContext,
+ * }} arg
+ */
 async function runR2({ values, positionals, context }) {
-  const { stdout, stdoutStream, stderr, stdin } = context;
+  const { stdout, stderr, stdin } = context;
+  const { stdoutStream } = /** @type {{ stdoutStream: NodeJS.WritableStream }} */ (
+    /** @type {unknown} */ (context)
+  );
 
   const [group, action, bucket, key] = positionals;
   const ns = context.resolveNamespace();
@@ -49,7 +58,7 @@ async function runR2({ values, positionals, context }) {
   const { headers } = context.resolveControl();
   // Object keys can contain "/" and must reject . / .. segments, so they use
   // encodeR2KeyPath rather than nsUrl's per-segment encodePath.
-  const objectUrl = (objectKey) =>
+  const objectUrl = (/** @type {string} */ objectKey) =>
     `${context.nsUrl("r2", "buckets", bucket, "objects")}/${encodeR2KeyPath(objectKey)}`;
 
   if (group === "buckets" && action === "list") {
@@ -57,8 +66,10 @@ async function runR2({ values, positionals, context }) {
       cursor: values.cursor,
       limit: values.limit,
     });
-    const body = await context.fetchJson(url, { headers }, "list R2 buckets");
-    writeResult(values.json, body, () => formatBucketList(body), stdout);
+    const body = /** @type {Parameters<typeof formatBucketList>[0]} */ (
+      await context.fetchJson(url, { headers }, "list R2 buckets")
+    );
+    writeResult(values.json === true, body, () => formatBucketList(body), stdout);
     return;
   }
 
@@ -70,8 +81,10 @@ async function runR2({ values, positionals, context }) {
       cursor: values.cursor,
       limit: values.limit,
     });
-    const body = await context.fetchJson(url, { headers }, "list R2 objects");
-    writeResult(values.json, body, () => formatObjectList(body), stdout);
+    const body = /** @type {Parameters<typeof formatObjectList>[0]} */ (
+      await context.fetchJson(url, { headers }, "list R2 objects")
+    );
+    writeResult(values.json === true, body, () => formatObjectList(body), stdout);
     return;
   }
 
@@ -84,11 +97,13 @@ async function runR2({ values, positionals, context }) {
       maxBodyBytes: UNLIMITED_CONTROL_BODY_BYTES,
       streamResponse: true,
     }, "get R2 object");
+    // streamResponse: true guarantees a body; narrow off the optional type.
+    const responseBody = /** @type {import("node:stream").Readable} */ (res.body);
     if (values.out) {
-      const bytesWritten = await writeBodyToFile(res.body, values.out);
+      const bytesWritten = await writeBodyToFile(responseBody, values.out);
       writeStatusLine(stdout, `OK wrote ${bytesWritten} bytes to ${values.out}`);
     } else {
-      await writeBodyToStdout(res.body, stdoutStream);
+      await writeBodyToStdout(responseBody, stdoutStream);
     }
     return;
   }
@@ -106,7 +121,7 @@ async function runR2({ values, positionals, context }) {
       key: objectKey,
       headers: res.headers,
     });
-    writeResult(values.json, body, () => formatObjectHead(body), stdout);
+    writeResult(values.json === true, body, () => formatObjectHead(body), stdout);
     return;
   }
 
@@ -120,11 +135,13 @@ async function runR2({ values, positionals, context }) {
       prompt: `Are you sure you want to delete R2 object "${ns}/${bucket}/${objectKey}"? [y/N] `,
       action: `delete R2 object "${ns}/${bucket}/${objectKey}"`,
     });
-    const body = await context.fetchJson(objectUrl(objectKey), {
-      method: "DELETE",
-      headers,
-    }, "delete R2 object");
-    writeResult(values.json, body, () => [
+    const body = /** @type {{ namespace?: string, bucket?: string, key?: string }} */ (
+      await context.fetchJson(objectUrl(objectKey), {
+        method: "DELETE",
+        headers,
+      }, "delete R2 object")
+    );
+    writeResult(values.json === true, body, () => [
       `OK ${body.namespace}/${body.bucket}/${body.key} deleted`,
     ], stdout);
     return;
@@ -133,6 +150,11 @@ async function runR2({ values, positionals, context }) {
   throw new CliError(`unknown r2 command: ${group} ${action}\n${usageText()}`);
 }
 
+/**
+ * @param {string} url
+ * @param {Record<string, string | undefined>} params
+ * @returns {string}
+ */
 function withQuery(url, params) {
   const u = new URL(url);
   for (const [key, value] of Object.entries(params)) {
@@ -141,6 +163,10 @@ function withQuery(url, params) {
   return u.toString();
 }
 
+/**
+ * @param {string | undefined} key
+ * @returns {string}
+ */
 function requireR2ObjectKey(key) {
   if (key == null || !String(key).trim()) {
     throw new CliError("R2 object key is required");
@@ -148,6 +174,7 @@ function requireR2ObjectKey(key) {
   return String(key);
 }
 
+/** @param {string} key */
 function encodeR2KeyPath(key) {
   const segments = String(key).split("/");
   if (segments.some((segment) => segment === "." || segment === "..")) {
@@ -159,6 +186,14 @@ function encodeR2KeyPath(key) {
   return segments.map((segment) => encodeURIComponent(segment)).join("/");
 }
 
+/**
+ * Either a `fetch`-style Headers object or a Node `IncomingHttpHeaders` bag.
+ * @typedef {Headers | import("node:http").IncomingHttpHeaders} HeaderSource
+ */
+
+/**
+ * @param {{ namespace: string, bucket: string, key: string, headers: HeaderSource }} arg
+ */
 function objectHeadFromHeaders({ namespace, bucket, key, headers }) {
   // null-prototype: a control-supplied `x-amz-meta-__proto__` header becomes a real
   // own key instead of being swallowed by Object.prototype's __proto__ setter.
@@ -189,29 +224,52 @@ function objectHeadFromHeaders({ namespace, bucket, key, headers }) {
   };
 }
 
+/**
+ * @param {HeaderSource} headers
+ * @param {string} name
+ * @returns {string | undefined}
+ */
 function getHeader(headers, name) {
   if (!headers) return undefined;
-  if (typeof headers.get === "function") return headers.get(name) || undefined;
-  return headers[name.toLowerCase()] || headers[name] || undefined;
+  if (headers instanceof Headers) return headers.get(name) || undefined;
+  // IncomingHttpHeaders values are string | string[]; the headers read here are
+  // single-valued response headers, so coerce to a single string for callers.
+  const value = headers[name.toLowerCase()] || headers[name];
+  if (!value) return undefined;
+  return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * @param {HeaderSource} headers
+ * @returns {Iterable<[string, unknown]>}
+ */
 function headerEntries(headers) {
   if (!headers) return [];
-  if (typeof headers.entries === "function") return headers.entries();
+  if (headers instanceof Headers) return headers.entries();
   return Object.entries(headers);
 }
 
+/** @param {string} etag */
 function stripEtag(etag) {
   const s = String(etag || "");
   return s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
 }
 
+/**
+ * @param {import("node:stream").Readable} body
+ * @param {NodeJS.WritableStream} stdoutStream
+ */
 async function writeBodyToStdout(body, stdoutStream) {
   for await (const chunk of body) {
     if (!stdoutStream.write(toBuffer(chunk))) await once(stdoutStream, "drain");
   }
 }
 
+/**
+ * @param {import("node:stream").Readable} body
+ * @param {string} outPath
+ * @returns {Promise<number>}
+ */
 async function writeBodyToFile(body, outPath) {
   let bytesWritten = 0;
   const counter = new Transform({
@@ -225,6 +283,10 @@ async function writeBodyToFile(body, outPath) {
   return bytesWritten;
 }
 
+/**
+ * @param {Buffer | string | Uint8Array} chunk
+ * @returns {Buffer}
+ */
 function toBuffer(chunk) {
   return Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 }

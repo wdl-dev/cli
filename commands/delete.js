@@ -27,7 +27,7 @@ export const main = command.main;
 export const runDeleteCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: { worker?: string, version?: string, "dry-run"?: boolean, yes?: boolean, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runDelete({ values, positionals, context }) {
   const { stdout, stderr, stdin } = context;
 
@@ -54,7 +54,7 @@ async function runDelete({ values, positionals, context }) {
       { method: "DELETE", headers },
       "delete version",
     );
-    writeResult(values.json, body, () => formatVersionDelete(body), stdout);
+    writeResult(values.json === true, body, () => formatVersionDelete(/** @type {Parameters<typeof formatVersionDelete>[0]} */ (body)), stdout);
     return;
   }
 
@@ -77,7 +77,7 @@ async function runDelete({ values, positionals, context }) {
       { method: "POST", headers },
       dryRun ? "dry-run delete worker" : "delete worker",
     );
-    writeResult(values.json, body, () => formatWorkerDelete(body), stdout);
+    writeResult(values.json === true, body, () => formatWorkerDelete(/** @type {Parameters<typeof formatWorkerDelete>[0]} */ (body)), stdout);
     return;
   }
 }

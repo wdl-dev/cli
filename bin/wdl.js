@@ -28,6 +28,7 @@ const REGISTRY = [initCmd, deployCmd, secretCmd, workersCmd, deleteCmd, d1Cmd, r
 // Alias -> canonical command name.
 const ALIASES = { secrets: "secret" };
 
+/** @type {Record<string, CommandModule>} */
 const COMMANDS = Object.fromEntries(REGISTRY.map((c) => [c.meta.name, c]));
 for (const [alias, target] of Object.entries(ALIASES)) COMMANDS[alias] = COMMANDS[target];
 
@@ -38,6 +39,19 @@ for (const c of REGISTRY) {
   if (!c.meta.parseOptions) throw new Error(`command "${c.meta.name}" is missing meta.parseOptions`);
 }
 
+/**
+ * One entry of {@link REGISTRY}: a command module exposing its run entrypoint
+ * and the metadata the dispatcher reads.
+ * @typedef {{
+ *   main: (argv?: string[]) => Promise<void>,
+ *   meta: { name: string, summary: string, autoloadEnv: boolean, parseOptions: import("node:util").ParseArgsOptionsConfig },
+ * }} CommandModule
+ */
+
+/**
+ * @param {string[]} [argv]
+ * @param {{ env?: NodeJS.ProcessEnv, loadEnv?: NonNullable<Parameters<typeof import("../lib/credentials.js").loadCliControlEnv>[1]>["loadEnv"] | null }} [deps]
+ */
 export async function main(argv = process.argv.slice(2), deps = {}) {
   const [command, ...rest] = argv;
 
@@ -60,7 +74,8 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   const scanned = scanCommandArgs(commandModule, rest);
   // Tests pass loadEnv: null to disable autoload; an injected loader (or the
   // real default when undefined) flows straight into loadCliControlEnv.
-  const loadEnvOverride = Object.hasOwn(deps, "loadEnv") ? deps.loadEnv : undefined;
+  /** @type {NonNullable<Parameters<typeof loadCliControlEnv>[1]>["loadEnv"]} */
+  const loadEnvOverride = (Object.hasOwn(deps, "loadEnv") ? deps.loadEnv : undefined) ?? undefined;
   const skipAutoload = Object.hasOwn(deps, "loadEnv") && !deps.loadEnv;
   // Help never needs credentials, so a malformed .env must not block it.
   if (!skipAutoload && commandModule.meta.autoloadEnv && !scanned.help) {
@@ -86,6 +101,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 // positional alias `wdl <command> [flags] help` — are recognized with the
 // framework's own isHelpAlias. strict:false never throws on argv input; only
 // a broken option schema can throw, and that should surface loudly.
+/**
+ * @param {CommandModule} commandModule
+ * @param {string[]} args
+ */
 function scanCommandArgs(commandModule, args) {
   const { values, positionals } = parseArgs({
     args,
@@ -108,8 +127,10 @@ function scanCommandArgs(commandModule, args) {
   };
 }
 
+/** @param {number} exitCode */
 function usage(exitCode) {
   // Aliases grouped by the command they point at, for the "(alias: …)" note.
+  /** @type {Record<string, string[]>} */
   const aliasesByTarget = {};
   for (const [alias, target] of Object.entries(ALIASES)) {
     (aliasesByTarget[target] ??= []).push(alias);

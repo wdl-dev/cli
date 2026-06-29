@@ -38,7 +38,7 @@ export function response(body, status = 200) {
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function mockDeps(body, env = { ADMIN_TOKEN: "tok" }) {
-  /** @type {Array<{ url: string, init: object }>} */
+  /** @type {ControlCall[]} */
   const calls = [];
   /** @type {string[]} */
   const lines = [];
@@ -49,7 +49,7 @@ export function mockDeps(body, env = { ADMIN_TOKEN: "tok" }) {
       env,
       /** @param {string} line */
       stdout: (line) => lines.push(line),
-      /** @param {string} url @param {object} [init] */
+      /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response(body);

@@ -39,17 +39,20 @@ export const runR2Command = command.run;
 export const meta = command.meta;
 
 /**
+ * `stdoutStream` is injected via this command's `defaults`.
+ * @typedef {import("../lib/command.js").CommandContext & { stdoutStream: NodeJS.WritableStream }} R2Context
+ */
+
+/**
  * @param {{
  *   values: { prefix?: string, delimiter?: string, cursor?: string, limit?: string, out?: string, yes?: boolean, json?: boolean },
  *   positionals: string[],
  *   context: import("../lib/command.js").CommandContext,
  * }} arg
  */
-async function runR2({ values, positionals, context }) {
-  const { stdout, stderr, stdin } = context;
-  const { stdoutStream } = /** @type {{ stdoutStream: NodeJS.WritableStream }} */ (
-    /** @type {unknown} */ (context)
-  );
+async function runR2({ values, positionals, context: baseContext }) {
+  const context = /** @type {R2Context} */ (baseContext);
+  const { stdout, stderr, stdin, stdoutStream } = context;
 
   const [group, action, bucket, key] = positionals;
   const ns = context.resolveNamespace();

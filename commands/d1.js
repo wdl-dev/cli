@@ -261,7 +261,7 @@ function resolveMigrationsDir({ values, env, cwd, databaseRef }) {
   try {
     loaded = loadWranglerConfig(cwd);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = err instanceof Error && err.message ? err.message : String(err);
     if (message.startsWith("no wrangler.")) {
       return fallback;
     }
@@ -277,7 +277,7 @@ function resolveMigrationsDir({ values, env, cwd, databaseRef }) {
     ({ cfg } = resolveWranglerConfig(loaded.cfg, selectedEnv, configRel));
     d1Bindings = parseD1DatabasesFromCfg(cfg, configRel);
   } catch (err) {
-    throw new CliError(err instanceof Error ? err.message : String(err));
+    throw new CliError(err instanceof Error && err.message ? err.message : String(err));
   }
   if (d1Bindings.length === 0) return fallback;
 

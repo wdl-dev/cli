@@ -159,12 +159,15 @@ export const main = command.main;
 export const runDeployCommand = command.run;
 export const meta = command.meta;
 
+/**
+ * `execFile` is injected via this command's `defaults`.
+ * @typedef {import("../lib/command.js").CommandContext & { execFile: typeof execFileSync }} DeployContext
+ */
+
 /** @param {{ values: { env?: string, verbose?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
-async function runDeploy({ values, positionals, context }) {
-  const { env, stdout, stderr, cwd } = context;
-  const { execFile } = /** @type {{ execFile: typeof execFileSync }} */ (
-    /** @type {unknown} */ (context)
-  );
+async function runDeploy({ values, positionals, context: baseContext }) {
+  const context = /** @type {DeployContext} */ (baseContext);
+  const { env, stdout, stderr, cwd, execFile } = context;
 
   const ns = context.resolveNamespace();
   const [projectDir] = positionals;

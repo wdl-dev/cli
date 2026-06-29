@@ -8,16 +8,7 @@ import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { mockDeps as sharedMockDeps, response } from "./helpers.js";
 
 /** @typedef {import("../../lib/control-fetch.js").ControlFetchInit} ControlFetchInit */
-/** @typedef {{ url: string, init: ControlFetchInit }} RecordedCall */
-
-// The shared mockDeps types recorded `init` as the broad `object`; the d1 tests
-// read concrete request fields (method/body/headers/timeoutMs), so view a
-// recorded call through the control-fetch init shape it actually carries.
-/**
- * @param {{ url: string, init: object }} call
- * @returns {RecordedCall}
- */
-const asCall = (call) => /** @type {RecordedCall} */ (call);
+/** @typedef {import("./helpers.js").ControlCall} RecordedCall */
 
 // Request bodies in these tests are always JSON strings; narrow the broader
 // `body` union before parsing.
@@ -58,7 +49,7 @@ test("d1 list calls the namespace database endpoint", async () => {
   await runD1Command(["list", "--control-url", "http://ctl.test"], deps);
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases");
-  assert.deepEqual(asCall(calls[0]).init.headers, { "x-admin-token": "tok" });
+  assert.deepEqual(calls[0].init.headers, { "x-admin-token": "tok" });
   assert.deepEqual(lines, ["d1_main\tname=main\tcreated=today"]);
 });
 
@@ -99,8 +90,8 @@ test("d1 create posts a database name", async () => {
 
   await runD1Command(["create", "main", "--control-url", "http://ctl.test"], deps);
 
-  assert.equal(asCall(calls[0]).init.method, "POST");
-  assert.deepEqual(parseBody(asCall(calls[0]).init.body), { databaseName: "main" });
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(parseBody(calls[0].init.body), { databaseName: "main" });
   assert.deepEqual(lines, ["OK demo/d1_main created name=main"]);
 });
 
@@ -121,9 +112,9 @@ test("d1 execute sends SQL mode and JSON params", async () => {
   ], deps);
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/query");
-  assert.equal(asCall(calls[0]).init.method, "POST");
-  assert.equal(asCall(calls[0]).init.timeoutMs, LONG_CONTROL_TIMEOUT_MS);
-  assert.deepEqual(parseBody(asCall(calls[0]).init.body), {
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.timeoutMs, LONG_CONTROL_TIMEOUT_MS);
+  assert.deepEqual(parseBody(calls[0].init.body), {
     sql: "select ? as n",
     mode: "all",
     params: [1],

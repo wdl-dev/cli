@@ -1776,6 +1776,34 @@ test("runDeployCommand preserves prototype-shaped binding keys for control valid
   }
 });
 
+test("runDeployCommand rejects a non-table [assets] before bundling", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-assets-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      assets: "public",
+    }));
+
+    let execCalled = false;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        execFile: () => {
+          execCalled = true;
+          throw new Error("execFile should not be called");
+        },
+      }),
+      { message: "wrangler.json: [assets] must be a table" }
+    );
+    assert.equal(execCalled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runDeployCommand rejects non-object vars before bundling", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-vars-"));
   try {

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+### Changed
+
+- `wdl d1 execute` now requires exactly one SQL source (`--sql` or `--file`)
+  and rejects empty SQL locally before contacting control. Even `--sql ""`
+  conflicts with `--file`.
+- `wdl deploy` now rejects more malformed Wrangler config locally instead of
+  silently dropping invalid input: non-array `kv_namespaces`, malformed KV
+  entries, present-but-non-table `[assets]`, and several validated fields that
+  previously reached the manifest with loose types. Wrangler local-dev KV
+  fields `preview_id` and `remote` remain allowed but are ignored by deploy.
+
 ## 1.2.2
 
 ### Security

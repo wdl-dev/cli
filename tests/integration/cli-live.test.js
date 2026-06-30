@@ -199,10 +199,7 @@ test("live CLI integration covers command surface against a WDL control plane", 
      */
     const run = (args, options = {}) => runWdl(args, {
       cwd: options.cwd || CLI_ROOT,
-      env: {
-        ...commonEnv,
-        ...(options.env || {}),
-      },
+      env: options.env ?? commonEnv,
       input: options.input,
       timeoutMs: options.timeoutMs,
     });
@@ -248,6 +245,9 @@ test("live CLI integration covers command surface against a WDL control plane", 
       assert.equal(/** @type {TokenListEntry[]} */ (tokenList)[0]?.namespace, ns);
       run(["token", "use", ns], { env: noCliEnv });
       storeEnv = noCliEnv;
+      assert.equal(storeEnv.CONTROL_URL, undefined);
+      assert.equal(storeEnv.ADMIN_TOKEN, undefined);
+      assert.equal(storeEnv.WDL_NS, undefined);
     });
 
     await step("config, whoami, and doctor commands", () => {

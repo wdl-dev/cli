@@ -105,7 +105,7 @@ wdl d1 execute main --sql "DELETE FROM tmp" --mode run   # all | raw | run | exe
 
 `wdl d1 execute` 既能读也能写。破坏性语句之前先跑只读版本（例如 `DELETE` 之前先 `SELECT COUNT(*)`）。
 
-`--sql` 提供的 SQL 或 `--file` 读到的 SQL 必须非空。
+`--sql` 和 `--file` 必须二选一（即使是 `--sql ""` 也会和 `--file` 互斥）。被选中的 SQL 来源必须非空。
 
 `--mode` 选结果形态（`all` / `raw` / `run` / `exec`）；`exec` 跑一批语句，不接受 `--params`——这个组合 CLI 会在本地直接拒掉。
 

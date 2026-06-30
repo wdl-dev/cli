@@ -379,7 +379,7 @@ wdl d1 migrations apply main
 wdl d1 delete main
 ```
 
-`wdl d1 execute` 要求 `--sql` 或 `--file` 提供非空 SQL。
+`wdl d1 execute` 要求 `--sql` 和 `--file` 二选一（即使是 `--sql ""` 也会和 `--file` 互斥），且被选中的 SQL 来源必须非空。
 
 `wdl d1 delete` 默认会要求确认。自动化脚本里只有在已有独立安全检查后，才建议传 `--yes`。
 

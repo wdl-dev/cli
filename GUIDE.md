@@ -536,7 +536,9 @@ wdl d1 migrations apply main
 wdl d1 delete main
 ```
 
-`wdl d1 execute` requires non-empty SQL from `--sql` or `--file`.
+`wdl d1 execute` requires exactly one of `--sql` or `--file` (even
+`--sql ""` conflicts with `--file`), and the selected SQL source must be
+non-empty.
 
 `wdl d1 delete` asks for confirmation by default. In automation, pass `--yes`
 only after a separate safety check.

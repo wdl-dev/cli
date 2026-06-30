@@ -481,6 +481,8 @@ test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id"
     [{ binding: "KV", id: "abc" }]
   );
   assert.deepEqual(
+    // KV ids are control-plane resource ids, not runtime binding names; keep
+    // the long-standing whitespace trim explicit and intentional.
     parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "abc " }] }),
     [{ binding: "KV", id: "abc" }]
   );

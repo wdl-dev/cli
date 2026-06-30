@@ -501,9 +501,13 @@ test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id"
     () => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", bindng: "typo" }] }),
     /unknown field\(s\): bindng/
   );
-  // Wrangler's preview_id is allowed but ignored
+  // Wrangler's local-dev keys (preview_id, remote) are allowed but ignored
   assert.deepEqual(
     parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", preview_id: "p" }] }),
+    [{ binding: "KV", id: "x" }]
+  );
+  assert.deepEqual(
+    parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", remote: true }] }),
     [{ binding: "KV", id: "x" }]
   );
 });

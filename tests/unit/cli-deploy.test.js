@@ -18,6 +18,7 @@ import {
   parseDurableObjectsFromCfg,
   parseExportsFromCfg,
   parseJsonc,
+  parseKvNamespacesFromCfg,
   parsePlatformBindingsFromCfg,
   parseQueues,
   parseR2BucketsFromCfg,
@@ -470,6 +471,26 @@ test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays"
     () => collectRoutes({ route: "a", routes: ["b"] }, "wrangler.toml"),
     /specify either "route" or "routes"/
   );
+});
+
+test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id", () => {
+  assert.deepEqual(parseKvNamespacesFromCfg({}), []);
+  assert.deepEqual(parseKvNamespacesFromCfg({ kv_namespaces: [] }), []);
+  assert.deepEqual(
+    parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "abc" }] }),
+    [{ binding: "KV", id: "abc" }]
+  );
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: {} }), /must be an array/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [null] }), /entry must be a table/);
+  // binding: missing / empty / non-string
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ id: "x" }] }), /needs a non-empty string 'binding'/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "", id: "x" }] }), /needs a non-empty string 'binding'/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: ["KV"], id: "x" }] }), /needs a non-empty string 'binding'/);
+  // id: missing / non-string
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV" }] }), /'id' must be a non-empty string/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: 123 }] }), /'id' must be a non-empty string/);
+  // binding name grammar still enforced
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "bad-kv", id: "x" }] }), /binding must match/);
 });
 
 test("parseServicesFromCfg: parses wrangler [[services]] entries", () => {

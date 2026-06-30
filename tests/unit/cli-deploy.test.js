@@ -480,18 +480,15 @@ test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id"
     parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "abc" }] }),
     [{ binding: "KV", id: "abc" }]
   );
-  // stored values are trimmed, like the d1/r2 parsers
   assert.deepEqual(
     parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "abc " }] }),
     [{ binding: "KV", id: "abc" }]
   );
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: {} }), /must be an array/);
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [null] }), /entry must be a table/);
-  // binding: missing / empty / non-string
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ id: "x" }] }), /needs a non-empty string 'binding'/);
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "", id: "x" }] }), /needs a non-empty string 'binding'/);
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: ["KV"], id: "x" }] }), /needs a non-empty string 'binding'/);
-  // id: missing / non-string
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV" }] }), /'id' must be a non-empty string/);
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: 123 }] }), /'id' must be a non-empty string/);
   // binding name grammar still enforced

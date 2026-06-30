@@ -18,6 +18,7 @@ import {
   parseDurableObjectsFromCfg,
   parseExportsFromCfg,
   parseJsonc,
+  parseKvNamespacesFromCfg,
   parsePlatformBindingsFromCfg,
   parseQueues,
   parseR2BucketsFromCfg,
@@ -469,6 +470,42 @@ test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays"
   assert.throws(
     () => collectRoutes({ route: "a", routes: ["b"] }, "wrangler.toml"),
     /specify either "route" or "routes"/
+  );
+});
+
+test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id", () => {
+  assert.deepEqual(parseKvNamespacesFromCfg({}), []);
+  assert.deepEqual(parseKvNamespacesFromCfg({ kv_namespaces: [] }), []);
+  assert.deepEqual(
+    parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "abc" }] }),
+    [{ binding: "KV", id: "abc" }]
+  );
+  assert.deepEqual(
+    parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "abc " }] }),
+    [{ binding: "KV", id: "abc" }]
+  );
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: {} }), /must be an array/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [null] }), /entry must be a table/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ id: "x" }] }), /needs a non-empty string 'binding'/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "", id: "x" }] }), /needs a non-empty string 'binding'/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: ["KV"], id: "x" }] }), /needs a non-empty string 'binding'/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV" }] }), /'id' must be a non-empty string/);
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: 123 }] }), /'id' must be a non-empty string/);
+  // binding name grammar still enforced
+  assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "bad-kv", id: "x" }] }), /binding must match/);
+  // unknown keys (typos) are rejected, like the d1/r2 parsers
+  assert.throws(
+    () => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", bindng: "typo" }] }),
+    /unknown field\(s\): bindng/
+  );
+  // Wrangler's local-dev keys (preview_id, remote) are allowed but ignored
+  assert.deepEqual(
+    parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", preview_id: "p" }] }),
+    [{ binding: "KV", id: "x" }]
+  );
+  assert.deepEqual(
+    parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", remote: true }] }),
+    [{ binding: "KV", id: "x" }]
   );
 });
 
@@ -1745,6 +1782,34 @@ test("runDeployCommand preserves prototype-shaped binding keys for control valid
     const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
     assert.equal(Object.hasOwn(manifest.bindings, "__proto__"), true);
     assert.deepEqual(manifest.bindings["__proto__"], { type: "kv", id: "kv-id" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand rejects a non-table [assets] before bundling", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-assets-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      assets: "public",
+    }));
+
+    let execCalled = false;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        execFile: () => {
+          execCalled = true;
+          throw new Error("execFile should not be called");
+        },
+      }),
+      { message: "wrangler.json: [assets] must be a table" }
+    );
+    assert.equal(execCalled, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

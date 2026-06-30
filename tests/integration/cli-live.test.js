@@ -11,6 +11,112 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { controlFetch } from "../../lib/control-fetch.js";
 
+/**
+ * @typedef {object} LiveContext
+ * @property {string} controlUrl
+ * @property {string} controlConnectHost
+ * @property {string} adminToken
+ * @property {string} issuerToken
+ * @property {string} template
+ * @property {string} platformDomain
+ * @property {string} gatewayOrigin
+ */
+
+/**
+ * A provisioned tenant token plus optional cleanup hooks.
+ * @typedef {object} TenantToken
+ * @property {string} ns
+ * @property {string} token
+ * @property {string} [tokenId]
+ * @property {(() => Promise<void>) | undefined} [revoke]
+ */
+
+/**
+ * Options accepted by the per-test `run`/`runJson` wrappers.
+ * @typedef {object} RunWrapperOptions
+ * @property {string} [cwd]
+ * @property {NodeJS.ProcessEnv | null} [env]
+ * @property {string} [input]
+ * @property {number} [timeoutMs]
+ */
+
+/**
+ * The captured stdout/stderr of a finished `wdl` invocation.
+ * @typedef {object} RunResult
+ * @property {string} stdout
+ * @property {string} stderr
+ */
+
+/**
+ * The buffered result of a single raw tenant HTTP request.
+ * @typedef {object} TenantResponse
+ * @property {number} status
+ * @property {import("node:http").IncomingHttpHeaders} headers
+ * @property {string} body
+ */
+
+/**
+ * Request init for {@link controlJson}.
+ * @typedef {object} ControlInit
+ * @property {string} [method]
+ * @property {unknown} [body]
+ */
+
+/**
+ * Request init for {@link tenantRequest}/{@link tenantJson}.
+ * @typedef {object} TenantInit
+ * @property {string} [method]
+ * @property {string | null} [body]
+ * @property {Record<string, string>} [headers]
+ */
+
+/**
+ * @typedef {object} TokenListEntry
+ * @property {string} [namespace]
+ */
+
+/**
+ * @typedef {{ value: string }} ConfigField
+ * @typedef {{ namespace: ConfigField }} ConfigExplain
+ * @typedef {{ namespace: ConfigField & { matchesConfigured: boolean } }} WhoamiResult
+ * @typedef {{ checks: unknown[] }} DoctorResult
+ */
+
+/**
+ * @typedef {object} D1CreateResult
+ * @property {string} databaseName
+ * @typedef {{ databases: Array<{ databaseName: string }> }} D1ListResult
+ */
+
+/**
+ * @typedef {{ keys: string[] }} SecretListResult
+ */
+
+/**
+ * @typedef {{ buckets: Array<{ name: string }> }} R2BucketsResult
+ * @typedef {{ objects: Array<{ key: string }> }} R2ObjectsResult
+ * @typedef {{ key: string }} R2HeadResult
+ */
+
+/**
+ * @typedef {object} WorkerEntry
+ * @property {string} name
+ * @property {string} [activeVersion]
+ * @property {string[]} versions
+ * @typedef {{ workers: WorkerEntry[] }} WorkersListResult
+ */
+
+/**
+ * @typedef {{ workflows: Array<{ worker: string, name: string }> }} WorkflowsListResult
+ * @typedef {{ status: string }} WorkflowStatusResult
+ */
+
+/**
+ * @typedef {{ worker?: string }} TenantHealthBody
+ * @typedef {{ name?: string }} TenantD1Body
+ * @typedef {{ key?: string }} TenantR2Body
+ */
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = path.resolve(__dirname, "../..");
 const WDL_BIN = path.join(CLI_ROOT, "bin", "wdl.js");
@@ -27,25 +133,37 @@ test("live CLI integration covers command surface against a WDL control plane", 
 }, async (t) => {
   const ctx = createLiveContext();
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "wdl-cli-live-"));
+  /** @type {Array<() => Promise<void>>} */
   const cleanup = [];
   let appDir = "";
   let wfDir = "";
   let initDir = "";
+  /** @type {NodeJS.ProcessEnv | null} */
   let storeEnv = null;
   const cleaned = {
     appWorker: false,
     d1: false,
   };
 
+  /**
+   * @param {string} label
+   * @param {() => unknown} fn
+   */
   const cleanupStep = (label, fn) => {
     cleanup.push(async () => {
       try {
         await fn();
       } catch (err) {
-        console.error(`cleanup warning (${label}): ${err?.message || String(err)}`);
+        console.error(`cleanup warning (${label}): ${errorMessage(err)}`);
       }
     });
   };
+  /**
+   * @template T
+   * @param {string} name
+   * @param {() => T | Promise<T>} fn
+   * @returns {Promise<T>}
+   */
   const step = (name, fn) => runStep(t, name, fn);
 
   try {
@@ -74,6 +192,11 @@ test("live CLI integration covers command surface against a WDL control plane", 
       WDL_NS: ns,
     });
 
+    /**
+     * @param {string[]} args
+     * @param {RunWrapperOptions} [options]
+     * @returns {RunResult}
+     */
     const run = (args, options = {}) => runWdl(args, {
       cwd: options.cwd || CLI_ROOT,
       env: {
@@ -83,6 +206,12 @@ test("live CLI integration covers command surface against a WDL control plane", 
       input: options.input,
       timeoutMs: options.timeoutMs,
     });
+    /**
+     * @template [T=unknown]
+     * @param {string[]} args
+     * @param {RunWrapperOptions} [options]
+     * @returns {T}
+     */
     const runJson = (args, options = {}) => JSON.parse(run(args, options).stdout);
 
     await step("top-level help and command help", () => {
@@ -116,18 +245,18 @@ test("live CLI integration covers command surface against a WDL control plane", 
       const tokenList = runJson(["token", "list", "--json"], {
         env: noCliEnv,
       });
-      assert.equal(tokenList[0]?.namespace, ns);
+      assert.equal(/** @type {TokenListEntry[]} */ (tokenList)[0]?.namespace, ns);
       run(["token", "use", ns], { env: noCliEnv });
       storeEnv = noCliEnv;
     });
 
     await step("config, whoami, and doctor commands", () => {
-      const config = runJson(["config", "explain", "--json"], { env: storeEnv });
+      const config = /** @type {ConfigExplain} */ (runJson(["config", "explain", "--json"], { env: storeEnv }));
       assert.equal(config.namespace.value, ns);
-      const whoami = runJson(["whoami", "--json"], { env: storeEnv });
+      const whoami = /** @type {WhoamiResult} */ (runJson(["whoami", "--json"], { env: storeEnv }));
       assert.equal(whoami.namespace.value, ns);
       assert.equal(whoami.namespace.matchesConfigured, true);
-      const doctor = runJson(["doctor", "--json"], { env: storeEnv, cwd: initDir });
+      const doctor = /** @type {DoctorResult} */ (runJson(["doctor", "--json"], { env: storeEnv, cwd: initDir }));
       assert.ok(Array.isArray(doctor.checks));
     });
 
@@ -145,8 +274,9 @@ test("live CLI integration covers command surface against a WDL control plane", 
     cleanupStep("delete workflow worker", () => {
       try {
         run(["delete", "worker", wfWorker, "--yes", "--json"], { env: directTenantEnv });
-      } catch (err) {
-        if (String(err?.message || err).includes("workflow_instances_active")) {
+      } catch (/** @type {unknown} */ err) {
+        const message = err instanceof Error ? err.message : undefined;
+        if (String(message || err).includes("workflow_instances_active")) {
           console.error(`cleanup note: ${ns}/${wfWorker} is retained until workflow instance retention expires`);
           return;
         }
@@ -155,9 +285,9 @@ test("live CLI integration covers command surface against a WDL control plane", 
     });
 
     await step("d1 commands create, migrate, list, execute", () => {
-      const createdDb = runJson(["d1", "create", dbName, "--json"], { env: storeEnv });
+      const createdDb = /** @type {D1CreateResult} */ (runJson(["d1", "create", dbName, "--json"], { env: storeEnv }));
       assert.equal(createdDb.databaseName, dbName);
-      assert.ok(runJson(["d1", "list", "--json"], { env: storeEnv }).databases.some((db) =>
+      assert.ok(/** @type {D1ListResult} */ (runJson(["d1", "list", "--json"], { env: storeEnv })).databases.some((db) =>
         db.databaseName === dbName
       ));
       runJson(["d1", "migrations", "status", dbName, "--dir", "migrations", "--json"], {
@@ -177,7 +307,8 @@ test("live CLI integration covers command surface against a WDL control plane", 
     await step("deploy command publishes app worker", async () => {
       const firstDeploy = run(["deploy", appDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
       assertDeployPrintedLiveVersion(firstDeploy.stdout);
-      await waitForTenantJson(ctx, ns, appWorker, "/health", (body) => body.worker === appWorker);
+      await waitForTenantJson(ctx, ns, appWorker, "/health", (body) =>
+        /** @type {TenantHealthBody} */ (body).worker === appWorker);
     });
 
     await step("secret and secrets commands", () => {
@@ -186,7 +317,8 @@ test("live CLI integration covers command surface against a WDL control plane", 
         env: storeEnv,
       });
       assert.ok(
-        runJson(["secret", "list", "--scope", "ns", "--json"], { env: storeEnv }).keys.includes("LIVE_NS_SECRET")
+        /** @type {SecretListResult} */ (runJson(["secret", "list", "--scope", "ns", "--json"], { env: storeEnv }))
+          .keys.includes("LIVE_NS_SECRET")
       );
       run(["secrets", "list", "--scope", "ns"], { env: storeEnv });
 
@@ -195,18 +327,22 @@ test("live CLI integration covers command surface against a WDL control plane", 
         env: storeEnv,
       });
       assert.ok(
-        runJson(["secret", "list", "--worker", appWorker, "--json"], { env: storeEnv })
+        /** @type {SecretListResult} */ (runJson(["secret", "list", "--worker", appWorker, "--json"], { env: storeEnv }))
           .keys.includes("LIVE_WORKER_SECRET")
       );
     });
 
     await step("tenant runtime exercises D1, R2, and KV bindings", async () => {
-      const d1ViaWorker = await tenantJson(ctx, ns, appWorker, "/d1?name=alice", { method: "POST" });
+      const d1ViaWorker = /** @type {TenantD1Body} */ (
+        await tenantJson(ctx, ns, appWorker, "/d1?name=alice", { method: "POST" })
+      );
       assert.equal(d1ViaWorker.name, "alice");
 
-      const r2Put = await tenantJson(ctx, ns, appWorker, `/r2?key=${encodeURIComponent(objectKey)}`, {
-        method: "POST",
-      });
+      const r2Put = /** @type {TenantR2Body} */ (
+        await tenantJson(ctx, ns, appWorker, `/r2?key=${encodeURIComponent(objectKey)}`, {
+          method: "POST",
+        })
+      );
       assert.equal(r2Put.key, objectKey);
 
       const kvPut = await tenantJson(ctx, ns, appWorker, "/kv?key=counter");
@@ -214,11 +350,12 @@ test("live CLI integration covers command surface against a WDL control plane", 
     });
 
     await step("r2 commands list, head, get, delete objects", () => {
-      assert.ok(runJson(["r2", "buckets", "list", "--json"], { env: storeEnv }).buckets.some((b) => b.name === bucket));
-      assert.ok(runJson(["r2", "objects", "list", bucket, "--prefix", `objects/${ns}/`, "--json"], {
+      assert.ok(/** @type {R2BucketsResult} */ (runJson(["r2", "buckets", "list", "--json"], { env: storeEnv }))
+        .buckets.some((b) => b.name === bucket));
+      assert.ok(/** @type {R2ObjectsResult} */ (runJson(["r2", "objects", "list", bucket, "--prefix", `objects/${ns}/`, "--json"], {
         env: storeEnv,
-      }).objects.some((obj) => obj.key === objectKey));
-      assert.equal(runJson(["r2", "objects", "head", bucket, objectKey, "--json"], { env: storeEnv }).key, objectKey);
+      })).objects.some((obj) => obj.key === objectKey));
+      assert.equal(/** @type {R2HeadResult} */ (runJson(["r2", "objects", "head", bucket, objectKey, "--json"], { env: storeEnv })).key, objectKey);
       const outFile = path.join(tempRoot, "r2-object.txt");
       run(["r2", "objects", "get", bucket, objectKey, "--out", outFile], { env: storeEnv });
       assert.equal(readFileSync(outFile, "utf8"), "live-r2-body");
@@ -226,14 +363,16 @@ test("live CLI integration covers command surface against a WDL control plane", 
     });
 
     await step("tail command receives live logs", async () => {
-      await assertTailReceivesLog({ ctx, ns, worker: appWorker, env: storeEnv });
+      await assertTailReceivesLog({
+        ctx, ns, worker: appWorker, env: /** @type {NodeJS.ProcessEnv} */ (storeEnv),
+      });
     });
 
     await step("workers and delete version commands", () => {
       writeAppRevision(appDir, appWorker, "v2");
       const secondDeploy = run(["deploy", appDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
       assertDeployPrintedLiveVersion(secondDeploy.stdout);
-      const workers = runJson(["workers", "--json"], { env: storeEnv });
+      const workers = /** @type {WorkersListResult} */ (runJson(["workers", "--json"], { env: storeEnv }));
       const app = workers.workers.find((worker) => worker.name === appWorker);
       assert.ok(app?.activeVersion, `workers list did not include an active version for ${appWorker}`);
       assert.ok(app.versions.includes(app.activeVersion));
@@ -250,10 +389,12 @@ test("live CLI integration covers command surface against a WDL control plane", 
 
     await step("workflows commands", async () => {
       run(["deploy", wfDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
-      assert.ok(runJson(["workflows", "list", "--json"], { env: storeEnv }).workflows.some((wf) =>
-        wf.worker === wfWorker && wf.name === "orders"
-      ));
-      await waitForTenantJson(ctx, ns, wfWorker, "/health", (body) => body.worker === "workflow");
+      assert.ok(/** @type {WorkflowsListResult} */ (runJson(["workflows", "list", "--json"], { env: storeEnv }))
+        .workflows.some((wf) =>
+          wf.worker === wfWorker && wf.name === "orders"
+        ));
+      await waitForTenantJson(ctx, ns, wfWorker, "/health", (body) =>
+        /** @type {TenantHealthBody} */ (body).worker === "workflow");
       await tenantJson(ctx, ns, wfWorker, "/workflow/start?id=live-wait&wait=1");
       await waitForWorkflowStatus(runJson, storeEnv, wfWorker, "orders", "live-wait", ["waiting", "queued", "running"]);
       runJson(["workflows", "instances", wfWorker, "orders", "--limit", "5", "--json"], { env: storeEnv });
@@ -280,6 +421,7 @@ test("live CLI integration covers command surface against a WDL control plane", 
   }
 });
 
+/** @returns {LiveContext} */
 function createLiveContext() {
   const controlUrl = normalizeControlUrl(process.env.WDL_LIVE_CONTROL_URL || DEFAULT_LOCAL_CONTROL_URL);
   const controlHost = new URL(controlUrl).hostname;
@@ -303,11 +445,17 @@ function createLiveContext() {
   };
 }
 
+/** @param {string} value */
 function normalizeControlUrl(value) {
   const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`;
   return withScheme.replace(/\/+$/, "");
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @param {NodeJS.ProcessEnv} [overlay]
+ * @returns {NodeJS.ProcessEnv}
+ */
 function integrationEnv(ctx, overlay = {}) {
   /** @type {NodeJS.ProcessEnv} */
   const env = {
@@ -334,6 +482,10 @@ function integrationEnv(ctx, overlay = {}) {
   return env;
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
 function withoutCliControlEnv(env) {
   const clean = { ...env };
   delete clean.ADMIN_TOKEN;
@@ -342,6 +494,11 @@ function withoutCliControlEnv(env) {
   return clean;
 }
 
+/**
+ * @param {string[]} args
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv, input?: string, timeoutMs?: number }} options
+ * @returns {RunResult}
+ */
 function runWdl(args, { cwd, env, input = "", timeoutMs = 120_000 }) {
   const result = spawnSync(process.execPath, [WDL_BIN, ...args], {
     cwd,
@@ -387,8 +544,10 @@ async function runStep(t, name, fn) {
   return /** @type {T} */ (result);
 }
 
+/** @param {LiveContext} ctx */
 async function assertControlReachable(ctx) {
   if (!ctx.adminToken) return;
+  /** @type {unknown} */
   let body;
   try {
     body = await controlJson(ctx, "/whoami", ctx.adminToken);
@@ -396,13 +555,17 @@ async function assertControlReachable(ctx) {
     throw new Error(
       `live integration preflight could not reach ${ctx.controlUrl}; ` +
       `start the local WDL dev stack or set WDL_LIVE_CONTROL_URL / token env vars. ` +
-      `Underlying error: ${err?.message || String(err)}`,
+      `Underlying error: ${errorMessage(err)}`,
       { cause: err }
     );
   }
-  assert.equal(body.ok, true);
+  assert.equal(/** @type {{ ok?: unknown }} */ (body).ok, true);
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @returns {Promise<TenantToken>}
+ */
 async function provisionTenantToken(ctx) {
   if (process.env.WDL_LIVE_TENANT_TOKEN) {
     const ns = process.env.WDL_LIVE_NS || `cli-it-${randomBytes(3).toString("hex")}`;
@@ -417,7 +580,7 @@ async function provisionTenantToken(ctx) {
     throw new Error("WDL live integration needs WDL_LIVE_ISSUER_TOKEN, WDL_LIVE_TENANT_TOKEN, or an admin token");
   }
   const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
-  const issuer = await controlJson(ctx, "/auth/tokens", ctx.adminToken, {
+  const issuer = /** @type {{ token: string, tokenId?: string }} */ (await controlJson(ctx, "/auth/tokens", ctx.adminToken, {
     method: "POST",
     body: {
       kind: "token-issuer",
@@ -425,7 +588,7 @@ async function provisionTenantToken(ctx) {
       label: "cli live integration issuer",
       expiresAt,
     },
-  });
+  }));
   let delegated;
   try {
     delegated = await issueDelegatedTenantToken(ctx, issuer.token);
@@ -434,7 +597,7 @@ async function provisionTenantToken(ctx) {
       await revokeIssuedTokens(ctx, [issuer.tokenId]);
     } catch (revokeErr) {
       console.error(
-        `cleanup warning (temporary issuer token): ${revokeErr?.message || String(revokeErr)}`
+        `cleanup warning (temporary issuer token): ${errorMessage(revokeErr)}`
       );
     }
     throw err;
@@ -447,23 +610,35 @@ async function provisionTenantToken(ctx) {
   };
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @param {string} issuerToken
+ * @returns {Promise<{ ns: string, token: string, tokenId?: string }>}
+ */
 async function issueDelegatedTenantToken(ctx, issuerToken) {
   try {
-    return await controlJson(ctx, "/auth/delegated-tokens", issuerToken, {
-      method: "POST",
-      body: { template: ctx.template },
-    });
+    return /** @type {{ ns: string, token: string, tokenId?: string }} */ (
+      await controlJson(ctx, "/auth/delegated-tokens", issuerToken, {
+        method: "POST",
+        body: { template: ctx.template },
+      })
+    );
   } catch (err) {
     throw new Error(
       `live integration could not issue delegated token from ${ctx.controlUrl}; ` +
       `verify the control plane is reachable and the issuer token allows template ${ctx.template}. ` +
-      `Underlying error: ${err?.message || String(err)}`,
+      `Underlying error: ${errorMessage(err)}`,
       { cause: err }
     );
   }
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @param {Array<string | undefined>} tokenIds
+ */
 async function revokeIssuedTokens(ctx, tokenIds) {
+  /** @type {unknown} */
   let firstError = null;
   for (const tokenId of tokenIds) {
     if (tokenId) {
@@ -477,8 +652,17 @@ async function revokeIssuedTokens(ctx, tokenIds) {
   if (firstError) throw firstError;
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @param {string} pathName
+ * @param {string} token
+ * @param {ControlInit} [init]
+ * @returns {Promise<unknown>}
+ */
 async function controlJson(ctx, pathName, token, init = {}) {
+  /** @type {Record<string, string>} */
   const headers = { "x-admin-token": token };
+  /** @type {string | undefined} */
   let body;
   if (init.body !== undefined) {
     headers["content-type"] = "application/json";
@@ -502,6 +686,11 @@ async function controlJson(ctx, pathName, token, init = {}) {
   return parsed;
 }
 
+/**
+ * @param {string} root
+ * @param {{ worker: string, dbName: string, bucket: string, kvId: string }} fixture
+ * @returns {string}
+ */
 function writeAppProject(root, { worker, dbName, bucket, kvId }) {
   const dir = path.join(root, "app");
   mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -541,10 +730,20 @@ create table if not exists cli_live_items (
   return dir;
 }
 
+/**
+ * @param {string} dir
+ * @param {string} worker
+ * @param {string} revision
+ */
 function writeAppRevision(dir, worker, revision) {
   writeFileSync(path.join(dir, "src", "index.js"), appWorkerSource(worker, revision));
 }
 
+/**
+ * @param {string} worker
+ * @param {string} revision
+ * @returns {string}
+ */
 function appWorkerSource(worker, revision) {
   return `
 function json(value, init = {}) {
@@ -600,6 +799,11 @@ export default {
 `;
 }
 
+/**
+ * @param {string} root
+ * @param {{ worker: string }} fixture
+ * @returns {string}
+ */
 function writeWorkflowProject(root, { worker }) {
   const dir = path.join(root, "workflow");
   mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -659,6 +863,14 @@ export default {
 `;
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @param {string} ns
+ * @param {string} worker
+ * @param {string} pathname
+ * @param {TenantInit} [init]
+ * @returns {Promise<unknown>}
+ */
 function tenantJson(ctx, ns, worker, pathname, init = {}) {
   return tenantRequest(ctx, ns, worker, pathname, init).then(({ status, body }) => {
     if (status < 200 || status >= 300) {
@@ -668,15 +880,34 @@ function tenantJson(ctx, ns, worker, pathname, init = {}) {
   });
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @param {string} ns
+ * @param {string} worker
+ * @param {string} pathname
+ * @param {(body: unknown) => boolean} predicate
+ * @returns {Promise<unknown>}
+ */
 async function waitForTenantJson(ctx, ns, worker, pathname, predicate) {
+  /** @type {unknown} */
   let last;
   await waitUntil(`tenant ${worker}${pathname}`, async () => {
-    last = await tenantJson(ctx, ns, worker, pathname).catch((err) => ({ error: err.message }));
+    last = await tenantJson(ctx, ns, worker, pathname).catch(
+      /** @param {unknown} err */ (err) => ({ error: errorMessage(err) })
+    );
     return predicate(last);
   });
   return last;
 }
 
+/**
+ * @param {LiveContext} ctx
+ * @param {string} ns
+ * @param {string} worker
+ * @param {string} pathname
+ * @param {TenantInit} [init]
+ * @returns {Promise<TenantResponse>}
+ */
 function tenantRequest(ctx, ns, worker, pathname, init = {}) {
   const platformHost = `${ns}.${ctx.platformDomain}`;
   const local = ctx.gatewayOrigin && new URL(ctx.gatewayOrigin).hostname === "localhost";
@@ -696,8 +927,9 @@ function tenantRequest(ctx, ns, worker, pathname, init = {}) {
       path: requestPath,
       headers,
     }, (res) => {
+      /** @type {Buffer[]} */
       const chunks = [];
-      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("data", (/** @type {Buffer} */ chunk) => chunks.push(chunk));
       res.on("end", () => resolve({
         status: res.statusCode || 0,
         headers: res.headers,
@@ -713,6 +945,9 @@ function tenantRequest(ctx, ns, worker, pathname, init = {}) {
   });
 }
 
+/**
+ * @param {{ ctx: LiveContext, ns: string, worker: string, env: NodeJS.ProcessEnv }} options
+ */
 async function assertTailReceivesLog({ ctx, ns, worker, env }) {
   const tail = spawn(process.execPath, [WDL_BIN, "tail", worker, "--raw", "--max-reconnects", "1"], {
     cwd: CLI_ROOT,
@@ -723,8 +958,8 @@ async function assertTailReceivesLog({ ctx, ns, worker, env }) {
   let stderr = "";
   tail.stdout.setEncoding("utf8");
   tail.stderr.setEncoding("utf8");
-  tail.stdout.on("data", (chunk) => { stdout += chunk; });
-  tail.stderr.on("data", (chunk) => { stderr += chunk; });
+  tail.stdout.on("data", (/** @type {string} */ chunk) => { stdout += chunk; });
+  tail.stderr.on("data", (/** @type {string} */ chunk) => { stderr += chunk; });
   try {
     await waitUntil("tail connection", async () => stderr.includes("tail connected"));
     const id = randomBytes(3).toString("hex");
@@ -736,6 +971,7 @@ async function assertTailReceivesLog({ ctx, ns, worker, env }) {
   }
 }
 
+/** @param {import("node:child_process").ChildProcess} child */
 async function waitForExit(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await Promise.race([
@@ -747,17 +983,35 @@ async function waitForExit(child) {
   ]);
 }
 
+/**
+ * @param {(args: string[], options?: RunWrapperOptions) => unknown} runJson
+ * @param {NodeJS.ProcessEnv | null} env
+ * @param {string} worker
+ * @param {string} workflow
+ * @param {string} instanceId
+ * @param {string[]} statuses
+ * @returns {Promise<WorkflowStatusResult>}
+ */
 async function waitForWorkflowStatus(runJson, env, worker, workflow, instanceId, statuses) {
+  /** @type {WorkflowStatusResult | undefined} */
   let body;
   await waitUntil(`workflow ${instanceId} status`, async () => {
-    body = runJson(["workflows", "status", worker, workflow, instanceId, "--include-steps", "--json"], { env });
+    body = /** @type {WorkflowStatusResult} */ (
+      runJson(["workflows", "status", worker, workflow, instanceId, "--include-steps", "--json"], { env })
+    );
     return statuses.includes(body.status);
   });
-  return body;
+  return /** @type {WorkflowStatusResult} */ (body);
 }
 
+/**
+ * @param {string} label
+ * @param {() => boolean | Promise<boolean>} fn
+ * @param {{ timeoutMs?: number, intervalMs?: number }} [options]
+ */
 async function waitUntil(label, fn, { timeoutMs = 60_000, intervalMs = 1_000 } = {}) {
   const started = Date.now();
+  /** @type {unknown} */
   let lastError;
   while (Date.now() - started < timeoutMs) {
     try {
@@ -767,10 +1021,25 @@ async function waitUntil(label, fn, { timeoutMs = 60_000, intervalMs = 1_000 } =
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
-  throw new Error(`${label} timed out${lastError ? `: ${lastError.message}` : ""}`);
+  throw new Error(`${label} timed out${lastError ? `: ${errorMessage(lastError)}` : ""}`);
 }
 
+/** @param {string} output */
 function assertDeployPrintedLiveVersion(output) {
   const match = output.match(/@([^\s]+) live/);
   assert.ok(match, `deploy output did not include live version:\n${output}`);
+}
+
+/**
+ * Best-effort message extraction for an unknown thrown value.
+ * @param {unknown} err
+ * @returns {string}
+ */
+function errorMessage(err) {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    const { message } = /** @type {{ message?: unknown }} */ (err);
+    if (typeof message === "string") return message;
+  }
+  return String(err);
 }

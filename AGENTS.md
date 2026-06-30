@@ -41,7 +41,10 @@ indentation, double quotes, semicolons, and small named functions. Prefer
 dependency injection for testable command behavior, as seen in
 `runDeployCommand` and `runSecretCommand`. Use kebab-case CLI flags
 (`--control-url`) and uppercase environment variables (`ADMIN_TOKEN`,
-`CONTROL_URL`, `WDL_NS`).
+`CONTROL_URL`, `WDL_NS`). Types are JSDoc, checked by `npm run typecheck`
+(`tsc --noEmit`) under `strict`: annotate new parameters and returns with real
+types rather than `any`, and use `unknown` plus narrowing for values validated
+at runtime.
 
 Markdown wrapping is bilingual by design, normalized with Prettier
 (`--embedded-language-formatting=off`; code blocks are hand-formatted) and kept

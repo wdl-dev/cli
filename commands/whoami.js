@@ -26,7 +26,7 @@ export const main = command.main;
 export const runWhoamiCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: { json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runWhoami({ values, positionals, context }) {
   if (positionals.length > 0) throw new CliError(usageText());
 
@@ -39,9 +39,13 @@ async function runWhoami({ values, positionals, context }) {
     controlFetch: context.controlFetch,
   }));
   const body = buildWhoamiBody(state, remote);
-  writeResult(values.json, body, () => formatWhoami(body), context.stdout);
+  writeResult(values.json === true, body, () => formatWhoami(body), context.stdout);
 }
 
+/**
+ * @param {ReturnType<typeof resolveCliConfigState>} state
+ * @param {ReturnType<typeof summarizeWhoami>} remote
+ */
 function buildWhoamiBody(state, remote) {
   const principalNamespace = namespaceFromPrincipal(remote.principal) || "";
   return {
@@ -72,6 +76,7 @@ function buildWhoamiBody(state, remote) {
   };
 }
 
+/** @param {ReturnType<typeof buildWhoamiBody>} body */
 function formatWhoami(body) {
   const lines = [
     `Control URL: ${displayRemoteValue(body.controlUrl.reached || body.controlUrl.value)}`,

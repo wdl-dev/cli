@@ -9,9 +9,16 @@ import { runWhoamiCommand } from "../../commands/whoami.js";
 import { main as wdlMain } from "../../bin/wdl.js";
 import { resolveCliConfigState } from "../../lib/config-state.js";
 import { tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
-import { cliCompatibility, compareSemver } from "../../lib/whoami.js";
+import { cliCompatibility, compareSemver, ensureControlContextFromConfigState } from "../../lib/whoami.js";
 import { response } from "./helpers.js";
 
+/** @typedef {import("./helpers.js").ControlCall} ControlCall */
+
+/**
+ * @template T
+ * @param {(dir: string) => T} fn
+ * @returns {T}
+ */
 function withTempDir(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-config-test-"));
   try {
@@ -126,12 +133,14 @@ test("the dispatcher honors --no-token-store when autoloading credentials", asyn
       // Assert what the dispatcher resolved from the store into the env it
       // autoloads. loadEnv isolates .env; `secret` with no subcommand fails its
       // arg check before any control fetch, so the command never hits the network.
+      /** @type {NodeJS.ProcessEnv} */
       const baseEnv = { XDG_CONFIG_HOME: xdg, WDL_NS: "" };
       await wdlMain(["secret"], { env: baseEnv, loadEnv: () => [] }).catch(() => {});
       assert.equal(baseEnv.WDL_NS, "demo", "store default namespace applied");
       assert.equal(baseEnv.CONTROL_URL, "http://ctl.test", "store control URL gap-filled");
       assert.equal(baseEnv.ADMIN_TOKEN, "store-token", "store token gap-filled");
 
+      /** @type {NodeJS.ProcessEnv} */
       const offEnv = { XDG_CONFIG_HOME: xdg, WDL_NS: "" };
       await wdlMain(["secret", "--no-token-store"], { env: offEnv, loadEnv: () => [] }).catch(() => {});
       assert.equal(offEnv.WDL_NS, "", "--no-token-store: no store default namespace");
@@ -153,10 +162,12 @@ test("config explain prints final values and sources", async () => {
       "ADMIN_TOKEN=section-token",
     ].join("\n"));
 
+    /** @type {string[]} */
     const lines = [];
     await runConfigCommand(["explain", "--ns", "acme"], {
       cwd,
       env: {},
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
     });
 
@@ -168,13 +179,14 @@ test("config explain prints final values and sources", async () => {
 });
 
 test("bin does not preload .env for local diagnostic commands", async () => {
+  /** @type {string[]} */
   const calls = [];
   const oldLog = console.log;
   console.log = () => {};
   try {
-    await wdlMain(["config", "--help"], { loadEnv: () => calls.push("config") });
-    await wdlMain(["doctor", "--help"], { loadEnv: () => calls.push("doctor") });
-    await wdlMain(["whoami", "--help"], { loadEnv: () => calls.push("whoami") });
+    await wdlMain(["config", "--help"], { loadEnv: () => { calls.push("config"); return []; } });
+    await wdlMain(["doctor", "--help"], { loadEnv: () => { calls.push("doctor"); return []; } });
+    await wdlMain(["whoami", "--help"], { loadEnv: () => { calls.push("whoami"); return []; } });
   } finally {
     console.log = oldLog;
   }
@@ -183,12 +195,16 @@ test("bin does not preload .env for local diagnostic commands", async () => {
 
 test("whoami calls control introspection and prints platform compatibility", async () => {
   await withTempDir(async (cwd) => {
+    /** @type {ControlCall[]} */
     const calls = [];
+    /** @type {string[]} */
     const lines = [];
     await runWhoamiCommand(["--ns", "acme", "--control-url", "http://ctl.test", "--token", "secret-token"], {
       cwd,
       env: {},
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
+      /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response({
@@ -225,10 +241,12 @@ test("whoami calls control introspection and prints platform compatibility", asy
 
 test("whoami text reports configured namespace mismatch", async () => {
   await withTempDir(async (cwd) => {
+    /** @type {string[]} */
     const lines = [];
     await runWhoamiCommand(["--ns", "configured", "--token", "secret-token"], {
       cwd,
       env: { CONTROL_URL: "https://api.wdl.dev" },
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
       controlFetch: async () => response({
         ok: true,
@@ -248,10 +266,18 @@ test("doctor reports local checks plus remote whoami", async () => {
     mkdirSync(path.join(cwd, "node_modules", ".bin"), { recursive: true });
     writeFileSync(path.join(cwd, "wrangler.jsonc"), "{}");
 
+    /** @type {string[]} */
     const lines = [];
-    let childEnv = /** @type {any} */ (null);
+    /** @type {NodeJS.ProcessEnv | undefined} */
+    let childEnv;
+    /** @type {ControlCall[]} */
     const calls = [];
     const mockWranglerVersion = "9.8.7";
+    /**
+     * @param {string} _cmd
+     * @param {readonly string[]} _args
+     * @param {import("node:child_process").ExecFileSyncOptions} options
+     */
     const execFile = (_cmd, _args, options) => {
       childEnv = options.env;
       return `${mockWranglerVersion}\n`;
@@ -260,7 +286,9 @@ test("doctor reports local checks plus remote whoami", async () => {
       cwd,
       env: { CONTROL_URL: "https://api.wdl.dev" },
       execFile,
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
+      /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} [init] */
       controlFetch: async (url, init = {}) => {
         calls.push({ url, init });
         return response({
@@ -308,11 +336,13 @@ test("doctor reports the token store namespace count and the build-readable cave
         other: { CONTROL_URL: "http://ctl.test", ADMIN_TOKEN: "t2" },
       },
     });
+    /** @type {string[]} */
     const lines = [];
     await runDoctorCommand(["--ns", "demo", "--control-url", "http://ctl.test", "--token", "secret-token"], {
       cwd,
       env: { XDG_CONFIG_HOME: xdg },
       execFile: () => "4.94.0\n",
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
       controlFetch: async () =>
         response({ ok: true, principal: { kind: "ns", ns: "demo" }, urls: { control: "http://ctl.test" } }),
@@ -330,6 +360,7 @@ test("doctor honors --no-token-store: reports the store disabled without reading
       defaultNs: "demo",
       namespaces: { demo: { CONTROL_URL: "http://ctl.test", ADMIN_TOKEN: "t1" } },
     });
+    /** @type {string[]} */
     const lines = [];
     await runDoctorCommand(
       ["--ns", "demo", "--control-url", "http://ctl.test", "--token", "secret-token", "--no-token-store"],
@@ -337,6 +368,7 @@ test("doctor honors --no-token-store: reports the store disabled without reading
         cwd,
         env: { XDG_CONFIG_HOME: xdg },
         execFile: () => "4.94.0\n",
+        /** @param {string} line */
         stdout: (line) => lines.push(line),
         controlFetch: async () =>
           response({ ok: true, principal: { kind: "ns", ns: "demo" }, urls: { control: "http://ctl.test" } }),
@@ -350,11 +382,13 @@ test("doctor honors --no-token-store: reports the store disabled without reading
 
 test("doctor does not duplicate missing-token errors for skipped whoami", async () => {
   await withTempDir(async (cwd) => {
+    /** @type {string[]} */
     const lines = [];
     await runDoctorCommand(["--ns", "acme"], {
       cwd,
       env: {},
       execFile: () => "4.94.0\n",
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
       controlFetch: async () => {
         throw new Error("controlFetch should not be called");
@@ -369,11 +403,13 @@ test("doctor does not duplicate missing-token errors for skipped whoami", async 
 
 test("doctor reports namespace mismatch from whoami", async () => {
   await withTempDir(async (cwd) => {
+    /** @type {string[]} */
     const lines = [];
     await runDoctorCommand(["--ns", "configured", "--token", "secret-token"], {
       cwd,
       env: { CONTROL_URL: "https://api.wdl.dev" },
       execFile: () => "4.94.0\n",
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
       controlFetch: async () => response({
         ok: true,
@@ -390,11 +426,13 @@ test("doctor reports namespace mismatch from whoami", async () => {
 
 test("doctor flags a Wrangler major below the deploy minimum", async () => {
   await withTempDir(async (cwd) => {
+    /** @type {string[]} */
     const lines = [];
     await runDoctorCommand(["--ns", "acme", "--token", "secret-token"], {
       cwd,
       env: { CONTROL_URL: "https://api.wdl.dev" },
       execFile: () => "3.99.0\n",
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
       controlFetch: async () => response({
         ok: true,
@@ -423,6 +461,38 @@ test("cliCompatibility treats a pre-release CLI as older than the release minimu
   assert.equal(cliCompatibility("0.9.0", "0.9.0").ok, true);
 });
 
+test("ensureControlContextFromConfigState fails closed on an unresolved control URL", () => {
+  const token = { value: "tok", display: "****", source: "--token", error: null };
+  // value:null with no error shouldn't happen, but must never be returned as a string.
+  assert.throws(
+    () => ensureControlContextFromConfigState({
+      controlUrl: { value: null, display: "(unset)", source: "(unset)", error: null },
+      token,
+    }),
+    /No control URL configured/
+  );
+  // An explicit resolver error is surfaced verbatim.
+  assert.throws(
+    () => ensureControlContextFromConfigState({
+      controlUrl: { value: null, display: "(unset)", source: "--control-url", error: "boom" },
+      token,
+    }),
+    /boom/
+  );
+  // A fully resolved state yields the admin-token header.
+  assert.deepEqual(
+    ensureControlContextFromConfigState({
+      controlUrl: { value: "https://api.example", display: "https://api.example", source: "--control-url", error: null },
+      token,
+    }),
+    {
+      controlUrl: "https://api.example",
+      token: "tok",
+      headers: { "x-admin-token": "tok" },
+    }
+  );
+});
+
 test("whoami and doctor warn when the token would travel over plain http to a non-local host", async () => {
   const whoamiBody = {
     ok: true,
@@ -435,11 +505,13 @@ test("whoami and doctor warn when the token would travel over plain http to a no
   // Run in an empty temp cwd so no real repo-root .env feeds the cross-origin
   // guard (which would add a second, unrelated warning).
   await withTempDir(async (cwd) => {
+    /** @type {string[]} */
     const whoamiWarnings = [];
     await runWhoamiCommand(["--ns", "acme", "--control-url", "http://ctl.prod.example", "--token", "secret-token"], {
       cwd,
       env: {},
       stdout: () => {},
+      /** @param {string} line */
       warn: (line) => whoamiWarnings.push(line),
       controlFetch: async () => response(whoamiBody),
     });
@@ -448,12 +520,14 @@ test("whoami and doctor warn when the token would travel over plain http to a no
   });
 
   await withTempDir(async (cwd) => {
+    /** @type {string[]} */
     const doctorWarnings = [];
     await runDoctorCommand(["--ns", "acme", "--control-url", "http://ctl.prod.example", "--token", "secret-token"], {
       cwd,
       env: {},
       execFile: () => "4.94.0\n",
       stdout: () => {},
+      /** @param {string} line */
       warn: (line) => doctorWarnings.push(line),
       controlFetch: async () => response(whoamiBody),
     });

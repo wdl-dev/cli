@@ -10,6 +10,11 @@ import { response } from "./helpers.js";
 
 const ESC = String.fromCharCode(27);
 
+/**
+ * @template T
+ * @param {(dir: string) => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
 async function withTempXdg(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-token-cmd-"));
   try {
@@ -19,6 +24,7 @@ async function withTempXdg(fn) {
   }
 }
 
+/** @param {string} value @returns {import("../../lib/stdin.js").StdinLike} */
 function stdinFrom(value) {
   const stdin = Object.assign(new EventEmitter(), { setEncoding() {} });
   queueMicrotask(() => {
@@ -28,22 +34,37 @@ function stdinFrom(value) {
   return stdin;
 }
 
-/** @param {string} xdg @param {{ stdin?: any, controlFetch?: Function }} [opts] */
+/**
+ * The control-fetch surface `fetchWhoami` drives: it always supplies `headers`.
+ * @typedef {import("../../lib/control-fetch.js").ControlFetchInit & { headers: import("node:http").OutgoingHttpHeaders }} WhoamiInit
+ * @typedef {(url: string, init?: WhoamiInit) => Promise<ReturnType<typeof response>>} FakeControlFetch
+ */
+
+/**
+ * @param {string} xdg
+ * @param {{ stdin?: import("../../lib/stdin.js").StdinLike, controlFetch?: FakeControlFetch }} [opts]
+ */
 function deps(xdg, { stdin, controlFetch } = {}) {
+  /** @type {string[]} */
   const lines = [];
+  /** @type {string[]} */
   const warnings = [];
+  /** @type {Array<{ url: string, init: WhoamiInit }>} */
   const calls = [];
   return {
     lines,
     warnings,
     calls,
     deps: {
+      /** @type {NodeJS.ProcessEnv} */
       env: { XDG_CONFIG_HOME: xdg },
+      /** @param {string} line */
       stdout: (line) => lines.push(line),
       stderr: () => {},
+      /** @param {string} line */
       warn: (line) => warnings.push(line),
       stdin,
-      controlFetch: controlFetch || (async (url, init = {}) => {
+      controlFetch: controlFetch || (/** @param {string} url @param {WhoamiInit} init */ async (url, init) => {
         calls.push({ url, init });
         return response({ ok: true, principal: { kind: "ns", ns: "acme" } });
       }),
@@ -338,6 +359,7 @@ test("token list prints a placeholder when empty", async () => {
 test("token use/rm escape terminal controls in the not-found error", async () => {
   await withTempXdg(async (xdg) => {
     const bad = `ghost${ESC}[2J`;
+    /** @param {unknown} err */
     const noEsc = (err) => {
       assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(ESC), "raw ESC must not reach the error");
       return true;

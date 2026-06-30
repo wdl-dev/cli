@@ -30,8 +30,10 @@ async function runWorkers({ positionals, context }) {
 /** @param {import("../lib/command.js").CommandContext} context */
 async function printWorkersList(context) {
   const { headers } = context.resolveControl();
-  const body = await context.fetchJson(context.nsUrl("workers"), { headers }, "list workers");
-  writeResult(context.values.json, body, () => formatWorkersList(body), context.stdout);
+  const body = /** @type {{ workers?: import("../lib/workers-format.js").WorkerSummary[] }} */ (
+    await context.fetchJson(context.nsUrl("workers"), { headers }, "list workers")
+  );
+  writeResult(context.values.json === true, body, () => formatWorkersList(body), context.stdout);
 }
 
 function usageText() {

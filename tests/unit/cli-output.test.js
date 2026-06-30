@@ -3,18 +3,20 @@ import assert from "node:assert/strict";
 import { maskToken, writeJsonOr, writeStatusLine } from "../../lib/output.js";
 
 test("writeStatusLine escapes terminal control bytes in the assembled line", () => {
+  /** @type {string[]} */
   const lines = [];
-  writeStatusLine((l) => lines.push(l), `ok ${String.fromCharCode(27)}[2J done`);
+  writeStatusLine((/** @type {string} */ l) => lines.push(l), `ok ${String.fromCharCode(27)}[2J done`);
   assert.equal(lines.length, 1);
   assert.doesNotMatch(lines[0], new RegExp(String.fromCharCode(27)), "raw ESC must not pass through");
 });
 
 test("writeJsonOr emits JSON and reports handled, or defers to the human path", () => {
+  /** @type {string[]} */
   const out = [];
-  assert.equal(writeJsonOr(true, { a: 1 }, (l) => out.push(l)), true);
+  assert.equal(writeJsonOr(true, { a: 1 }, (/** @type {string} */ l) => out.push(l)), true);
   assert.equal(out[0], JSON.stringify({ a: 1 }, null, 2));
   out.length = 0;
-  assert.equal(writeJsonOr(false, { a: 1 }, (l) => out.push(l)), false);
+  assert.equal(writeJsonOr(false, { a: 1 }, (/** @type {string} */ l) => out.push(l)), false);
   assert.equal(out.length, 0, "nothing written when not json");
 });
 

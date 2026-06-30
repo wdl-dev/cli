@@ -27,9 +27,32 @@ function usageText() {
   });
 }
 
+/**
+ * One platform-binding deploy warning surfaced by control.
+ * @typedef {object} DeployWarning
+ * @property {string} [code]
+ * @property {string} [message]
+ * @property {string} [binding]
+ * @property {string} [platform]
+ * @property {string} [className]
+ * @property {string} [entrypoint]
+ * @property {string[]} [missingCallerSecrets]
+ */
+
 // Upload a packed manifest to control + promote. Token rides authHeaders.
 // controlUrl is passed only for the readable upload log line; the fetch URLs
 // are built via context.nsUrl so segment encoding stays consistent.
+/**
+ * @param {{
+ *   context: import("../lib/command.js").CommandContext,
+ *   ns: string,
+ *   workerName: string,
+ *   manifest: unknown,
+ *   controlUrl: string,
+ *   authHeaders: Record<string, string>,
+ * }} arg
+ * @returns {Promise<{ version: unknown, platformDomain: unknown }>}
+ */
 export async function postArtifactToControl({ context, ns, workerName, manifest, controlUrl, authHeaders }) {
   const { stdout, stderr } = context;
   const jsonHeaders = {
@@ -41,15 +64,17 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   writeStatusLine(stdout, `[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
   // `version` comes from the control response; keep the raw value for the
   // promote request body — display sites escape via writeStatusLine.
-  const { version, warnings } = await context.fetchJson(
-    context.nsUrl("worker", workerName, "deploy"),
-    {
-      method: "POST",
-      headers: jsonHeaders,
-      body: deployBody,
-      timeoutMs: LONG_CONTROL_TIMEOUT_MS,
-    },
-    "deploy",
+  const { version, warnings } = /** @type {{ version: unknown, warnings?: DeployWarning[] }} */ (
+    await context.fetchJson(
+      context.nsUrl("worker", workerName, "deploy"),
+      {
+        method: "POST",
+        headers: jsonHeaders,
+        body: deployBody,
+        timeoutMs: LONG_CONTROL_TIMEOUT_MS,
+      },
+      "deploy",
+    )
   );
   // Control's deploy warnings are the only signal for several binding
   // misconfigurations — surface them so failures don't defer to runtime.
@@ -70,16 +95,19 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   }
 
   writeStatusLine(stdout, `[3/3] promoting ${version}`);
+  /** @type {{ platformDomain?: unknown }} */
   let promoteBody;
   try {
-    promoteBody = await context.fetchJson(
-      context.nsUrl("worker", workerName, "promote"),
-      {
-        method: "POST",
-        headers: jsonHeaders,
-        body: JSON.stringify({ version }),
-      },
-      "promote",
+    promoteBody = /** @type {{ platformDomain?: unknown }} */ (
+      await context.fetchJson(
+        context.nsUrl("worker", workerName, "promote"),
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ version }),
+        },
+        "promote",
+      )
     );
   } catch (err) {
     stderr(
@@ -91,6 +119,11 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   return { version, platformDomain: promoteBody.platformDomain };
 }
 
+/**
+ * @param {unknown} manifest
+ * @param {number} [maxBytes]
+ * @returns {string}
+ */
 export function serializeDeployManifest(manifest, maxBytes = DEPLOY_JSON_BODY_MAX_BYTES) {
   const body = JSON.stringify(manifest);
   const bodyBytes = Buffer.byteLength(body);
@@ -126,8 +159,14 @@ export const main = command.main;
 export const runDeployCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: Record<string, any>, positionals: string[], context: import("../lib/command.js").CommandContext & { execFile: typeof execFileSync } }} arg */
-async function runDeploy({ values, positionals, context }) {
+/**
+ * `execFile` is injected via this command's `defaults`.
+ * @typedef {import("../lib/command.js").CommandContext & { execFile: typeof execFileSync }} DeployContext
+ */
+
+/** @param {{ values: { env?: string, verbose?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+async function runDeploy({ values, positionals, context: baseContext }) {
+  const context = /** @type {DeployContext} */ (baseContext);
   const { env, stdout, stderr, cwd, execFile } = context;
 
   const ns = context.resolveNamespace();
@@ -139,7 +178,7 @@ async function runDeploy({ values, positionals, context }) {
   const { controlUrl, headers: authHeaders } = context.resolveControl();
   const selectedEnv = values.env || env.CLOUDFLARE_ENV || null;
 
-  const { workerName, manifest } = await packWranglerProject({
+  const packOptions = /** @type {Parameters<typeof packWranglerProject>[0]} */ ({
     cwd,
     projectDir,
     envName: selectedEnv,
@@ -149,6 +188,7 @@ async function runDeploy({ values, positionals, context }) {
     stderr,
     verbose: values.verbose,
   });
+  const { workerName, manifest } = await packWranglerProject(packOptions);
 
   const { version, platformDomain } = await postArtifactToControl({
     context,

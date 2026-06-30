@@ -1042,7 +1042,7 @@ test("resolveWranglerConfig drops __proto__ keys instead of rewriting the merged
   );
   const { cfg } = resolveWranglerConfig(rawCfg, "prod", "wrangler.jsonc");
   assert.equal(Object.getPrototypeOf(cfg), Object.prototype);
-  assert.equal(/** @type {any} */ (cfg).polluted, undefined);
+  assert.equal(/** @type {Record<string, unknown>} */ (cfg).polluted, undefined);
   assert.deepEqual(cfg.vars, { A: "1" });
 });
 

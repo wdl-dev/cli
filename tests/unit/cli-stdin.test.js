@@ -96,7 +96,7 @@ test("readTtyLine escapes terminal controls in the prompt at the write point", a
 test("confirmAction escapes terminal controls in its refusal message", async () => {
   const esc = String.fromCharCode(27);
   await assert.rejects(
-    () => confirmAction({ stdin: /** @type {any} */ ({ isTTY: false }), action: `delete ${esc}[2J thing` }),
+    () => confirmAction({ stdin: /** @type {import("../../lib/stdin.js").StdinLike} */ (/** @type {unknown} */ ({ isTTY: false })), action: `delete ${esc}[2J thing` }),
     (err) => {
       assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(esc), "raw ESC must not be in the refusal error");
       assert.match(/** @type {Error} */ (err).message, /Refusing to delete/);

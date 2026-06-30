@@ -149,7 +149,7 @@ test("handles a __proto__ section without polluting the prototype", () => {
     assert.deepEqual(Object.keys(back.namespaces).sort(), ["__proto__", "acme"]);
     assert.equal(back.namespaces["__proto__"].ADMIN_TOKEN, "x");
     assert.equal(Object.getPrototypeOf(back.namespaces), Object.prototype, "map prototype untouched");
-    assert.equal(/** @type {any} */ ({}).ADMIN_TOKEN, undefined, "Object.prototype not polluted");
+    assert.equal(/** @type {Record<string, unknown>} */ ({}).ADMIN_TOKEN, undefined, "Object.prototype not polluted");
   });
 });
 

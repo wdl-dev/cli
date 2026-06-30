@@ -496,6 +496,16 @@ test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id"
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: 123 }] }), /'id' must be a non-empty string/);
   // binding name grammar still enforced
   assert.throws(() => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "bad-kv", id: "x" }] }), /binding must match/);
+  // unknown keys (typos) are rejected, like the d1/r2 parsers
+  assert.throws(
+    () => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", bindng: "typo" }] }),
+    /unknown field\(s\): bindng/
+  );
+  // Wrangler's preview_id is allowed but ignored
+  assert.deepEqual(
+    parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", preview_id: "p" }] }),
+    [{ binding: "KV", id: "x" }]
+  );
 });
 
 test("parseServicesFromCfg: parses wrangler [[services]] entries", () => {

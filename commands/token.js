@@ -42,7 +42,7 @@ export const runTokenCommand = command.run;
 export const meta = command.meta;
 
 /**
- * @typedef {{ label?: string, default?: boolean, ns?: string, "control-url"?: string, json?: boolean }} TokenValues
+ * @typedef {import("../lib/command.js").PresetFlags<"endpoint"> & { label?: string, default?: boolean, ns?: string, json?: boolean }} TokenValues
  */
 
 /** @param {{ values: TokenValues, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */

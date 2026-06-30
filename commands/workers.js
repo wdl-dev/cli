@@ -19,21 +19,24 @@ export const meta = command.meta;
 // Re-exported for the existing test import surface; logic lives in lib/.
 export { formatWorkersList };
 
-/** @param {{ positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
-async function runWorkers({ positionals, context }) {
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json">, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+async function runWorkers({ values, positionals, context }) {
   const ns = context.resolveNamespace();
   if (positionals.length > 0) throw new CliError(usageText());
   if (!ns) throw new CliError(usageText());
-  await printWorkersList(context);
+  await printWorkersList(context, values.json === true);
 }
 
-/** @param {import("../lib/command.js").CommandContext} context */
-async function printWorkersList(context) {
+/**
+ * @param {import("../lib/command.js").CommandContext} context
+ * @param {boolean} json
+ */
+async function printWorkersList(context, json) {
   const { headers } = context.resolveControl();
   const body = /** @type {{ workers?: import("../lib/workers-format.js").WorkerSummary[] }} */ (
     await context.fetchJson(context.nsUrl("workers"), { headers }, "list workers")
   );
-  writeResult(context.values.json === true, body, () => formatWorkersList(body), context.stdout);
+  writeResult(json, body, () => formatWorkersList(body), context.stdout);
 }
 
 function usageText() {

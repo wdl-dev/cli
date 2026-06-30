@@ -27,7 +27,7 @@ export const main = command.main;
 export const runDeleteCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: { worker?: string, version?: string, "dry-run"?: boolean, yes?: boolean, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json"> & { worker?: string, version?: string, "dry-run"?: boolean, yes?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runDelete({ values, positionals, context }) {
   const { stdout, stderr, stdin } = context;
 

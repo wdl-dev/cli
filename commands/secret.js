@@ -48,7 +48,7 @@ export const meta = command.meta;
  * @property {PromoteWarning[]} [warnings]
  */
 
-/** @param {{ values: { worker?: string, scope?: string, yes?: boolean, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json"> & { worker?: string, scope?: string, yes?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runSecret({ values, positionals, context }) {
   const { stdout, stderr, stdin } = context;
 

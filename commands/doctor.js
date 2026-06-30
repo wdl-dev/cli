@@ -43,7 +43,7 @@ export const meta = command.meta;
  * @typedef {import("../lib/command.js").CommandContext & { execFile: typeof execFileSync }} DoctorContext
  */
 
-/** @param {{ values: { ns?: string, "control-url"?: string, token?: string, "no-token-store"?: boolean, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json">, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runDoctor({ values, positionals, context: baseContext }) {
   if (positionals.length > 0) throw new CliError(usageText());
 

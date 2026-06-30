@@ -48,15 +48,15 @@ export const runD1Command = command.run;
 export const meta = command.meta;
 
 /**
- * @typedef {object} D1Flags
- * @property {string} [sql]
- * @property {string} [file]
- * @property {string} [mode]
- * @property {string} [params]
- * @property {string} [dir]
- * @property {string} [env]
- * @property {boolean} [yes]
- * @property {boolean} [json]
+ * @typedef {import("../lib/command.js").PresetFlags<"ns" | "control" | "json"> & {
+ *   sql?: string,
+ *   file?: string,
+ *   mode?: string,
+ *   params?: string,
+ *   dir?: string,
+ *   env?: string,
+ *   yes?: boolean,
+ * }} D1Flags
  */
 
 /** @param {{ values: D1Flags, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */

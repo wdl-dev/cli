@@ -18,7 +18,7 @@ export const main = command.main;
 export const runConfigCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: { json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json">, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runConfig({ values, positionals, context }) {
   const [subcommand, extra] = positionals;
   if (subcommand !== "explain" || extra) throw new CliError(usageText());

@@ -113,7 +113,7 @@ export const meta = command.meta;
  * }} TailContext
  */
 
-/** @param {{ values: { raw?: boolean, since?: string, "max-reconnects"?: string, ns?: string, "control-url"?: string, token?: string, "no-token-store"?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control"> & { raw?: boolean, since?: string, "max-reconnects"?: string }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runTail({ values, positionals, context: baseContext }) {
   const context = /** @type {TailContext} */ (baseContext);
   const { stdout, stderr, transport, sleepFn, now } = context;

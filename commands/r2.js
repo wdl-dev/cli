@@ -45,7 +45,7 @@ export const meta = command.meta;
 
 /**
  * @param {{
- *   values: { prefix?: string, delimiter?: string, cursor?: string, limit?: string, out?: string, yes?: boolean, json?: boolean },
+ *   values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json"> & { prefix?: string, delimiter?: string, cursor?: string, limit?: string, out?: string, yes?: boolean },
  *   positionals: string[],
  *   context: import("../lib/command.js").CommandContext,
  * }} arg

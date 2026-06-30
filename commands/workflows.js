@@ -33,7 +33,7 @@ export const main = command.main;
 export const runWorkflowsCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: { limit?: string, cursor?: string, "include-steps"?: boolean, "step-limit"?: string, yes?: boolean, json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json"> & { limit?: string, cursor?: string, "include-steps"?: boolean, "step-limit"?: string, yes?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runWorkflows({ values, positionals, context }) {
   const { stdout, stderr, stdin } = context;
 

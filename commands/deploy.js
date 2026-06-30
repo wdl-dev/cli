@@ -164,7 +164,7 @@ export const meta = command.meta;
  * @typedef {import("../lib/command.js").CommandContext & { execFile: typeof execFileSync }} DeployContext
  */
 
-/** @param {{ values: { env?: string, verbose?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control"> & { env?: string, verbose?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runDeploy({ values, positionals, context: baseContext }) {
   const context = /** @type {DeployContext} */ (baseContext);
   const { env, stdout, stderr, cwd, execFile } = context;

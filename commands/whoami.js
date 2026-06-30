@@ -26,7 +26,7 @@ export const main = command.main;
 export const runWhoamiCommand = command.run;
 export const meta = command.meta;
 
-/** @param {{ values: { json?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json">, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runWhoami({ values, positionals, context }) {
   if (positionals.length > 0) throw new CliError(usageText());
 

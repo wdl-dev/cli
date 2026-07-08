@@ -24,7 +24,7 @@ wdl d1 create inspection-main
 wdl deploy examples/inspection-demo
 ```
 
-The Worker uses `compatibility_date = "2026-05-31"` and expects Wrangler v4 in
+The Worker uses `compatibility_date = "2026-06-17"` and expects Wrangler v4 in
 this example directory. If dependencies are missing, run:
 
 ```bash

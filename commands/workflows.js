@@ -41,10 +41,9 @@ async function runWorkflows({ values, positionals, context }) {
   const ns = context.resolveNamespace();
   if (!subcommand || !ns) throw new CliError(usageText());
 
-  const { headers } = context.resolveControl();
-
   if (subcommand === "list") {
     requireNoExtraPositionals(positionals, 1, "workflows list");
+    const { headers } = context.resolveControl();
     const body = /** @type {{ workflows?: import("../lib/workflows-format.js").WorkflowSummary[] }} */ (
       await context.fetchJson(context.nsUrl("workflows"), { headers }, "list workflows")
     );
@@ -54,6 +53,7 @@ async function runWorkflows({ values, positionals, context }) {
 
   if (subcommand === "instances") {
     const { worker, workflow } = requireWorkflowRef(positionals, "workflows instances");
+    const { headers } = context.resolveControl();
     const url = new URL(context.nsUrl("workflows", worker, workflow, "instances"));
     if (values.limit) url.searchParams.set("limit", values.limit);
     if (values.cursor) url.searchParams.set("cursor", values.cursor);
@@ -66,6 +66,10 @@ async function runWorkflows({ values, positionals, context }) {
 
   if (subcommand === "status") {
     const { worker, workflow, instanceId } = requireInstanceRef(positionals, "workflows status");
+    if (values["step-limit"] && !values["include-steps"]) {
+      throw new CliError("workflows status --step-limit requires --include-steps");
+    }
+    const { headers } = context.resolveControl();
     const url = new URL(context.nsUrl("workflows", worker, workflow, "instances", instanceId));
     if (values["include-steps"]) url.searchParams.set("includeSteps", "true");
     if (values["step-limit"]) url.searchParams.set("stepLimit", values["step-limit"]);
@@ -78,6 +82,7 @@ async function runWorkflows({ values, positionals, context }) {
 
   if (LIFECYCLE_ACTIONS.has(subcommand)) {
     const { worker, workflow, instanceId } = requireInstanceRef(positionals, `workflows ${subcommand}`);
+    const { headers } = context.resolveControl();
     if (subcommand === "restart" || subcommand === "terminate") {
       await confirmAction({
         yes: values.yes === true,

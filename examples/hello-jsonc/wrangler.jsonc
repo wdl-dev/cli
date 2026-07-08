@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hello-jsonc",
   "main": "src/index.js",
-  "compatibility_date": "2026-05-31",
+  "compatibility_date": "2026-06-17",
 
   // Proves the deploy CLI handles wrangler.jsonc (comments + JSON) the same
   // way it handles wrangler.toml. No bindings — this is the minimal demo.

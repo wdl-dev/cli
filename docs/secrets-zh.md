@@ -48,10 +48,13 @@ worker 级 secret  >  命名空间级 secret  >  [vars]
 
 修改 worker 级 secret 会创建并 promote 新版本，但已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。需要严格撤销时，应同时考虑禁用旧凭据。
 
+Worker 级 secret mutation 是原子的：如果更新期间 active version 变化，control 会返回 `secret_mutation_contention`，CLI 会要求重试，而不是留下"已存储但未 promote"的半成功状态。Namespace secret mutation 在 retained worker metadata 持续变化时也可能返回 `namespace_secret_mutation_contention`。
+
 ## 约束
 
 - Key 必须符合环境变量命名规范：`[A-Z_][A-Z0-9_]*` —— 例如 `STRIPE_KEY`、`API_TOKEN`、`SIGNING_SECRET`。
 - 值上限 64 KiB。
+- Secrets 会和 `[vars]`、binding metadata 一起计入 workerLoader env budget。如果 mutation 返回 `worker_env_too_large`，减少 env payload；如果错误点名 retained version，redeploy/delete 该版本。
 
 ## Worker 端读取
 

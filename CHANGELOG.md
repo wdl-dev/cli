@@ -1,5 +1,73 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `wdl init`, examples, and docs now default new Wrangler configs to
+  `compatibility_date = "2026-06-17"` for the documented feature baseline.
+- `wdl deploy` now follows Wrangler config priority
+  (`wrangler.json`, `wrangler.jsonc`, `wrangler.toml`) and rejects unsupported
+  Python Worker modules, the explicit workerd `experimental` compatibility
+  flag, WDL-reserved runtime module names, and runtime env name collisions
+  (including `[vars]`, explicit bindings, and the implicit `ASSETS` binding)
+  locally. The control plane remains canonical for other unsupported
+  experimental compatibility flags.
+- `wdl tail` now recognizes control-initiated `session_idle` /
+  `session_expired` stream recycling and reconnects without presenting it as an
+  unknown warning.
+- `wdl doctor --strict` now exits non-zero when any local or remote readiness
+  check fails, while the default `wdl doctor` remains report-only.
+- `wdl d1 migrations status/apply` now preflights the 1 MiB control-plane JSON
+  request cap before uploading migration metadata or SQL.
+- `wdl r2` preserves empty object-key path segments while still rejecting `.`
+  and `..` segments, validates list `--limit` locally, and requires `--out`
+  when `objects get` would otherwise write raw bytes to an interactive terminal.
+- `wdl workflows status --step-limit` now requires `--include-steps`, matching
+  the control request it affects.
+- Queue consumer `max_batch_timeout` is now capped locally at the platform's
+  60-second limit.
+- Top-level help for successful requests now prints to stdout, and
+  `wdl help <command>` prints that command's help.
+- When multiple Wrangler config files exist, deploy and D1 migrations now warn
+  which file is selected by Wrangler priority and which lower-priority files are
+  ignored; `wdl doctor` reports the same detail.
+
+### Fixed
+
+- Control connection failures, invalid 2xx JSON responses, unreadable
+  `wdl d1 execute --file` inputs, and unexpected positional arguments now fail
+  with CLI errors instead of raw Node errors or silently ignored input.
+- `wdl d1 migrations apply` now rejects symlinked `.sql` migration files instead
+  of silently dropping them.
+- `wdl deploy` now renders deploy warnings attached to failed upload responses,
+  including missing caller-secret hints, before reporting the control error.
+- Invalid `.assetsignore` patterns now report the offending pattern instead of
+  a bare `RegExp` error.
+- Project `.env` files with non-WDL dotenv extensions no longer break every WDL
+  command; the four WDL-consumed keys remain strictly parsed.
+- `wdl secret put/delete` no longer reports obsolete deferred-promote warnings;
+  current worker-secret mutations either promote atomically or return a retryable
+  control error.
+- Secret mutation failures now add command-specific guidance for env-budget,
+  contention, and secret-envelope errors, including that the failed mutation was
+  not written.
+
+### Security
+
+- `wdl token` credential writes now use a temp-file plus rename so an existing
+  credentials symlink is replaced rather than followed.
+- `wdl tail` now caps SSE line buffering to avoid unbounded memory growth on a
+  malformed stream.
+- `wdl deploy` now registers process-exit and SIGINT/SIGTERM cleanup for its
+  temporary Wrangler config file.
+
+### Tests
+
+- Live CLI integration now exercises assets, Durable Objects, queues, cron
+  registration, and `wdl deploy --env` in addition to the existing command
+  surface.
+
 ## 1.3.1
 
 ### Fixed

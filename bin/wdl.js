@@ -55,6 +55,9 @@ for (const c of REGISTRY) {
 export async function main(argv = process.argv.slice(2), deps = {}) {
   const [command, ...rest] = argv;
 
+  if (command === "help" && rest.length === 1 && COMMANDS[rest[0]]) {
+    return await COMMANDS[rest[0]].main(["--help"]);
+  }
   if (!command || command === "-h" || command === "--help" || command === "help") {
     usage(command ? 0 : 1);
     return;
@@ -136,10 +139,12 @@ function usage(exitCode) {
     (aliasesByTarget[target] ??= []).push(alias);
   }
   const width = Math.max(...REGISTRY.map((c) => c.meta.name.length)) + 1;
-  console.error(formatHelp({
+  const write = exitCode === 0 ? console.log : console.error;
+  write(formatHelp({
     usage: [
       "wdl <command> [args] [options]",
       "wdl <command> --help",
+      "wdl help <command>",
       "wdl --version",
     ],
     description: "Manage deployments, diagnostics, secrets, workers, D1, R2, and Workflows for a WDL control plane.",

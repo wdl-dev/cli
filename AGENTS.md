@@ -12,7 +12,8 @@ capability docs live in `docs/`, while `templates/AGENTS.md` and
 and AI agents. Example tenant projects live under `examples/` and pin
 `wrangler@^4`; the deploy bundling step expects v4, so keep new examples and any
 docs that recommend a wrangler version on v4. New Wrangler configs should start
-with `compatibility_date = "2026-05-31"` unless the WDL runtime moves again.
+with `compatibility_date = "2026-06-17"` unless a project feature requires a
+newer target.
 
 ## Build, Test, and Development Commands
 

@@ -4,7 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail } from "../lib/common.js";
 import { escapeTerminalText, formatKnownWarning, writeStatusLine } from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
@@ -65,34 +65,22 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   // `version` comes from the control response; keep the raw value for the
   // promote request body — display sites escape via writeStatusLine.
   const { version, warnings } = /** @type {{ version: unknown, warnings?: DeployWarning[] }} */ (
-    await context.fetchJson(
-      context.nsUrl("worker", workerName, "deploy"),
-      {
+    await fetchDeployJson({
+      context,
+      url: context.nsUrl("worker", workerName, "deploy"),
+      init: {
         method: "POST",
         headers: jsonHeaders,
         body: deployBody,
         timeoutMs: LONG_CONTROL_TIMEOUT_MS,
       },
-      "deploy",
-    )
+      label: "deploy",
+      ns,
+      workerName,
+      stderr,
+    })
   );
-  // Control's deploy warnings are the only signal for several binding
-  // misconfigurations — surface them so failures don't defer to runtime.
-  if (Array.isArray(warnings) && warnings.length) {
-    for (const w of warnings) {
-      if (w && Array.isArray(w.missingCallerSecrets) && w.missingCallerSecrets.length) {
-        const keys = escapeTerminalText(w.missingCallerSecrets.join(", "));
-        stderr(
-          `warning: platform binding "${escapeTerminalText(w.binding)}" (platform="${escapeTerminalText(w.platform)}"): ` +
-          `missing caller secrets ${keys}\n` +
-          `  ns-wide:    wdl secret put --ns ${ns} --scope ns <KEY>\n` +
-          `  per-worker: wdl secret put --ns ${ns} --worker ${workerName} <KEY>`
-        );
-      } else {
-        stderr(`warning: ${formatKnownWarning(w, DEPLOY_WARNING_KEYS)}`);
-      }
-    }
-  }
+  renderDeployWarnings(warnings, { ns, workerName, stderr });
 
   writeStatusLine(stdout, `[3/3] promoting ${version}`);
   /** @type {{ platformDomain?: unknown }} */
@@ -117,6 +105,91 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     throw err;
   }
   return { version, platformDomain: promoteBody.platformDomain };
+}
+
+/**
+ * Control may attach deploy warnings to both success and failure bodies. The
+ * failure path must render them before converting the response into CliError,
+ * otherwise actionable missing-caller-secret hints collapse into one JSON blob.
+ * @param {{
+ *   context: import("../lib/command.js").CommandContext,
+ *   url: string,
+ *   init: import("../lib/control-fetch.js").ControlFetchInit,
+ *   label: string,
+ *   ns: string,
+ *   workerName: string,
+ *   stderr: (line: string) => void,
+ * }} arg
+ */
+async function fetchDeployJson({ context, url, init, label, ns, workerName, stderr }) {
+  const res = await context.controlFetch(url, init);
+  if (res.ok) return await readJsonOrFail(res, label);
+  const text = await res.text();
+  renderDeployWarningsFromErrorBody(text, { ns, workerName, stderr });
+  throw new CliError(`${label} failed: ${formatHttpError(res.status, text, res.headers)}${deployErrorHint(text)}`);
+}
+
+/**
+ * @param {unknown} warnings
+ * @param {{ ns: string, workerName: string, stderr: (line: string) => void }} arg
+ */
+function renderDeployWarnings(warnings, { ns, workerName, stderr }) {
+  // Control's deploy warnings are the only signal for several binding
+  // misconfigurations — surface them so failures don't defer to runtime.
+  if (!Array.isArray(warnings) || warnings.length === 0) return;
+  for (const w of warnings) {
+    if (w && Array.isArray(w.missingCallerSecrets) && w.missingCallerSecrets.length) {
+      const keys = escapeTerminalText(w.missingCallerSecrets.join(", "));
+      stderr(
+        `warning: platform binding "${escapeTerminalText(w.binding)}" (platform="${escapeTerminalText(w.platform)}"): ` +
+        `missing caller secrets ${keys}\n` +
+        `  ns-wide:    wdl secret put --ns ${ns} --scope ns <KEY>\n` +
+        `  per-worker: wdl secret put --ns ${ns} --worker ${workerName} <KEY>`
+      );
+    } else {
+      stderr(`warning: ${formatKnownWarning(w, DEPLOY_WARNING_KEYS)}`);
+    }
+  }
+}
+
+/**
+ * @param {string} text
+ * @param {{ ns: string, workerName: string, stderr: (line: string) => void }} arg
+ */
+function renderDeployWarningsFromErrorBody(text, arg) {
+  try {
+    const body = /** @type {{ warnings?: unknown }} */ (JSON.parse(text));
+    renderDeployWarnings(body.warnings, arg);
+  } catch {}
+}
+
+/** @param {string} text */
+function deployErrorHint(text) {
+  /** @type {unknown} */
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return "";
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+  const error = /** @type {{ error?: unknown }} */ (body).error;
+  if (error === "worker_env_too_large") {
+    return "; reduce [vars], secrets, or binding metadata. If the error names a retained version, redeploy/delete that version.";
+  }
+  if (error === "worker_code_too_large") {
+    return "; reduce generated Worker code size or split the worker.";
+  }
+  if (error === "worker_code_invalid") {
+    return "; rename modules that collide with WDL-reserved _wdl-*.js runtime module names.";
+  }
+  if (error === "python_workers_unsupported") {
+    return "; Python Workers modules are not supported by WDL.";
+  }
+  if (error === "experimental_compat_flag_unsupported") {
+    return "; remove the unsupported workerd experimental compatibility flag.";
+  }
+  return "";
 }
 
 /**
@@ -171,9 +244,11 @@ async function runDeploy({ values, positionals, context: baseContext }) {
 
   const ns = context.resolveNamespace();
   const [projectDir] = positionals;
+  const extraArg = positionals[1];
   if (!projectDir || !ns) {
     throw new CliError(usageText());
   }
+  if (extraArg) throw new CliError(`deploy received unexpected argument: ${extraArg}`);
 
   const { controlUrl, headers: authHeaders } = context.resolveControl();
   const selectedEnv = values.env || env.CLOUDFLARE_ENV || null;

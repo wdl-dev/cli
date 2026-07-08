@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isTokenStoreDisabled, loadCliControlEnv, loadCliDotEnv, protectedEnvKeys, resolveControlContext, resolveControlUrl, resolveNamespace } from "../../lib/credentials.js";
+import { isTokenStoreDisabled, loadCliControlEnv, loadCliDotEnv, protectedEnvKeys, resolveControlContext, resolveControlUrl, resolveNamespace, warnIfInsecureControlUrl } from "../../lib/credentials.js";
 
 test("isTokenStoreDisabled honors the flag and WDL_TOKEN_STORE=off", () => {
   assert.equal(isTokenStoreDisabled({}, false), false);
@@ -82,6 +82,35 @@ test("resolveControlContext centralizes admin token and headers", () => {
   );
 });
 
+test("warnIfInsecureControlUrl escapes control endpoint text before warning", () => {
+  /** @type {string[]} */
+  const warnings = [];
+  warnIfInsecureControlUrl(
+    "http://localhost/\u001b[31m",
+    (line) => warnings.push(line),
+    { CONTROL_CONNECT_HOST: "evil.example\nsecond" },
+  );
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /http:\/\/localhost\/\\u001b\[31m/);
+  assert.match(warnings[0], /CONTROL_CONNECT_HOST=evil\.example\\nsecond/);
+  assert.equal(warnings[0].includes("\u001b"), false);
+  assert.equal(warnings[0].includes("\n"), false);
+});
+
+test("warnIfInsecureControlUrl treats local CONTROL_CONNECT_HOST host:port overrides as local", () => {
+  for (const connectHost of ["localhost:18080", "dev.local:18080", "[::1]:18080", "http://localhost:18080"]) {
+    /** @type {string[]} */
+    const warnings = [];
+    warnIfInsecureControlUrl(
+      "http://admin.test:8080",
+      (line) => warnings.push(line),
+      { CONTROL_CONNECT_HOST: connectHost },
+    );
+    assert.deepEqual(warnings, []);
+  }
+});
+
 test("resolveNamespace prefers explicit namespace before WDL_NS", () => {
   assert.equal(resolveNamespace({ ns: "flag" }, { WDL_NS: "env" }), "flag");
   assert.equal(resolveNamespace({}, { WDL_NS: "env" }), "env");
@@ -156,6 +185,27 @@ test("loadCliDotEnv rejects malformed quoted values", () => {
       () => loadCliDotEnv(emptyEnv(), file),
       /Invalid \.env value: missing closing quote/
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadCliDotEnv ignores non-WDL dotenv lines it cannot parse", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-"));
+  const file = path.join(dir, ".env");
+  try {
+    writeFileSync(file, [
+      "ADMIN_TOKEN=tok",
+      "PRIVATE_KEY=\"-----BEGIN PRIVATE KEY-----",
+      "not a KEY=value continuation",
+      "-----END PRIVATE KEY-----\"",
+      "CONTROL_URL=https://ctl.example",
+    ].join("\n"));
+
+    const env = emptyEnv();
+    assert.deepEqual(loadCliDotEnv(env, file), ["ADMIN_TOKEN", "CONTROL_URL"]);
+    assert.equal(env.ADMIN_TOKEN, "tok");
+    assert.equal(env.CONTROL_URL, "https://ctl.example");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

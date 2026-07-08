@@ -22,7 +22,7 @@ If preview and production config are completely identical, do not use
 ```toml
 name = "my-worker"
 main = "src/index.js"
-compatibility_date = "2026-05-31"
+compatibility_date = "2026-06-17"
 
 [vars]
 SHARED = "top-level"
@@ -51,7 +51,7 @@ Or in `wrangler.jsonc` — same shape, JSON syntax:
 {
   "name": "my-worker",
   "main": "src/index.js",
-  "compatibility_date": "2026-05-31",
+  "compatibility_date": "2026-06-17",
   "vars": { "SHARED": "top-level", "BASE_ONLY": "always-this" },
   "assets": { "directory": "./top-public" },
   "env": {

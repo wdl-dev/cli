@@ -9,7 +9,7 @@ test("bundle module helpers infer file types", () => {
   assert.equal(inferType("worker.js"), "module");
   assert.equal(inferType("x.mjs"), "module");
   assert.equal(inferType("x.cjs"), "cjs");
-  assert.equal(inferType("x.py"), "py");
+  assert.equal(inferType("x.py"), "data");
   assert.equal(inferType("x.json"), "json");
   assert.equal(inferType("x.svg"), "text");
   assert.equal(inferType("x.wasm"), "wasm");

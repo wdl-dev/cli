@@ -1,6 +1,6 @@
 name = "d1-demo"
 main = "src/index.js"
-compatibility_date = "2026-05-31"
+compatibility_date = "2026-06-17"
 
 # Create the database first:
 #   wdl d1 create main

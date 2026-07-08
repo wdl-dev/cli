@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
@@ -293,6 +293,22 @@ test("token set warns before sending the token to a plain-http non-local host", 
     const { warnings, deps: d } = deps(xdg, { stdin: stdinFrom("tok\n") });
     await runTokenCommand(["set", "--ns", "acme", "--control-url", "http://example.com"], d);
     assert.match(warnings.join("\n"), /plain http on a non-local host/);
+  });
+});
+
+test("writeTokenStore replaces a symlink instead of following it", { skip: process.platform === "win32" }, async () => {
+  await withTempXdg(async (xdg) => {
+    const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    mkdirSync(path.dirname(p), { recursive: true });
+    const target = path.join(xdg, "outside-credentials");
+    writeFileSync(target, "outside\n", { mode: 0o600 });
+    symlinkSync(target, p);
+
+    writeTokenStore(p, { defaultNs: "acme", namespaces: { acme: { ADMIN_TOKEN: "secret" } } });
+
+    assert.equal(readFileSync(target, "utf8"), "outside\n");
+    assert.equal(lstatSync(p).isSymbolicLink(), false);
+    assert.deepEqual(readTokenStore(p), { defaultNs: "acme", namespaces: { acme: { ADMIN_TOKEN: "secret" } } });
   });
 });
 

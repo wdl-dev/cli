@@ -100,7 +100,9 @@ wdl r2 objects get  <bucket> <key> --out file  # 下载
 wdl r2 objects delete <bucket> <key> --yes  # 破坏性 —— 先确认
 ```
 
-列表被截断时输出会带 `Next cursor: <c>`；把它传给下一次 `--cursor` 继续翻页（`wdl r2 buckets list` 同样支持 `--cursor` / `--limit`，上限 1000）：
+`wdl r2 objects get` 会写出原始 object bytes。需要 stream bytes 时请 pipe 或重定向 stdout；在交互终端中请使用 `--out <path>`。
+
+列表被截断时输出会带 `Next cursor: <c>`；把它传给下一次 `--cursor` 继续翻页（`wdl r2 buckets list` 同样支持 `--cursor` / `--limit`，其中 `--limit` 必须是 1..1000）：
 
 ```bash
 wdl r2 objects list receipts --limit 100
@@ -110,6 +112,8 @@ wdl r2 objects list receipts --limit 100 --cursor eyJrZXkiOiJyZWNlaXB0cy8wMDk5In
 ```
 
 `wdl r2 objects head` 是只读检查工具 —— 在做破坏性操作前先确认目标对象是否正确。对象不存在时，control 遵循 HTTP `HEAD` 语义返回空 404；CLI 会显示状态码，不会有 JSON 错误体可解析。
+
+R2 object key 可以包含开头、结尾或连续的 `/` 路径分隔符；CLI 会保留这些 empty path segments。`.` 和 `..` segment 会被拒绝，避免 object key 和 control-plane URL path traversal 混淆。
 
 ## Worker 删除后的清理
 

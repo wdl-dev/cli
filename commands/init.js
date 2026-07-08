@@ -10,7 +10,7 @@ const NAME_REGEX = /^[A-Za-z][A-Za-z0-9-]*$/;
 const WORKER_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{0,254}$/;
 const TENANT_NS_RE = new RegExp(`^${NS_PATTERN}$`);
 const IGNORABLE_DIR_ENTRIES = new Set([".git", ".DS_Store"]);
-const DEFAULT_COMPATIBILITY_DATE = "2026-05-31";
+const DEFAULT_COMPATIBILITY_DATE = "2026-06-17";
 
 const CLI_ROOT = path.resolve(fileURLToPath(import.meta.url), "../..");
 const INIT_OPTIONS = [

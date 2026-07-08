@@ -38,6 +38,16 @@ Open the relevant doc before editing `wrangler.jsonc` / `wrangler.toml` or
 `src/`. When combining features (say "cron + KV + assets"), read each matching
 doc and merge their wrangler config snippets.
 
+New Wrangler configs should use `compatibility_date = "2026-06-17"` unless a
+project feature requires a newer target or the operator gives a different
+target. WDL follows Wrangler config priority
+(`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`) and rejects
+Python Workers modules, unsupported workerd experimental compatibility flags,
+modules named like WDL injected `_wdl-*.js` runtime modules, and `[vars]` keys
+that collide with bindings. The CLI locally rejects the explicit `experimental`
+compatibility flag; the control plane is canonical for other unsupported
+experimental flags.
+
 ## Runnable end-to-end examples
 
 When a snippet is not enough and you need a complete working file tree:

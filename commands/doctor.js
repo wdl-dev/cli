@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { defineCommand } from "../lib/command.js";
-import { CliError, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
 import { warnIfInsecureControlUrl } from "../lib/credentials.js";
 import { writeResult } from "../lib/output.js";
 import { readTokenStore, tokenStorePath } from "../lib/token-store.js";
@@ -20,8 +20,15 @@ import {
   resolveWranglerCommand,
   wranglerChildEnv,
 } from "../lib/wrangler/command.js";
+import { WRANGLER_CONFIG_CANDIDATES } from "../lib/wrangler/config.js";
 
-const DOCTOR_OPTIONS = ["ns", "control", "json", "help"];
+const DOCTOR_OPTIONS = [
+  defineCliOption("strict", { type: "boolean" }, "--strict", "Exit non-zero if any check fails."),
+  "ns",
+  "control",
+  "json",
+  "help",
+];
 
 const command = defineCommand({
   name: "doctor",
@@ -43,7 +50,7 @@ export const meta = command.meta;
  * @typedef {import("../lib/command.js").CommandContext & { execFile: typeof execFileSync }} DoctorContext
  */
 
-/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json">, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: import("../lib/command.js").PresetFlags<"ns" | "control" | "json"> & { strict?: boolean }, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
 async function runDoctor({ values, positionals, context: baseContext }) {
   if (positionals.length > 0) throw new CliError(usageText());
 
@@ -68,6 +75,9 @@ async function runDoctor({ values, positionals, context: baseContext }) {
 
   const body = { checks, whoami: remote.whoami, whoamiError: remote.error };
   writeResult(Boolean(values.json), body, () => formatDoctor(checks), context.stdout);
+  if (values.strict === true && checks.some((item) => !item.ok)) {
+    throw new CliError("doctor checks failed");
+  }
 }
 
 /**
@@ -203,13 +213,17 @@ function checkTokenStore(state) {
 
 /** @param {string} cwd */
 function checkWranglerConfig(cwd) {
-  const name = ["wrangler.toml", "wrangler.jsonc", "wrangler.json"].find((candidate) =>
-    existsSync(path.join(cwd, candidate))
-  );
+  const found = WRANGLER_CONFIG_CANDIDATES.filter((candidate) => existsSync(path.join(cwd, candidate)));
+  const name = found[0];
+  const shadowed = found.slice(1);
   return check({
     ok: Boolean(name),
     label: name ? `Wrangler config ${name}` : "Wrangler config",
-    detail: name ? "found in current directory" : "not found in current directory; needed for deploy from this path",
+    detail: name
+      ? shadowed.length > 0
+        ? `found in current directory; ignoring ${shadowed.join(", ")} by Wrangler priority`
+        : "found in current directory"
+      : "not found in current directory; needed for deploy from this path",
   });
 }
 
@@ -231,13 +245,14 @@ async function checkRemoteWhoami({ state, controlFetch, warn }) {
       checks: [],
     };
   }
-  warnIfInsecureControlUrl(control.controlUrl, warn);
+  warnIfInsecureControlUrl(control.controlUrl, warn, state.env);
 
   try {
     const remote = summarizeWhoami(await fetchWhoami({
       controlUrl: control.controlUrl,
       headers: control.headers,
       controlFetch,
+      env: state.env,
     }));
     const tokenNs = namespaceFromPrincipal(remote.principal ?? undefined);
     const checks = [

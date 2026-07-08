@@ -111,6 +111,10 @@ wdl d1 execute main --sql "DELETE FROM tmp" --mode run   # all | raw | run | exe
 
 D1 请求在执行前会被限流：binary query body 最大 8 MiB；解码后的请求最多 1000 条 SQL 语句，SQL 加 params 聚合最大 8 MiB；每条语句最多返回 65,536 行（对齐 Cloudflare D1，超限报 `limit-exceeded`）；结果 body 受平台默认 16 MiB 聚合上限保护。多语句 `exec()` 在同一个 SQLite transaction 中执行；如果后面的语句失败，这次 `exec()` 里之前已经执行的语句会回滚。
 
+D1 migration 管理走 control-plane JSON request parser，所以 `wdl d1 migrations status/apply` 请求体上限是 1 MiB。特别大的 migration 集合或 SQL 文件应拆成更小批次再 apply。`d1 execute --file` 的路径必须存在、可读，并且留在项目根目录内；文件缺失或不可读时 CLI 会在本地拒绝，不会联系 control。
+
+以 `_cf_` 开头的 SQLite object name 是 workerd 保留名，大小写不敏感。不要创建或 `RENAME TO` 到 `_cf_*` 形式的应用 table、index、trigger 或 view；包含这类 DDL 的 migration 在新数据库上可能失败。已经 apply 的 migration 文件不要回改；需要修正时新增 forward migration，把应用数据迁到非保留名称。
+
 ## 删除数据库
 
 ```bash

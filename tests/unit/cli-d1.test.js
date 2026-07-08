@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runD1Command } from "../../commands/d1.js";
+import { D1_MIGRATIONS_JSON_BODY_MAX_BYTES, runD1Command, serializeD1MigrationsBody } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { mockDeps as sharedMockDeps, response } from "./helpers.js";
 
@@ -256,6 +256,41 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
   }
 });
 
+test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform === "win32" }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-symlink-"));
+  try {
+    const migrations = path.join(dir, "migrations");
+    mkdirSync(migrations);
+    const target = path.join(dir, "target.sql");
+    writeFileSync(target, "create table t (id integer);");
+    symlinkSync(target, path.join(migrations, "001_link.sql"));
+
+    await assert.rejects(
+      () => runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      /001_link\.sql is a symlink/
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("serializeD1MigrationsBody enforces the control request body cap", () => {
+  assert.equal(D1_MIGRATIONS_JSON_BODY_MAX_BYTES, 1024 * 1024);
+  assert.equal(serializeD1MigrationsBody({ migrations: [] }, "d1 migrations apply", 32), '{"migrations":[]}');
+  assert.throws(
+    () => serializeD1MigrationsBody({
+      migrations: [{ id: "001_big.sql", name: "001_big", checksum: "x", sql: "x".repeat(80) }],
+    }, "d1 migrations apply", 64),
+    /d1 migrations apply request is \d+ bytes, exceeds 64 byte control-plane request cap/
+  );
+});
+
 test("d1 migrations_dir from wrangler config cannot escape the project", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-contained-"));
   const outside = mkdtempSync(path.join(tmpdir(), "wdl-d1-outside-"));
@@ -296,6 +331,49 @@ test("d1 migrations_dir from wrangler config cannot escape the project", async (
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("d1 migrations warns when multiple Wrangler configs exist", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-config-shadow-"));
+  try {
+    const migrations = path.join(dir, "schema");
+    mkdirSync(migrations);
+    writeFileSync(path.join(migrations, "001_init.sql"), "create table t (id integer);");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      d1_databases: [{
+        binding: "DB",
+        database_name: "main",
+        database_id: "main-id",
+        migrations_dir: "schema",
+      }],
+    }));
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "old"',
+      'main = "old.js"',
+      "",
+      "[[d1_databases]]",
+      'binding = "DB"',
+      'database_name = "main"',
+      'migrations_dir = "old-migrations"',
+      "",
+    ].join("\n"));
+
+    /** @type {string[]} */
+    const warnings = [];
+    await runD1Command(["migrations", "status", "main", "--control-url", "http://ctl.test"], {
+      cwd: dir,
+      env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+      warn: (/** @type {string} */ line) => warnings.push(line),
+      stdout: () => {},
+      controlFetch: async () => response({ migrations: [] }),
+    });
+
+    assert.ok(warnings.some((line) => /using wrangler\.json and ignoring wrangler\.toml/.test(line)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -409,6 +487,51 @@ test("d1 execute --file rejects a path outside the project", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("d1 execute --file wraps missing file read errors", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-file-missing-"));
+  try {
+    await assert.rejects(
+      () => runD1Command(["execute", "main", "--file", "missing.sql", "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        stdout: () => {},
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      /cannot read SQL file missing\.sql:/
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("d1 commands reject unexpected positional arguments", async () => {
+  const deps = {
+    env: { WDL_NS: "demo" },
+    stdout: () => {},
+    controlFetch: async () => {
+      throw new Error("controlFetch should not be called");
+    },
+  };
+  await assert.rejects(
+    () => runD1Command(["list", "extra", "--control-url", "http://ctl.test"], deps),
+    /d1 list received unexpected argument: extra/
+  );
+  await assert.rejects(
+    () => runD1Command(["execute", "main", "extra", "--sql", "select 1", "--control-url", "http://ctl.test"], deps),
+    /d1 execute received unexpected argument: extra/
+  );
+  await assert.rejects(
+    () => runD1Command(["migrations", "apply", "main", "extra", "--control-url", "http://ctl.test"], deps),
+    /d1 migrations apply received unexpected argument: extra/
+  );
+  await assert.rejects(
+    () => runD1Command(["migrations", "bogus", "main", "--control-url", "http://ctl.test"], deps),
+    /unknown d1 migrations subcommand: bogus/
+  );
 });
 
 test("d1 execute rejects an unknown --mode before calling control", async () => {

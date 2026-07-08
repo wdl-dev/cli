@@ -125,6 +125,7 @@ const DEFAULT_LOCAL_CONTROL_URL = `http://admin.test:${LOCAL_GATEWAY_PORT}`;
 const DEFAULT_LOCAL_ADMIN_TOKEN = "local-dev-token";
 const DEFAULT_LOCAL_PLATFORM_DOMAIN = "workers.local";
 const DEFAULT_LOCAL_GATEWAY_ORIGIN = `http://localhost:${LOCAL_GATEWAY_PORT}`;
+const LIVE_WORKER_COMPATIBILITY_DATE = process.env.WDL_LIVE_COMPATIBILITY_DATE || "2026-06-17";
 const LIVE_TIMEOUT_MS = 20 * 60_000;
 const TENANT_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -136,7 +137,9 @@ test("live CLI integration covers command surface against a WDL control plane", 
   /** @type {Array<() => Promise<void>>} */
   const cleanup = [];
   let appDir = "";
+  let doDir = "";
   let wfDir = "";
+  let envDir = "";
   let initDir = "";
   /** @type {NodeJS.ProcessEnv | null} */
   let storeEnv = null;
@@ -177,10 +180,13 @@ test("live CLI integration covers command surface against a WDL control plane", 
 
     const ns = activeTenant.ns;
     const appWorker = "cli-live-app";
+    const doWorker = "cli-live-do";
     const wfWorker = "cli-live-wf";
+    const envWorker = "cli-live-env";
     const dbName = `${ns}-main`;
     const bucket = `cli-live-${ns}`;
     const kvId = `${ns}-kv`;
+    const queueName = `${ns}-jobs`;
     const objectKey = `objects/${ns}/sample.txt`;
     const xdg = path.join(tempRoot, "xdg");
     const commonEnv = integrationEnv(ctx, { XDG_CONFIG_HOME: xdg });
@@ -225,7 +231,7 @@ test("live CLI integration covers command surface against a WDL control plane", 
     await step("init command scaffolds a project", () => {
       initDir = path.join(tempRoot, "init-project");
       run(["init", "init-project", "--ns", ns, "--worker", "init-worker"], { cwd: tempRoot });
-      assert.match(readFileSync(path.join(initDir, "wrangler.jsonc"), "utf8"), /2026-05-31/);
+      assert.match(readFileSync(path.join(initDir, "wrangler.jsonc"), "utf8"), /2026-06-17/);
     });
 
     await step("token store commands", () => {
@@ -261,8 +267,10 @@ test("live CLI integration covers command surface against a WDL control plane", 
     });
 
     await step("write live app and workflow fixtures", () => {
-      appDir = writeAppProject(tempRoot, { worker: appWorker, dbName, bucket, kvId });
+      appDir = writeAppProject(tempRoot, { worker: appWorker, dbName, bucket, kvId, queueName });
+      doDir = writeDurableObjectProject(tempRoot, { worker: doWorker });
       wfDir = writeWorkflowProject(tempRoot, { worker: wfWorker });
+      envDir = writeEnvProject(tempRoot, { worker: envWorker });
     });
 
     cleanupStep("delete d1 database", () => {
@@ -270,6 +278,13 @@ test("live CLI integration covers command surface against a WDL control plane", 
     });
     cleanupStep("delete app worker", () => {
       if (!cleaned.appWorker) run(["delete", "worker", appWorker, "--yes", "--json"], { env: directTenantEnv });
+    });
+    cleanupStep("delete durable object worker", () => {
+      try {
+        run(["delete", "worker", doWorker, "--yes", "--json"], { env: directTenantEnv });
+      } catch {
+        // The DO smoke may not have deployed if an earlier step failed.
+      }
     });
     cleanupStep("delete workflow worker", () => {
       try {
@@ -281,6 +296,13 @@ test("live CLI integration covers command surface against a WDL control plane", 
           return;
         }
         throw err;
+      }
+    });
+    cleanupStep("delete env worker", () => {
+      try {
+        run(["delete", "worker", envWorker, "--yes", "--json"], { env: directTenantEnv });
+      } catch {
+        // The env smoke may not have deployed if an earlier step failed.
       }
     });
 
@@ -349,6 +371,30 @@ test("live CLI integration covers command surface against a WDL control plane", 
       assert.deepEqual(kvPut, { key: "counter", value: 1 });
     });
 
+    await step("tenant runtime exercises assets, queues, and cron registration", async () => {
+      const assetUrl = /** @type {{ url?: string }} */ (await tenantJson(ctx, ns, appWorker, "/asset-url"));
+      assert.match(String(assetUrl.url), /hello\.txt/);
+
+      const queued = /** @type {{ id?: string }} */ (
+        await tenantJson(ctx, ns, appWorker, "/queue/enqueue?id=live-1", { method: "POST" })
+      );
+      assert.equal(queued.id, "live-1");
+      await waitForTenantJson(ctx, ns, appWorker, "/queue/jobs?id=live-1", (body) => {
+        const typed = /** @type {{ jobs?: Array<{ id?: string, queue?: string }> }} */ (body);
+        const jobs = typed.jobs || [];
+        return jobs.some((job) => job.id === "live-1" && job.queue === queueName);
+      });
+    });
+
+    await step("deploy command publishes Durable Object worker", async () => {
+      const doDeploy = run(["deploy", doDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
+      assertDeployPrintedLiveVersion(doDeploy.stdout);
+      const durableObjectHit = /** @type {{ storedHits?: number }} */ (
+        await tenantJson(ctx, ns, doWorker, "/do?room=live")
+      );
+      assert.equal(durableObjectHit.storedHits, 1);
+    });
+
     await step("r2 commands list, head, get, delete objects", () => {
       assert.ok(/** @type {R2BucketsResult} */ (runJson(["r2", "buckets", "list", "--json"], { env: storeEnv }))
         .buckets.some((b) => b.name === bucket));
@@ -366,6 +412,13 @@ test("live CLI integration covers command surface against a WDL control plane", 
       await assertTailReceivesLog({
         ctx, ns, worker: appWorker, env: /** @type {NodeJS.ProcessEnv} */ (storeEnv),
       });
+    });
+
+    await step("deploy --env publishes selected environment overrides", async () => {
+      const envDeploy = run(["deploy", envDir, "--env", "staging"], { env: storeEnv, timeoutMs: 5 * 60_000 });
+      assertDeployPrintedLiveVersion(envDeploy.stdout);
+      await waitForTenantJson(ctx, ns, envWorker, "/health", (body) =>
+        /** @type {{ label?: string }} */ (body).label === "cli-live-staging");
     });
 
     await step("workers and delete version commands", () => {
@@ -688,13 +741,14 @@ async function controlJson(ctx, pathName, token, init = {}) {
 
 /**
  * @param {string} root
- * @param {{ worker: string, dbName: string, bucket: string, kvId: string }} fixture
+ * @param {{ worker: string, dbName: string, bucket: string, kvId: string, queueName: string }} fixture
  * @returns {string}
  */
-function writeAppProject(root, { worker, dbName, bucket, kvId }) {
+function writeAppProject(root, { worker, dbName, bucket, kvId, queueName }) {
   const dir = path.join(root, "app");
   mkdirSync(path.join(dir, "src"), { recursive: true });
   mkdirSync(path.join(dir, "migrations"), { recursive: true });
+  mkdirSync(path.join(dir, "public"), { recursive: true });
   writeFileSync(path.join(dir, "package.json"), JSON.stringify({
     private: true,
     type: "module",
@@ -702,7 +756,7 @@ function writeAppProject(root, { worker, dbName, bucket, kvId }) {
   writeFileSync(path.join(dir, "wrangler.toml"), `
 name = "${worker}"
 main = "src/index.js"
-compatibility_date = "2026-05-31"
+compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
 
 [[d1_databases]]
 binding = "DB"
@@ -717,9 +771,27 @@ bucket_name = "${bucket}"
 binding = "KV"
 id = "${kvId}"
 
+[[queues.producers]]
+binding = "JOBS"
+queue = "${queueName}"
+
+[[queues.consumers]]
+queue = "${queueName}"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+retry_delay = 1
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[assets]
+directory = "public"
+
 [vars]
 LABEL = "cli-live"
 `);
+  writeFileSync(path.join(dir, "public", "hello.txt"), "hello from live assets\n");
   writeFileSync(path.join(dir, "migrations", "001_init.sql"), `
 create table if not exists cli_live_items (
   name text primary key,
@@ -788,6 +860,20 @@ export default {
       await env.KV.put(key, String(next));
       return json({ key, value: next });
     }
+    if (url.pathname === "/asset-url") {
+      return json({ url: await env.ASSETS.url("hello.txt") });
+    }
+    if (url.pathname === "/queue/enqueue") {
+      const id = url.searchParams.get("id") || crypto.randomUUID();
+      await env.JOBS.send({ id, queuedAt: new Date().toISOString() });
+      return json({ id, status: "queued" });
+    }
+    if (url.pathname === "/queue/jobs") {
+      const id = url.searchParams.get("id") || "";
+      const { keys } = await env.KV.list({ prefix: id ? \`queue:\${id}\` : "queue:", limit: 20 });
+      const jobs = await Promise.all(keys.map((key) => env.KV.get(key.name, { type: "json" })));
+      return json({ jobs: jobs.filter(Boolean) });
+    }
     if (url.pathname === "/log") {
       const id = url.searchParams.get("id") || "log";
       console.log("wdl-cli-live-log", id);
@@ -795,8 +881,149 @@ export default {
     }
     return json({ error: "not_found", path: url.pathname }, { status: 404 });
   },
+
+  async queue(batch, env) {
+    for (const message of batch.messages) {
+      const body = message.body || {};
+      const id = body.id || message.id;
+      await env.KV.put(\`queue:\${id}\`, JSON.stringify({
+        id,
+        queue: batch.queue,
+        attempts: message.attempts,
+        queuedAt: body.queuedAt || null,
+        receivedAt: new Date().toISOString(),
+      }));
+      message.ack();
+    }
+  },
+
+  async scheduled(event, env) {
+    await env.KV.put("cron:last", JSON.stringify({
+      cron: event.cron,
+      scheduledTime: event.scheduledTime,
+    }));
+  },
 };
 `;
+}
+
+/**
+ * @param {string} root
+ * @param {{ worker: string }} fixture
+ * @returns {string}
+ */
+function writeDurableObjectProject(root, { worker }) {
+  const dir = path.join(root, "durable-object");
+  mkdirSync(path.join(dir, "src"), { recursive: true });
+  writeFileSync(path.join(dir, "package.json"), JSON.stringify({
+    private: true,
+    type: "module",
+  }, null, 2) + "\n");
+  writeFileSync(path.join(dir, "wrangler.toml"), `
+name = "${worker}"
+main = "src/index.js"
+compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+`);
+  writeFileSync(path.join(dir, "src", "index.js"), durableObjectWorkerSource(worker));
+  return dir;
+}
+
+/**
+ * @param {string} worker
+ * @returns {string}
+ */
+function durableObjectWorkerSource(worker) {
+  return `
+import { DurableObject } from "cloudflare:workers";
+
+function json(value, init = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(value), { ...init, headers });
+}
+
+export class Room extends DurableObject {
+  ensureSchema() {
+    this.ctx.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL)"
+    );
+  }
+
+  hit(name) {
+    this.ensureSchema();
+    this.ctx.storage.sql.exec(
+      "INSERT INTO counters (name, value) VALUES (?, 1) ON CONFLICT(name) DO UPDATE SET value = value + 1",
+      name
+    );
+    const rows = this.ctx.storage.sql.exec("SELECT value FROM counters WHERE name = ?", name);
+    return [...rows][0]?.value ?? 0;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const room = url.searchParams.get("room") || "main";
+    return json({ room, storedHits: this.hit(room) });
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname === "/health") {
+      return json({ worker: "${worker}" });
+    }
+    if (url.pathname === "/do") {
+      const room = url.searchParams.get("room") || "main";
+      const id = env.ROOMS.idFromName(room);
+      return env.ROOMS.get(id).fetch(request);
+    }
+    return json({ error: "not_found", path: url.pathname }, { status: 404 });
+  },
+};
+`;
+}
+
+/**
+ * @param {string} root
+ * @param {{ worker: string }} fixture
+ * @returns {string}
+ */
+function writeEnvProject(root, { worker }) {
+  const dir = path.join(root, "env-project");
+  mkdirSync(path.join(dir, "src"), { recursive: true });
+  writeFileSync(path.join(dir, "package.json"), JSON.stringify({
+    private: true,
+    type: "module",
+  }, null, 2) + "\n");
+  writeFileSync(path.join(dir, "wrangler.toml"), `
+name = "${worker}"
+main = "src/index.js"
+compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
+
+[vars]
+LABEL = "base"
+
+[env.staging.vars]
+LABEL = "cli-live-staging"
+`);
+  writeFileSync(path.join(dir, "src", "index.js"), `
+export default {
+  async fetch(_request, env) {
+    return new Response(JSON.stringify({ label: env.LABEL }), {
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  },
+};
+`);
+  return dir;
 }
 
 /**
@@ -814,7 +1041,7 @@ function writeWorkflowProject(root, { worker }) {
   writeFileSync(path.join(dir, "wrangler.toml"), `
 name = "${worker}"
 main = "src/index.js"
-compatibility_date = "2026-05-31"
+compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
 
 [[workflows]]
 name = "orders"

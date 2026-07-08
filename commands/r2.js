@@ -16,7 +16,7 @@ const R2_OPTIONS = [
   defineCliOption("prefix", { type: "string" }, "--prefix <prefix>", "Object key prefix for objects list."),
   defineCliOption("delimiter", { type: "string" }, "--delimiter <delim>", "Group object list results by delimiter."),
   defineCliOption("cursor", { type: "string" }, "--cursor <cursor>", "Continue a previous list response."),
-  defineCliOption("limit", { type: "string" }, "--limit <n>", "Maximum list results, capped at 1000."),
+  defineCliOption("limit", { type: "string" }, "--limit <n>", "Maximum list results (1..1000)."),
   defineCliOption("out", { type: "string" }, "--out <path>", "Write object bytes to a file instead of stdout."),
   defineCliOption("yes", { type: "boolean" }, "--yes", "Confirm destructive actions."),
   "ns",
@@ -55,19 +55,21 @@ async function runR2({ values, positionals, context: baseContext }) {
   const { stdout, stderr, stdin, stdoutStream } = context;
 
   const [group, action, bucket, key] = positionals;
+  const extraArg = positionals[4];
   const ns = context.resolveNamespace();
   if (!group || !action || !ns) throw new CliError(usageText());
 
-  const { headers } = context.resolveControl();
   // Object keys can contain "/" and must reject . / .. segments, so they use
   // encodeR2KeyPath rather than nsUrl's per-segment encodePath.
   const objectUrl = (/** @type {string} */ objectKey) =>
     `${context.nsUrl("r2", "buckets", bucket, "objects")}/${encodeR2KeyPath(objectKey)}`;
 
   if (group === "buckets" && action === "list") {
+    if (bucket) throw new CliError(`r2 buckets list received unexpected argument: ${bucket}`);
+    const { headers } = context.resolveControl();
     const url = withQuery(context.nsUrl("r2", "buckets"), {
       cursor: values.cursor,
-      limit: values.limit,
+      limit: normalizeListLimit(values.limit),
     });
     const body = /** @type {Parameters<typeof formatBucketList>[0]} */ (
       await context.fetchJson(url, { headers }, "list R2 buckets")
@@ -78,11 +80,13 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "list") {
     if (!bucket) throw new CliError("r2 objects list requires <bucket>");
+    if (key) throw new CliError(`r2 objects list received unexpected argument: ${key}`);
+    const { headers } = context.resolveControl();
     const url = withQuery(context.nsUrl("r2", "buckets", bucket, "objects"), {
       prefix: values.prefix,
       delimiter: values.delimiter,
       cursor: values.cursor,
-      limit: values.limit,
+      limit: normalizeListLimit(values.limit),
     });
     const body = /** @type {Parameters<typeof formatObjectList>[0]} */ (
       await context.fetchJson(url, { headers }, "list R2 objects")
@@ -93,7 +97,12 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "get") {
     if (!bucket) throw new CliError("r2 objects get requires <bucket> <key>");
+    if (extraArg) throw new CliError(`r2 objects get received unexpected argument: ${extraArg}`);
     const objectKey = requireR2ObjectKey(key);
+    if (!values.out && isInteractiveStdout(stdoutStream)) {
+      throw new CliError("r2 objects get refuses to write raw object bytes to an interactive terminal; pass --out <path>");
+    }
+    const { headers } = context.resolveControl();
     const res = await context.fetchStream(objectUrl(objectKey), {
       headers,
       timeoutMs: LONG_CONTROL_TIMEOUT_MS,
@@ -113,7 +122,9 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "head") {
     if (!bucket) throw new CliError("r2 objects head requires <bucket> <key>");
+    if (extraArg) throw new CliError(`r2 objects head received unexpected argument: ${extraArg}`);
     const objectKey = requireR2ObjectKey(key);
+    const { headers } = context.resolveControl();
     const res = await context.fetchStream(objectUrl(objectKey), {
       method: "HEAD",
       headers,
@@ -130,7 +141,9 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "delete") {
     if (!bucket) throw new CliError("r2 objects delete requires <bucket> <key>");
+    if (extraArg) throw new CliError(`r2 objects delete received unexpected argument: ${extraArg}`);
     const objectKey = requireR2ObjectKey(key);
+    const { headers } = context.resolveControl();
     await confirmAction({
       yes: values.yes === true,
       stdin,
@@ -177,14 +190,24 @@ function requireR2ObjectKey(key) {
   return String(key);
 }
 
+/**
+ * @param {string | undefined} limit
+ * @returns {string | undefined}
+ */
+function normalizeListLimit(limit) {
+  if (limit == null || limit === "") return undefined;
+  const n = Number(limit);
+  if (!Number.isInteger(n) || n < 1 || n > 1000) {
+    throw new CliError("r2 --limit must be an integer in [1, 1000]");
+  }
+  return String(n);
+}
+
 /** @param {string} key */
 function encodeR2KeyPath(key) {
   const segments = String(key).split("/");
   if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new CliError("R2 object key must not contain . or .. path segments");
-  }
-  if (segments.some((segment) => segment === "")) {
-    throw new CliError("R2 object key must not contain empty path segments (leading, trailing, or doubled slashes)");
   }
   return segments.map((segment) => encodeURIComponent(segment)).join("/");
 }
@@ -266,6 +289,11 @@ async function writeBodyToStdout(body, stdoutStream) {
   for await (const chunk of body) {
     if (!stdoutStream.write(toBuffer(chunk))) await once(stdoutStream, "drain");
   }
+}
+
+/** @param {NodeJS.WritableStream} stdoutStream */
+function isInteractiveStdout(stdoutStream) {
+  return /** @type {{ isTTY?: boolean }} */ (stdoutStream).isTTY === true;
 }
 
 /**

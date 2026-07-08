@@ -61,11 +61,20 @@ already-loaded historical versions can keep holding the old value until runtime
 eviction or recycle. When strict revocation matters, also consider disabling the
 old credential.
 
+Worker-level secret mutations are atomic: if the active version changes during
+the update, control returns `secret_mutation_contention` and the CLI asks you to
+retry instead of leaving a stored-but-not-promoted partial update. Namespace
+secret mutations can similarly return `namespace_secret_mutation_contention`
+when retained worker metadata keeps changing.
+
 ## Constraints
 
 - Keys must follow environment-variable grammar: `[A-Z_][A-Z0-9_]*` — e.g.
   `STRIPE_KEY`, `API_TOKEN`, `SIGNING_SECRET`.
 - Values are limited to 64 KiB.
+- Secrets count toward the workerLoader env budget together with `[vars]` and
+  binding metadata. If a mutation returns `worker_env_too_large`, reduce the
+  env payload or redeploy/delete the retained version named in the error.
 
 ## Reading in the Worker
 

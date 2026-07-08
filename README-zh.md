@@ -60,7 +60,7 @@ wdl tail hello          # 边访问 URL 边看实时日志
 
 Worker 此时位于 `https://<namespace>.<platform-domain>/hello/`。
 
-不想用存储？凭证也可以来自 shell env（`WDL_NS` / `ADMIN_TOKEN` / `CONTROL_URL`）或带命名空间分段的项目 `.env`（复制 [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example)）——完整优先级（flag 高于 shell env，高于 `.env`，高于 `wdl token` store）见 [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md)。
+不想用存储？凭证也可以来自 shell env（`WDL_NS` / `ADMIN_TOKEN` / `CONTROL_URL`）或带命名空间分段的项目 `.env`（复制 [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example)）——完整优先级（flag 高于 shell env，高于 `.env`，高于 `wdl token` store）见 [docs/deploy-zh.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy-zh.md)。
 
 ## 命令
 

@@ -223,10 +223,9 @@ test("whoami calls control introspection and prints platform compatibility", asy
       },
     });
 
-    assert.deepEqual(calls, [{
-      url: "http://ctl.test/whoami",
-      init: { headers: { "x-admin-token": "secret-token" } },
-    }]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://ctl.test/whoami");
+    assert.deepEqual(calls[0].init.headers, { "x-admin-token": "secret-token" });
     const out = lines.join("\n");
     assert.match(out, /Control URL: http:\/\/ctl\.test/);
     assert.match(out, /Namespace:\s+acme/);
@@ -319,10 +318,57 @@ test("doctor reports local checks plus remote whoami", async () => {
     assert.match(out, /✓ Token namespace acme\n {2}matches configured namespace acme/);
     assert.ok(childEnv);
     assert.equal(childEnv.ADMIN_TOKEN, undefined);
-    assert.deepEqual(calls, [{
-      url: "https://api.wdl.dev/whoami",
-      init: { headers: { "x-admin-token": "secret-token" } },
-    }]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://api.wdl.dev/whoami");
+    assert.deepEqual(calls[0].init.headers, { "x-admin-token": "secret-token" });
+    assert.equal(calls[0].init.env?.CONTROL_URL, "https://api.wdl.dev");
+  });
+});
+
+test("doctor --strict exits non-zero when any check fails", async () => {
+  await withTempDir(async (cwd) => {
+    writeFileSync(path.join(cwd, "wrangler.jsonc"), "{}");
+    /** @type {string[]} */
+    const lines = [];
+
+    await assert.rejects(
+      () => runDoctorCommand(["--strict", "--ns", "acme", "--token", "secret-token"], {
+        cwd,
+        env: { CONTROL_URL: "https://api.wdl.dev" },
+        execFile: () => "wrangler 3.99.0\n",
+        stdout: (/** @type {string} */ line) => lines.push(line),
+        controlFetch: async () => response({
+          ok: true,
+          principal: { kind: "ns", ns: "acme" },
+          minCliVersion: "0.7.1",
+        }),
+      }),
+      /doctor checks failed/
+    );
+
+    const out = lines.join("\n");
+    assert.match(out, /✗ Wrangler 3\.99\.0/);
+    assert.match(out, /wdl deploy requires Wrangler v4/);
+  });
+});
+
+test("doctor reports shadowed Wrangler config files", async () => {
+  await withTempDir(async (cwd) => {
+    writeFileSync(path.join(cwd, "wrangler.json"), "{}");
+    writeFileSync(path.join(cwd, "wrangler.toml"), 'name = "old"\n');
+    /** @type {string[]} */
+    const lines = [];
+
+    await runDoctorCommand([], {
+      cwd,
+      env: {},
+      execFile: () => "wrangler 4.99.0\n",
+      stdout: (/** @type {string} */ line) => lines.push(line),
+    });
+
+    const out = lines.join("\n");
+    assert.match(out, /✓ Wrangler config wrangler\.json/);
+    assert.match(out, /ignoring wrangler\.toml by Wrangler priority/);
   });
 });
 
@@ -533,5 +579,66 @@ test("whoami and doctor warn when the token would travel over plain http to a no
     });
     assert.equal(doctorWarnings.length, 1);
     assert.match(doctorWarnings[0], /plain http on a non-local host/);
+  });
+});
+
+test("whoami and doctor pass effective .env CONTROL_CONNECT_HOST to whoami requests", async () => {
+  const whoamiBody = {
+    ok: true,
+    principal: { kind: "ns", ns: "acme" },
+    tokenId: "tok_123",
+    minCliVersion: "0.7.1",
+    urls: {},
+  };
+
+  await withTempDir(async (cwd) => {
+    writeFileSync(path.join(cwd, ".env"), [
+      "CONTROL_URL=http://admin.test:8080",
+      "CONTROL_CONNECT_HOST=127.0.0.1:18080",
+      "ADMIN_TOKEN=env-token",
+    ].join("\n"));
+    /** @type {import("../../lib/control-fetch.js").ControlFetchInit[]} */
+    const seen = [];
+    await runWhoamiCommand(["--ns", "acme"], {
+      cwd,
+      env: {},
+      stdout: () => {},
+      controlFetch: async (
+        /** @type {string} */ _url,
+        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {},
+      ) => {
+        seen.push(init);
+        return response(whoamiBody);
+      },
+    });
+
+    assert.equal(seen[0].env?.CONTROL_CONNECT_HOST, "127.0.0.1:18080");
+    assert.deepEqual(seen[0].headers, { "x-admin-token": "env-token" });
+  });
+
+  await withTempDir(async (cwd) => {
+    writeFileSync(path.join(cwd, ".env"), [
+      "CONTROL_URL=http://admin.test:8080",
+      "CONTROL_CONNECT_HOST=127.0.0.1:18080",
+      "ADMIN_TOKEN=env-token",
+    ].join("\n"));
+    /** @type {import("../../lib/control-fetch.js").ControlFetchInit[]} */
+    const seen = [];
+    await runDoctorCommand(["--ns", "acme"], {
+      cwd,
+      env: {},
+      execFile: () => "4.94.0\n",
+      stdout: () => {},
+      controlFetch: async (
+        /** @type {string} */ _url,
+        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {},
+      ) => {
+        seen.push(init);
+        return response(whoamiBody);
+      },
+    });
+
+    assert.equal(seen[0].env?.CONTROL_CONNECT_HOST, "127.0.0.1:18080");
+    assert.deepEqual(seen[0].headers, { "x-admin-token": "env-token" });
   });
 });

@@ -32,11 +32,12 @@ async function runWhoami({ values, positionals, context }) {
 
   const state = resolveCliConfigState({ values, env: context.env, cwd: context.cwd, warn: context.warn });
   const control = ensureControlContextFromConfigState(state);
-  warnIfInsecureControlUrl(control.controlUrl, context.warn);
+  warnIfInsecureControlUrl(control.controlUrl, context.warn, state.env);
   const remote = summarizeWhoami(await fetchWhoami({
     controlUrl: control.controlUrl,
     headers: control.headers,
     controlFetch: context.controlFetch,
+    env: state.env,
   }));
   const body = buildWhoamiBody(state, remote);
   writeResult(values.json === true, body, () => formatWhoami(body), context.stdout);

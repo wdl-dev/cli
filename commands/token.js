@@ -93,7 +93,7 @@ async function tokenSet({ values, context }) {
   const controlUrl = resolveControlUrl(values, context.env);
   // Warn before a plaintext token travels unencrypted, like every other path
   // that sends the token.
-  warnIfInsecureControlUrl(controlUrl, context.warn);
+  warnIfInsecureControlUrl(controlUrl, context.warn, context.env);
 
   const token = (await readSecretStdin(context.stdin, {
     prompt: `Token for ${ns} @ ${controlUrl} (input hidden): `,
@@ -108,6 +108,7 @@ async function tokenSet({ values, context }) {
     controlUrl,
     headers: { "x-admin-token": token },
     controlFetch: context.controlFetch,
+    env: context.env,
   });
   const principalNs = namespaceFromPrincipal(whoami.principal);
   if (principalNs !== ns) {

@@ -16,7 +16,7 @@ Wrangler 配置可以定义环境级的覆盖（`vars`、`assets`、绑定等）
 ```toml
 name = "my-worker"
 main = "src/index.js"
-compatibility_date = "2026-05-31"
+compatibility_date = "2026-06-17"
 
 [vars]
 SHARED = "top-level"
@@ -45,7 +45,7 @@ directory = "./prod-public"
 {
   "name": "my-worker",
   "main": "src/index.js",
-  "compatibility_date": "2026-05-31",
+  "compatibility_date": "2026-06-17",
   "vars": { "SHARED": "top-level", "BASE_ONLY": "always-this" },
   "assets": { "directory": "./top-public" },
   "env": {

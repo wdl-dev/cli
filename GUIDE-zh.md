@@ -91,7 +91,7 @@ CLI 只会从 `.env` 读取 WDL 平台变量：`ADMIN_TOKEN`、`CONTROL_URL`、`
 
 `wdl deploy` 在上传前会以你的 OS 用户身份运行项目本地的 Wrangler dry-run 和 build 钩子，这些代码能读到磁盘上的 store（env scrub 只把 WDL 变量挡在 Wrangler 子进程的环境外，挡不住文件），所以只部署你信任的项目。`--no-token-store`（或 `WDL_TOKEN_STORE=off`）让 CLI 只从 flag / shell / `.env` 解析凭据、完全不读 store —— 这是给不太信任的项目或 CI 用的解析 opt-out，不是对文件本身的保护。
 
-用 `wdl config explain` 查看最终 namespace、control URL、脱敏 token 以及每个值的来源。用 `wdl whoami` 调 control-plane `/whoami`，查看当前 authenticated principal、token id、platform version、最低支持 CLI version 和 URL hints。用 `wdl doctor` 做本地可用性检查，包括 Node.js、wdl-cli、Wrangler、配置文件是否存在、凭据是否能解析，以及 `/whoami` 是否可达。当 control plane 暴露 `/whoami` 时，`doctor` 可以发现 token 是否有效、principal namespace、platform version 和 CLI compatibility；更细的 capability 检查仍需要额外的 control endpoint。
+用 `wdl config explain` 查看最终 namespace、control URL、脱敏 token 以及每个值的来源。用 `wdl whoami` 调 control-plane `/whoami`，查看当前 authenticated principal、token id、platform version、最低支持 CLI version 和 URL hints。用 `wdl doctor` 做本地可用性检查，包括 Node.js、wdl-cli、Wrangler、配置文件是否存在、凭据是否能解析，以及 `/whoami` 是否可达；在 CI 里可加 `--strict`，命令仍会打印检查结果，但只要任一检查失败就以非零退出。当 control plane 暴露 `/whoami` 时，`doctor` 可以发现 token 是否有效、principal namespace、platform version 和 CLI compatibility；更细的 capability 检查仍需要额外的 control endpoint。
 
 ## 脚手架新 Worker
 
@@ -136,15 +136,17 @@ export default {
 ```toml
 name = "hello"
 main = "src/index.js"
-compatibility_date = "2026-05-31"
+compatibility_date = "2026-06-17"
 
 [vars]
 APP_NAME = "hello"
 ```
 
-新项目建议使用 `compatibility_date = "2026-05-31"`；除非管理方明确给了其它目标日期。
+新项目建议使用 `compatibility_date = "2026-06-17"`；除非需要的功能或管理方明确要求更新的目标日期。
 
 你可以继续使用 `wrangler dev` 做本地开发；部署到本平台时改用 `wdl deploy`。平台部署命令会调用 `wrangler deploy --dry-run`（Wrangler v4）打包项目，解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。TypeScript、模块解析、esbuild 打包等流程仍走 wrangler 的标准路径。
+
+如果同时存在多个 Wrangler 配置文件，WDL 跟随 Wrangler 的优先级：`wrangler.json`，然后 `wrangler.jsonc`，最后 `wrangler.toml`。
 
 配置好 CLI 默认值后执行：
 
@@ -199,6 +201,8 @@ wdl tail hello --max-reconnects 0  # 不限制自动重连次数
 
 `wdl tail` 是 best-effort 实时调试工具，不是审计历史。高流量 worker 或终端连接消费太慢时，可能跳过中间事件。过大的 console 或 exception 事件会整条丢弃，并以较小的 warning 事件报告，而不是截断后输出。事故复盘和完整 payload 请使用管理方提供的常规日志平台。
 
+control 可能主动回收长时间运行的 tail 会话：客户端约 15s 不读会收到 `session_idle`，会话达到运维方配置的最大时长（默认 15 分钟）会收到 `session_expired`。CLI 会打印 warning 并自动重连；如果反复出现，通常说明终端或外层 wrapper 没有及时消费输出。
+
 普通格式化输出会把 worker 名前缀拼到 fetch path 上：worker 内部看到的 `/` 会显示成 `/<worker>/`，便于和浏览器访问路径对应。`--raw` 保留原始JSON payload。
 
 cron / queue delivery 会在 `wdl tail` 里显示 start/finish 事件，包含 worker、request id、outcome 和 duration，所以能看到 worker 是否确实被定时器或队列触发。scheduled / queue handler 里的 `console.*` 不会出现在 `wdl tail` 中；这类细节请到管理方提供的常规日志平台按时间窗口排查。
@@ -221,6 +225,8 @@ https://<namespace>.<platform-domain>/<worker-name>/
 如果管理方已明确为你的 namespace 开通自定义 routing，会同时给出允许使用的 host 和 route pattern。普通 tenant 示例和首次部署不要配置 `route` / `routes`。如果 custom-host promote 因 host 已被占用而失败，请联系管理方；同一个 namespace 内的多个 Worker 仍可以在已开通的形态下按路径拆分流量。
 
 ## 支持的 wrangler 配置
+
+WDL 会拒绝一些 Wrangler 能打包、但平台不能运行的形状：Python Workers modules、不支持的 workerd experimental compatibility flags、使用 WDL 保留注入模块名（例如 `_wdl-wrapper.js`）的模块，以及和 runtime binding 名冲突的 `[vars]` key。CLI 本地只拒绝显式的 `experimental` compatibility flag；其它不支持的 experimental flags 仍以 control plane 校验为准。Deploy 和 secret mutation 还会校验留有 headroom 的 workerd 1 MiB `workerLoader` env budget；过大的 `[vars]`、secrets、binding metadata 或 retained versions 可能触发 `worker_env_too_large`。
 
 | 配置 | 支持情况 |
 | --- | --- |
@@ -247,6 +253,10 @@ Cron triggers 和 queue consumers 是运行时 dispatch 能力。除非管理方
 R2 custom metadata key 读取时会按 HTTP header 语义归一成小写。R2 object head 会暴露 HTTP metadata 和 custom metadata，所以鉴权上与读取 object body 同级，不开放给 observer 角色。R2 支持条件请求、range GET 和 `list({ include: [...] })` metadata hydration。 `list({ include })` 会在并发上限内额外发起 HEAD；只有列表结果确实需要 metadata 时再打开。
 
 删除 Worker 不会删除 R2 数据。可以用 `wdl r2 buckets list` 和 `wdl r2 objects list <bucket>` 查看 namespace 内的 R2 数据；用 `wdl r2 objects head <bucket> <key>` / `wdl r2 objects get <bucket> <key>` 查看单个对象；用 `wdl r2 objects delete <bucket> <key> --yes` 显式删除单个对象。`wdl r2 buckets list` 是从已有对象 prefix 推出来的，所以已声明的 bucket 要到第一次 PUT 后才会出现。object delete 是幂等的单次 S3 DELETE，不做 retry，也不报告对象此前是否存在。对象不存在时，`HEAD` 遵循 HTTP 语义返回空 404； `wdl r2 objects head` 会显示状态码，不会有 JSON 错误体可解析。
+
+`wdl r2 objects get` 会写出原始 object bytes。需要 stream bytes 时请 pipe 或重定向 stdout；在交互终端中请使用 `--out <path>`。
+
+R2 object key 可以包含开头、结尾或连续的 `/` 分隔符；CLI 会保留这些 empty path segments。`.` 和 `..` segment 会被拒绝，避免 key 和 control-plane URL traversal 混淆。
 
 ### 环境覆盖
 
@@ -368,6 +378,8 @@ wdl deploy .
 
 Migration 是 forward-only。WDL 使用 migration 文件名作为 migration id，已经 apply 的 migration 文件不应重命名或修改；重命名会被视为一条新的 migration。平台不提供自动 down/rollback workflow。若 Worker 版本可能 rollback，migration 应按 expand/contract 方式编写。
 
+以 `_cf_` 开头的 SQLite object name 是 workerd 保留名，大小写不敏感。不要创建或 `RENAME TO` 到 `_cf_*` 形式的 D1 table、index、trigger 或 view；包含这类 DDL 的 migration 在新数据库上可能失败。已经 apply 的 migration 文件不要回改；需要修正时新增 forward migration，把应用数据迁到非保留名称。
+
 常用命令：
 
 ```bash
@@ -379,11 +391,13 @@ wdl d1 migrations apply main
 wdl d1 delete main
 ```
 
-`wdl d1 execute` 要求 `--sql` 和 `--file` 二选一（即使是 `--sql ""` 也会和 `--file` 互斥），且被选中的 SQL 来源必须非空。
+`wdl d1 execute` 要求 `--sql` 和 `--file` 二选一（即使是 `--sql ""` 也会和 `--file` 互斥），且被选中的 SQL 来源必须非空。`--file` 必须存在、可读，并留在项目根目录内；文件缺失或不可读时 CLI 会先在本地拒绝，不会联系 control。
 
 `wdl d1 delete` 默认会要求确认。自动化脚本里只有在已有独立安全检查后，才建议传 `--yes`。
 
 D1 运行时请求在执行前有边界：binary query body 最大 8 MiB；解码后的请求最多 1000 条 SQL 语句，SQL 加 params 聚合最大 8 MiB；结果 body 受平台默认 16 MiB 聚合上限保护。多语句 `exec()` 会在同一个 SQLite transaction 中执行；如果后面的语句失败，这次 `exec()` 里之前已经执行的语句会回滚。
+
+`wdl d1 migrations status/apply` 走 control-plane JSON request parser，所以请求体上限是 1 MiB。特别大的 migration 集合或 SQL 文件应拆成更小批次再 apply。
 
 `examples/d1-demo` 提供了一个最小 visitor counter 示例，包含 D1 binding 和 forward-only migration。
 
@@ -426,6 +440,8 @@ export default {
 ```
 
 当前支持 `stub.fetch()`、JSON-structured `stub.method(...args)` RPC、native `ctx.storage`、同步 `ctx.storage.sql`、alarm、普通 WebSocket upgrade 以及 native WebSocket hibernation API surface。跨 script binding、rename/delete migration、平台级 WebSocket session/cursor 恢复暂未实现。
+
+使用 `ctx.storage.sql` 时，不要使用以 `_cf_` 开头的应用表名；workerd 对这个前缀做大小写不敏感保留。`ctx.storage.deleteAll()` 也会保留平台自有的 `_cf_*` 表。
 
 `examples/durable-objects-demo` 提供了最小的同 Worker Durable Object 计数器，使用 SQLite-backed storage 保存状态。
 
@@ -488,9 +504,10 @@ printf '%s' "$DATABASE_URL" | wdl secret put --scope ns DATABASE_URL
 生效时机：
 
 - 已有线上版本的 Worker 修改 worker-level secret 时，平台会自动创建并 promote 一个新版本，因此新流量会 cold-load 更新后的 secret。已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。
+- worker-level secret 修改是原子的。如果 mutation 期间 active version 变化，control 会返回 `secret_mutation_contention`，CLI 会要求重试，而不是留下"已存储但未 promote"的半成功状态。
 - worker-level secret 可以在第一次部署前设置；第一次部署会读取这些 secret。
 - namespace-level secret 会共享给 namespace 下的所有 Worker，但不会批量 bump 所有 Worker。它会在下一次自然 cold-load 时生效，例如新部署、runtime recycle 或 isolate eviction。
-- secret key 必须符合环境变量命名规则，例如 `STRIPE_KEY`；value 最大 64 KiB。
+- secret key 必须符合环境变量命名规则，例如 `STRIPE_KEY`；value 最大 64 KiB，并且和 `[vars]` 一样计入 workerLoader env budget。
 
 ### Queues
 
@@ -553,7 +570,7 @@ Queue consumers 是 runtime dispatch 目标。把它声明在可路由的 tenant
 | 重试延迟 | `[[queues.consumers]].retry_delay` 是默认重试延迟，单位秒。`msg.retry({ delaySeconds })` / `batch.retryAll({ delaySeconds })` 会覆盖默认值；`delaySeconds: 0` 表示立即重试。 |
 | attempts | handler 看到的 `msg.attempts` 首投从 `1` 开始。`max_retries = N` 时，一条消息最多会被投递 `N + 1` 次，然后进入死信处理。 |
 | 死信队列 | 尊重 `dead_letter_queue` 配置；未配置时使用该 queue 的默认 DLQ。 |
-| Batch timeout | `max_batch_timeout` 会被解析并保存，以兼容 Cloudflare 配置；但当前 dispatch 由 `max_batch_size` 截断，不应依赖 timeout 触发 batch flush。 |
+| Batch timeout | `max_batch_timeout` 必须是 0..60 秒；它会被解析并保存，以兼容 Cloudflare 配置；但当前 dispatch 由 `max_batch_size` 截断，不应依赖 timeout 触发 batch flush。 |
 | 不支持的配置 | `max_concurrency` 会在部署阶段直接拒绝，不会静默忽略。 |
 
 `examples/queues-demo` 提供了单 Worker 生产、消费 queue 消息，并把投递状态写入 KV 的完整示例。
@@ -708,7 +725,7 @@ export default {
 
 ### 客户端断开
 
-响应头发出后,`request.signal` **不再可靠** —— workerd 认为响应已提交,不再 abort 入站 Request。可靠的断开钩子是响应 body 的 `ReadableStream.cancel` 回调(或 `controller.enqueue` 在下游读者离开后抛异常)。如果有必须在响应流水线拆除之后仍然完成的副作用(日志、计数器等),请在请求一开始就用 `ctx.waitUntil` 登记一个由 `cancel` resolve 的 Promise —— 从 `cancel` 内部再调用 `waitUntil` 会和 IoContext 的 teardown 赛跑。
+响应头发出后，`request.signal` **不再可靠** —— workerd 认为响应已提交，不再 abort 入站 Request。响应 body 的 `ReadableStream.cancel` 也只能按 best-effort 使用：长流应配合周期性写入/heartbeat，捕获下游读者离开后 `controller.enqueue` 抛错的情况，并为需要确定性清理的协议保留应用层 timeout 或 close message。如果有必须在响应流水线拆除之后仍然完成的副作用（日志、计数器等），请在请求一开始就注册 `ctx.waitUntil`；从 `cancel` 内部再调用 `waitUntil` 会和 IoContext teardown 赛跑。
 
 ```js
 const { promise: outcome, resolve: resolveOutcome } = Promise.withResolvers();
@@ -716,8 +733,12 @@ ctx.waitUntil((async () => { console.log("client:", await outcome); })());
 
 const stream = new ReadableStream({
   async start(controller) {
-    // … enqueue chunks …
-    resolveOutcome("ended-normally");
+    try {
+      controller.enqueue(new TextEncoder().encode(": heartbeat\n\n"));
+      resolveOutcome("ended-normally");
+    } catch {
+      resolveOutcome("downstream-gone");
+    }
   },
   cancel() { resolveOutcome("cancel"); },
 });
@@ -787,6 +808,7 @@ wdl tail hello
 | service binding 仍调用旧目标行为 | binding 在调用方部署时固定版本 | 重新部署调用方 Worker |
 | `wdl tail` 没有历史日志 | tail 是 live-only；首次连接只看之后的新事件 | 先打开 `wdl tail <worker>`，再触发请求；需要手动续读时使用单 worker 的 `--since <stream-id>` |
 | 多 worker `wdl tail` 重连后可能少日志 | 一个连接无法同时保存多个 worker 的独立续读位置 | 对关键 worker 单独运行 `wdl tail <worker>` |
+| `tail session_idle` / `tail session_expired` | control 因客户端停止读取或会话达到时长上限而回收 live-tail stream | CLI 会自动重连；如果反复出现，确认终端或外层 wrapper 正在消费输出 |
 | scheduled / queue handler 的 `console.*` 没出现在 `wdl tail` | `wdl tail` 显示 fetch / scheduled / queue start/finish；scheduled / queue handler 内部 console 不进入 tail 流 | 用 `wdl tail` 确认触发和 outcome；handler 内部 console 到常规日志平台按时间窗口排查 |
 
 ## 兼容性总结

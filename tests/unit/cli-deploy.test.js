@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +13,8 @@ import {
   collectAssets,
   collectModules,
   collectRoutes,
+  formatWranglerConfigShadowWarning,
+  installTempFileCleanup,
   loadWranglerConfig,
   MAX_ASSET_FILE_BYTES,
   parseD1DatabasesFromCfg,
@@ -227,6 +230,17 @@ test("parseQueues: consumers normalize max_batch_timeout and retry_delay", () =>
       deadLetterQueue: "orders-dlq",
     },
   ]);
+});
+
+test("parseQueues: consumer max_batch_timeout is capped at the platform limit", () => {
+  assert.deepEqual(
+    parseQueues({ consumers: [{ queue: "orders", max_batch_timeout: 60 }] }).consumers,
+    [{ queue: "orders", maxBatchTimeoutMs: 60_000 }]
+  );
+  assert.throws(
+    () => parseQueues({ consumers: [{ queue: "orders", max_batch_timeout: 61 }] }),
+    /max_batch_timeout must be an integer in \[0, 60\]/
+  );
 });
 
 test("parseQueues: omits optional consumer fields when absent", () => {
@@ -823,6 +837,16 @@ test("collectAssets character classes never match the path separator", () => {
   }
 });
 
+test("collectAssets reports invalid .assetsignore patterns with context", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-assetsignore-invalid-"));
+  try {
+    writeFileSync(path.join(dir, ".assetsignore"), "bad[z-a]\n");
+    assert.throws(() => collectAssets(dir), /invalid \.assetsignore pattern "bad\[z-a\]"/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("collectAssets skips crash-leftover wdl temp configs by default", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-assets-tmpcfg-"));
   try {
@@ -907,10 +931,14 @@ test("resolveAssetsDir: accepts a directory that is inside project root", () => 
   }
 });
 
-test("loadWranglerConfig: prefers wrangler.toml when multiple config files exist", () => {
+test("loadWranglerConfig: prefers wrangler.json when multiple config files exist", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-config-"));
   try {
     writeFileSync(path.join(dir, "wrangler.toml"), 'name = "toml-demo"\nmain = "src/index.js"\n');
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "json-demo",
+      main: "src/index.js",
+    }));
     writeFileSync(
       path.join(dir, "wrangler.jsonc"),
       '{ "name": "jsonc-demo", "main": "src/index.js" }'
@@ -918,8 +946,13 @@ test("loadWranglerConfig: prefers wrangler.toml when multiple config files exist
 
     const loaded = loadWranglerConfig(dir);
     const cfg = /** @type {{ name?: string, main?: string }} */ (loaded.cfg);
-    assert.equal(loaded.path, path.join(dir, "wrangler.toml"));
-    assert.equal(cfg.name, "toml-demo");
+    assert.equal(loaded.path, path.join(dir, "wrangler.json"));
+    assert.equal(cfg.name, "json-demo");
+    assert.deepEqual(loaded.shadowed, ["wrangler.jsonc", "wrangler.toml"]);
+    assert.equal(
+      formatWranglerConfigShadowWarning(loaded),
+      "multiple Wrangler config files found; using wrangler.json and ignoring wrangler.jsonc, wrangler.toml"
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -942,6 +975,32 @@ test("loadWranglerConfig: parses JSONC when TOML is absent", () => {
     assert.equal(loaded.path, path.join(dir, "wrangler.jsonc"));
     assert.equal(cfg.name, "jsonc-demo");
     assert.equal(cfg.main, "src/index.js");
+    assert.deepEqual(loaded.shadowed, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("installTempFileCleanup removes temp files on process exit and signals", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-temp-cleanup-"));
+  try {
+    const processLike = /** @type {EventEmitter & { off(event: string, listener: () => void): EventEmitter }} */ (new EventEmitter());
+    /** @type {string[]} */
+    const terminated = [];
+    const sigintFile = path.join(dir, "sigint.json");
+    writeFileSync(sigintFile, "{}");
+    installTempFileCleanup(sigintFile, processLike, (signal) => terminated.push(signal));
+    processLike.emit("SIGINT");
+    assert.equal(existsSync(sigintFile), false);
+    assert.deepEqual(terminated, ["SIGINT"]);
+
+    const exitFile = path.join(dir, "exit.json");
+    writeFileSync(exitFile, "{}");
+    const cleanup = installTempFileCleanup(exitFile, processLike, (signal) => terminated.push(signal));
+    processLike.emit("exit");
+    assert.equal(existsSync(exitFile), false);
+    cleanup();
+    assert.deepEqual(terminated, ["SIGINT"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -962,7 +1021,7 @@ test("resolveWranglerConfig: selected environment inherits supported top-level k
   const { cfg, envName } = resolveWranglerConfig({
     name: "demo",
     main: "src/index.js",
-    compatibility_date: "2026-05-31",
+    compatibility_date: "2026-06-17",
     compatibility_flags: ["nodejs_compat"],
     route: "dev.example.com/*",
     triggers: { crons: ["*/5 * * * *"] },
@@ -976,7 +1035,7 @@ test("resolveWranglerConfig: selected environment inherits supported top-level k
   assert.equal(envName, "staging");
   assert.equal(cfg.name, "demo");
   assert.equal(cfg.main, "src/index.js");
-  assert.equal(cfg.compatibility_date, "2026-05-31");
+  assert.equal(cfg.compatibility_date, "2026-06-17");
   assert.deepEqual(cfg.compatibility_flags, ["nodejs_als"]);
   assert.equal(cfg.route, "dev.example.com/*");
   assert.deepEqual(cfg.triggers, { crons: ["*/5 * * * *"] });
@@ -1546,7 +1605,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
       [
         'name = "api"',
         'main = "src/index.js"',
-        'compatibility_date = "2026-05-31"',
+        'compatibility_date = "2026-06-17"',
         "",
         "[[d1_databases]]",
         'binding = "DB"',
@@ -1648,7 +1707,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
     assert.deepEqual(manifest.workflows, [
       { name: "order-workflow", binding: "ORDER_WORKFLOW", className: "OrderWorkflow" },
     ]);
-    assert.equal(manifest.compatibilityDate, "2026-05-31");
+    assert.equal(manifest.compatibilityDate, "2026-06-17");
 
     assert.equal(fetchCalls[1].url, "http://ctl.test/ns/demo%20space/worker/api/promote");
     assert.equal(fetchCalls[1].init.method, "POST");
@@ -1658,6 +1717,18 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
+});
+
+test("runDeployCommand rejects unexpected positional arguments", async () => {
+  await assert.rejects(
+    () => runDeployCommand([".", "extra", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+      execFile: () => {
+        throw new Error("execFile should not be called");
+      },
+    }),
+    /deploy received unexpected argument: extra/
+  );
 });
 
 test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case wdl names bundle", async () => {
@@ -1671,15 +1742,18 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
       main: "src/index.js",
       vars: { GREETING: "hi" },
     }));
+    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "old"\nmain = "old.js"\n');
 
     let tmpConfigSeen = null;
     let tmpConfigContentAtExec = /** @type {{ name?: string, main?: string, vars?: unknown } | null} */ (null);
     /** @type {RecordedFetch[]} */
     const fetchCalls = [];
+    /** @type {string[]} */
+    const warnings = [];
     await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdout: () => {},
-      stderr: () => {},
+      stderr: (/** @type {string} */ line) => warnings.push(line),
       execFile: (/** @type {string} */ _cmd, /** @type {readonly string[]} */ args) => {
         if (args.includes("--version")) return "wrangler 4.94.0";
         const cfgIdx = args.indexOf("--config");
@@ -1711,6 +1785,7 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
     assert.notEqual(tmpConfigSeen, path.join(dir, ".wrangler.wdl-tmp.json"));
     assert.equal(existsSync(tmpConfigSeen), false, "temp config should be removed after a successful bundle");
     assert.equal(readFileSync(path.join(dir, ".wrangler.wdl-tmp.json"), "utf8"), "user-owned");
+    assert.ok(warnings.some((line) => /using wrangler\.json and ignoring wrangler\.toml/.test(line)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1850,7 +1925,7 @@ test("runDeployCommand prints a direct http URL for a local deploy", async () =>
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
     writeFileSync(path.join(dir, "src", "index.js"), 'export default { fetch() { return new Response("ok"); } };');
-    writeFileSync(path.join(dir, "wrangler.toml"), ['name = "api"', 'main = "src/index.js"', 'compatibility_date = "2026-05-31"'].join("\n"));
+    writeFileSync(path.join(dir, "wrangler.toml"), ['name = "api"', 'main = "src/index.js"', 'compatibility_date = "2026-06-17"'].join("\n"));
 
     /** @type {string[]} */
     const lines = [];
@@ -2052,6 +2127,157 @@ test("runDeployCommand rejects Object.prototype-shaped vars before bundling", as
   }
 });
 
+test("runDeployCommand rejects vars that collide with bindings before bundling", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-var-collision-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      kv_namespaces: [{ binding: "CACHE", id: "cache" }],
+      vars: { CACHE: "shadow" },
+    }));
+
+    let execCalled = false;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        execFile: () => {
+          execCalled = true;
+          throw new Error("execFile should not be called");
+        },
+      }),
+      { message: "binding name collision: CACHE" }
+    );
+    assert.equal(execCalled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand rejects vars that collide with the implicit assets binding", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-assets-var-collision-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    mkdirSync(path.join(dir, "public"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "public", "index.html"), "<h1>ok</h1>");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      assets: { directory: "./public" },
+      vars: { ASSETS: "shadow" },
+    }));
+
+    let fetched = false;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => {
+          fetched = true;
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      { message: "binding name collision: ASSETS" }
+    );
+    assert.equal(fetched, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand rejects explicit bindings that collide with the implicit assets binding", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-assets-binding-collision-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    mkdirSync(path.join(dir, "public"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "public", "index.html"), "<h1>ok</h1>");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      assets: { directory: "./public" },
+      kv_namespaces: [{ binding: "ASSETS", id: "cache" }],
+    }));
+
+    let fetched = false;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => {
+          fetched = true;
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      { message: "binding name collision: ASSETS" }
+    );
+    assert.equal(fetched, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand rejects the explicit workerd experimental compatibility flag before bundling", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-experimental-flag-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      compatibility_flags: ["nodejs_compat", "experimental"],
+    }));
+
+    let execCalled = false;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        execFile: () => {
+          execCalled = true;
+          throw new Error("execFile should not be called");
+        },
+      }),
+      /compatibility_flags "experimental" is not supported by WDL/
+    );
+    assert.equal(execCalled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("collectModules rejects WDL reserved module names", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-reserved-module-"));
+  try {
+    writeFileSync(path.join(dir, "_wdl-wrapper.js"), "export default {}");
+    assert.throws(
+      () => collectModules(dir),
+      /WDL reserved module name _wdl-wrapper\.js/
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("collectModules rejects Python Workers modules locally", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-python-module-"));
+  try {
+    writeFileSync(path.join(dir, "worker.py"), "export default {}");
+    assert.throws(
+      () => collectModules(dir),
+      /Python Workers modules are not supported by WDL; remove worker\.py/
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runDeployCommand passes through wrangler output in verbose mode", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-verbose-"));
   try {
@@ -2188,6 +2414,74 @@ test("runDeployCommand warns with wdl secret hints for missing caller secrets", 
   }
 });
 
+test("runDeployCommand renders deploy warnings from error responses", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-error-warning-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+
+    /** @type {string[]} */
+    const warnings = [];
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: (/** @type {string} */ line) => warnings.push(/** @type {string} */ line),
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => response({
+          error: "deploy_failed",
+          message: "missing caller secrets",
+          warnings: [{
+            binding: "PAYMENT",
+            platform: "STRIPE",
+            missingCallerSecrets: ["API_KEY"],
+          }],
+        }, 400),
+      }),
+      /deploy failed: 400 deploy_failed: missing caller secrets/
+    );
+
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /wdl secret put --ns demo --scope ns <KEY>/);
+    assert.match(warnings[0], /wdl secret put --ns demo --worker api <KEY>/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand explains deploy env-budget failures at the command layer", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-env-budget-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => response({
+          error: "worker_env_too_large",
+          message: "env too large",
+          source_version: "v2",
+        }, 400),
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /worker_env_too_large/);
+        assert.match(message, /source_version=v2/);
+        assert.match(message, /reduce \[vars\], secrets, or binding metadata/);
+        return true;
+      }
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runDeployCommand projects unknown deploy warnings before printing", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-warning-project-"));
   try {
@@ -2232,6 +2526,40 @@ test("serializeDeployManifest enforces the control request body cap", () => {
     () => serializeDeployManifest({ modules: { "index.js": "x".repeat(80) } }, 64),
     /deploy manifest is \d+ bytes, exceeds 64 byte control-plane request cap/
   );
+});
+
+test("runDeployCommand explains a failed promote after upload", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-promote-fail-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+
+    /** @type {string[]} */
+    const stderrLines = [];
+    let fetchCount = 0;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: (/** @type {string} */ line) => stderrLines.push(/** @type {string} */ line),
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => {
+          fetchCount += 1;
+          if (fetchCount === 1) return response({ version: "v9", warnings: [] });
+          return response({ error: "promote_failed", message: "routing unavailable" }, 503);
+        },
+      }),
+      /promote failed: 503 promote_failed: routing unavailable/
+    );
+
+    assert.equal(fetchCount, 2);
+    assert.ok(stderrLines.some((line) =>
+      /version v9 was uploaded and retained but NOT promoted/.test(line)
+    ));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("runDeployCommand warns that DO named entrypoints must be declared exports", async () => {

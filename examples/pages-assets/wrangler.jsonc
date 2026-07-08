@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pages-assets",
   "main": "src/index.js",
-  "compatibility_date": "2026-05-31",
+  "compatibility_date": "2026-06-17",
 
   // Files under ./public are uploaded to the platform asset store; the
   // worker uses env.ASSETS.url() to get CDN URLs back. Same field shape

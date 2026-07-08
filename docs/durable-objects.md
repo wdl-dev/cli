@@ -50,6 +50,10 @@ Currently supported: `stub.fetch()`, JSON-structured `stub.method(...args)` RPC,
 native `ctx.storage`, synchronous `ctx.storage.sql`, alarms, ordinary WebSocket
 upgrade, and the native WebSocket hibernation API surface.
 
+For `ctx.storage.sql`, avoid application table names beginning with `_cf_`;
+workerd reserves that prefix case-insensitively. `ctx.storage.deleteAll()` also
+leaves platform-owned `_cf_*` tables alone.
+
 ## End-to-end example
 
 `../examples/durable-objects-demo` — a same-worker `Room` Durable Object showing

@@ -41,14 +41,16 @@ async function runDelete({ values, positionals, context }) {
     throw new CliError(`unknown subcommand: ${subcommand}\n${usageText()}`);
   }
 
-  const { headers } = context.resolveControl();
-
   if (subcommand === "version") {
-    const worker = values.worker || firstArg;
-    const version = values.version || secondArg;
+    let positionalIndex = 1;
+    const worker = values.worker || positionals[positionalIndex++];
+    const version = values.version || positionals[positionalIndex++];
+    const extraArg = positionals[positionalIndex];
     if (!worker || !version) {
       throw new CliError("version delete requires <worker> <version> or --worker/--version");
     }
+    if (extraArg) throw new CliError(`delete version received unexpected argument: ${extraArg}`);
+    const { headers } = context.resolveControl();
     const body = await context.fetchJson(
       context.nsUrl("worker", worker, "versions", version),
       { method: "DELETE", headers },
@@ -60,9 +62,12 @@ async function runDelete({ values, positionals, context }) {
 
   if (subcommand === "worker") {
     const worker = values.worker || firstArg;
+    const extraArg = values.worker ? firstArg : secondArg;
     if (!worker) {
       throw new CliError("worker delete requires <worker> or --worker <name>");
     }
+    if (extraArg) throw new CliError(`delete worker received unexpected argument: ${extraArg}`);
+    const { headers } = context.resolveControl();
     const dryRun = values["dry-run"] === true;
     await confirmAction({
       yes: dryRun || values.yes === true,

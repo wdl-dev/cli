@@ -134,7 +134,7 @@ test("init scaffolds files with --ns and --worker", async () => {
 
     const wranglerJsonc = readFileSync(path.join(projectDir, "wrangler.jsonc"), "utf8");
     assert.match(wranglerJsonc, /"name":\s*"site"/);
-    assert.match(wranglerJsonc, /"compatibility_date":\s*"2026-05-31"/);
+    assert.match(wranglerJsonc, /"compatibility_date":\s*"2026-06-17"/);
     assert.doesNotMatch(wranglerJsonc, /"env"/);
 
     const indexJs = readFileSync(path.join(projectDir, "src", "index.js"), "utf8");

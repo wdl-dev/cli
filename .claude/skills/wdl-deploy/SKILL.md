@@ -44,6 +44,15 @@ Open the relevant doc before answering:
 Each doc has a Chinese twin at `docs/<name>-zh.md`; both languages are
 authoritative, and agent-facing references use the English set.
 
+New Wrangler configs should use `compatibility_date = "2026-06-17"` unless a
+project feature requires a newer target or the operator gives a different
+target. WDL follows Wrangler config priority (`wrangler.json`, then
+`wrangler.jsonc`, then `wrangler.toml`) and rejects Python Workers modules,
+unsupported workerd experimental compatibility flags, modules named like WDL
+injected `_wdl-*.js` runtime modules, and `[vars]` keys that collide with
+bindings. The CLI locally rejects the explicit `experimental` compatibility
+flag; the control plane is canonical for other unsupported experimental flags.
+
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
 overrides the TCP target the admin token connects to (Host header + TLS SNI
 still track `CONTROL_URL`), and a stale value in a CI or production shell could

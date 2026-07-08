@@ -44,6 +44,8 @@ export default {
 
 当前支持 `stub.fetch()`、JSON-structured `stub.method(...args)` RPC、native `ctx.storage`、同步 `ctx.storage.sql`、alarm、普通 WebSocket upgrade 以及 native WebSocket hibernation API surface。
 
+使用 `ctx.storage.sql` 时，不要使用以 `_cf_` 开头的应用表名；workerd 对这个前缀做大小写不敏感保留。`ctx.storage.deleteAll()` 也会保留平台自有的 `_cf_*` 表。
+
 ## 端到端示例
 
 `../examples/durable-objects-demo` —— 同 Worker 内 `Room` Durable Object，展示内存计数和 SQLite-backed storage 计数。

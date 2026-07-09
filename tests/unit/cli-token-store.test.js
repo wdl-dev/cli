@@ -12,6 +12,7 @@ import {
   updateTokenStore,
   writeTokenStore,
 } from "../../lib/token-store.js";
+import { assertNoRawTerminalControls } from "./helpers.js";
 
 /**
  * @template T
@@ -658,8 +659,7 @@ test("assertStoreDirSecure refuses a group/world-writable store dir", () => {
       (err) => {
         const message = /** @type {Error} */ (err).message;
         assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        assertNoRawTerminalControls(message, "the error");
         return true;
       }
     );
@@ -684,8 +684,7 @@ test("updateTokenStore escapes write-side filesystem errors", () => {
         const message = /** @type {Error} */ (err).message;
         assert.match(message, /failed to update credential store/);
         assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        assertNoRawTerminalControls(message, "the error");
         return true;
       }
     );
@@ -704,8 +703,7 @@ test("writeTokenStore escapes write-side filesystem errors", () => {
         const message = /** @type {Error} */ (err).message;
         assert.match(message, /failed to write credential store/);
         assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        assertNoRawTerminalControls(message, "the error");
         return true;
       }
     );

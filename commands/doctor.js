@@ -192,13 +192,18 @@ function checkTokenStore(state) {
         "only. A store file on disk, if any, stays readable by project build code.",
     });
   }
-  let count = 0;
+  /** @type {ReturnType<typeof readTokenStore>} */
+  let store;
   try {
-    const store = readTokenStore(tokenStorePath(state.env));
-    count = Object.keys(store.namespaces || {}).length;
-  } catch {
-    // A corrupt/unreadable store isn't a doctor failure; report it as absent.
+    store = readTokenStore(tokenStorePath(state.env));
+  } catch (err) {
+    return check({
+      ok: false,
+      label: "Token store",
+      detail: err instanceof Error && err.message ? err.message : String(err),
+    });
   }
+  const count = Object.keys(store.namespaces || {}).length;
   if (count === 0) {
     return check({ ok: true, label: "Token store none" });
   }

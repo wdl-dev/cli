@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
-import { escapeTerminalText, formatKnownWarning, shellSingleQuote, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, formatKnownWarning, shellArgForDisplay, writeStatusLine } from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
 
@@ -126,7 +126,7 @@ async function fetchDeployJson({ context, url, init, label, ns, workerName, stde
   if (res.ok) return await readJsonOrFail(res, label);
   const text = await res.text();
   renderDeployWarningsFromErrorBody(text, { ns, workerName, stderr });
-  throw new CliError(`${label} failed: ${formatHttpError(res.status, text, res.headers)}${deployErrorHint(text)}`);
+  throw new CliError(`${label} failed: ${formatHttpError(res.status, stripRenderedWarnings(text), res.headers)}${deployErrorHint(text)}`);
 }
 
 /**
@@ -137,8 +137,8 @@ function renderDeployWarnings(warnings, { ns, workerName, stderr }) {
   // Control's deploy warnings are the only signal for several binding
   // misconfigurations — surface them so failures don't defer to runtime.
   if (!Array.isArray(warnings) || warnings.length === 0) return;
-  const nsArg = shellArg(ns);
-  const workerArg = shellArg(workerName);
+  const nsArg = shellArgForDisplay(ns);
+  const workerArg = shellArgForDisplay(workerName);
   for (const w of warnings) {
     if (w && Array.isArray(w.missingCallerSecrets) && w.missingCallerSecrets.length) {
       const keys = escapeTerminalText(w.missingCallerSecrets.join(", "));
@@ -154,11 +154,6 @@ function renderDeployWarnings(warnings, { ns, workerName, stderr }) {
   }
 }
 
-/** @param {unknown} value */
-function shellArg(value) {
-  return escapeTerminalText(shellSingleQuote(value));
-}
-
 /**
  * @param {string} text
  * @param {{ ns: string, workerName: string, stderr: (line: string) => void }} arg
@@ -168,6 +163,22 @@ function renderDeployWarningsFromErrorBody(text, arg) {
     const body = /** @type {{ warnings?: unknown }} */ (JSON.parse(text));
     renderDeployWarnings(body.warnings, arg);
   } catch {}
+}
+
+/** @param {string} text */
+function stripRenderedWarnings(text) {
+  /** @type {unknown} */
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return text;
+  const record = /** @type {Record<string, unknown>} */ (body);
+  if (!Array.isArray(record.warnings)) return text;
+  const { warnings: _warnings, ...rest } = record;
+  return JSON.stringify(rest);
 }
 
 /** @param {string} text */

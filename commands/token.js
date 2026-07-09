@@ -10,7 +10,7 @@ import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
 import { flagSet, resolveControlUrl, warnIfInsecureControlUrl } from "../lib/credentials.js";
 import { readSecretStdin } from "../lib/stdin.js";
-import { escapeTerminalText, maskToken, shellSingleQuote, writeResult, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, maskToken, shellArgForDisplay, writeResult, writeStatusLine } from "../lib/output.js";
 import { isAdminAcceptableNs } from "../lib/ns-pattern.js";
 import { fetchWhoami, namespaceFromPrincipal } from "../lib/whoami.js";
 import { readTokenStore, tokenStorePath, updateTokenStore } from "../lib/token-store.js";
@@ -220,7 +220,7 @@ function updateStoredNamespace(storePath, ns, command, mutate) {
  */
 function throwMissingStoredNamespace(ns, command) {
   const escaped = escapeTerminalText(ns);
-  const quoted = escapeTerminalText(shellSingleQuote(ns));
+  const quoted = shellArgForDisplay(ns);
   throw new CliError(
     command === "use"
       ? `no stored token for namespace "${escaped}" — run \`wdl token set --ns ${quoted}\` first`

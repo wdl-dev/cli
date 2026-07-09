@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
-import { response } from "./helpers.js";
+import { assertNoRawTerminalControls, response } from "./helpers.js";
 
 const ESC = String.fromCharCode(27);
 
@@ -361,8 +361,7 @@ test("token list escapes terminal controls inside table cells", async () => {
     await runTokenCommand(["list"], d);
     const out = lines.join("\n");
 
-    assert.doesNotMatch(out, new RegExp(ESC), "raw ESC must not reach token list output");
-    assert.doesNotMatch(out, /\nFORGED|\rBAD/, "raw line controls must not forge table rows");
+    assertNoRawTerminalControls(out, "token list output");
     assert.match(out, /prod\\u001b\[2J\\nFORGED/);
     assert.match(out, /https:\/\/api\.example\\nFORGED\\rBAD/);
   });
@@ -379,8 +378,7 @@ test("token list escapes credential-store read errors", async () => {
         const message = /** @type {Error} */ (err).message;
         assert.match(message, /failed to read credential store/);
         assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        assertNoRawTerminalControls(message, "the error");
         return true;
       }
     );

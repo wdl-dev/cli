@@ -399,6 +399,36 @@ test("doctor reports the token store namespace count and the build-readable cave
   });
 });
 
+test("doctor reports a corrupt token store as a failed check", async () => {
+  await withTempDir(async (cwd) => {
+    writeFileSync(path.join(cwd, "wrangler.jsonc"), "{}");
+    const xdg = path.join(cwd, "xdg");
+    const storePath = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    mkdirSync(path.dirname(storePath), { recursive: true });
+    writeFileSync(storePath, "[demo]\nADMIN_TOKEN=\"unterminated\n");
+    /** @type {string[]} */
+    const lines = [];
+
+    await assert.rejects(
+      () => runDoctorCommand(["--strict", "--ns", "demo", "--control-url", "http://ctl.test", "--token", "secret-token"], {
+        cwd,
+        env: { XDG_CONFIG_HOME: xdg },
+        execFile: () => "4.94.0\n",
+        /** @param {string} line */
+        stdout: (line) => lines.push(line),
+        controlFetch: async () =>
+          response({ ok: true, principal: { kind: "ns", ns: "demo" }, urls: { control: "http://ctl.test" } }),
+      }),
+      /doctor checks failed/
+    );
+
+    const out = lines.join("\n");
+    assert.match(out, /✗ Token store/);
+    assert.match(out, /Invalid \.env value: missing closing quote/);
+    assert.doesNotMatch(out, /Token store none/);
+  });
+});
+
 test("doctor honors --no-token-store: reports the store disabled without reading it", async () => {
   await withTempDir(async (cwd) => {
     const xdg = path.join(cwd, "xdg");

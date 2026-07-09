@@ -2589,10 +2589,17 @@ test("runDeployCommand renders deploy warnings from error responses", async () =
             binding: "PAYMENT",
             platform: "STRIPE",
             missingCallerSecrets: ["API_KEY"],
+            internalTaskId: "task-secret",
           }],
         }, 400),
       }),
-      /deploy failed: 400 deploy_failed: missing caller secrets/
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /deploy failed: 400 deploy_failed: missing caller secrets/);
+        assert.doesNotMatch(message, /warnings=/);
+        assert.doesNotMatch(message, /task-secret/);
+        return true;
+      }
     );
 
     assert.equal(warnings.length, 1);

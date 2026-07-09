@@ -211,6 +211,7 @@ Deleting a worker does **not** delete R2 data — see [r2.md](./r2.md).
 | `experimental_compat_flag_unsupported`                           | Remove the experimental workerd compatibility flag.                                                                  |
 | `python_workers_unsupported`                                     | Python Workers are not supported by WDL; remove Python Worker modules. The CLI also fails fast on local `.py` modules. |
 | `worker_env_too_large`                                           | Reduce `[vars]`, secrets, or binding metadata; redeploy/delete any retained version named in the error.              |
+| `worker_code_too_large`                                          | Reduce generated Worker code size or split the worker.                                                               |
 | `worker_code_invalid`                                            | Fix the Worker bundle shape reported by the control plane, including WDL-reserved injected module names.             |
 | `wrangler build failed`                                          | Run `npx wrangler deploy --dry-run` inside the project and fix it there.                                             |
 | Deploy succeeds but promote fails                                | Custom host or service-binding target validation issue; check the binding targets.                                   |

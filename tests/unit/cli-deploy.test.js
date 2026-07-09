@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -22,6 +22,7 @@ import {
   parseExportsFromCfg,
   parseJsonc,
   parseKvNamespacesFromCfg,
+  packWranglerProject,
   parsePlatformBindingsFromCfg,
   parseQueues,
   parseR2BucketsFromCfg,
@@ -38,9 +39,25 @@ import {
   wranglerChildEnv,
 } from "../../lib/wrangler-pack.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
-import { response } from "./helpers.js";
+import { checkWranglerVersion } from "../../lib/wrangler/command.js";
+import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
 
-const ESC = String.fromCharCode(27);
+/**
+ * @param {() => unknown} fn
+ * @param {RegExp} expected
+ * @param {string} target
+ */
+function assertThrowsNoRawTerminalControls(fn, expected, target) {
+  assert.throws(
+    fn,
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assertNoRawTerminalControls(message, target);
+      assert.match(message, expected);
+      return true;
+    }
+  );
+}
 
 /**
  * The options bag the deploy pipeline passes to its injected execFile dep. The
@@ -483,13 +500,17 @@ test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays"
     () => collectRoutes({ route: "a", routes: ["b"] }, "wrangler.toml"),
     /specify either "route" or "routes"/
   );
+  assertThrowsNoRawTerminalControls(
+    () => collectRoutes({ route: "a", routes: ["b"] }, `wrangler${ESC}[2J\nFORGED\rBAD.toml`),
+    /specify either "route" or "routes"/,
+    "route config label"
+  );
   assert.throws(
     () => collectRoutes({ routes: [{ bad: `x${ESC}[2J\nFORGED\rBAD` }] }, "wrangler.toml"),
     (err) => {
       const message = /** @type {Error} */ (err).message;
       assert.match(message, /unsupported routes entry/);
-      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach route errors");
-      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge route errors");
+      assertNoRawTerminalControls(message, "route errors");
       return true;
     }
   );
@@ -620,6 +641,54 @@ test("parseServicesFromCfg: rejects runtime-reserved entrypoint names (__Wdl…_
   );
 });
 
+test("wrangler binding parser diagnostics escape terminal controls", () => {
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  const badConfigRel = `wrangler${ESC}[2J\nFORGED\rBAD.json`;
+  assertThrowsNoRawTerminalControls(
+    () => parseQueues({ consumers: [{ queue: "jobs", max_concurrency: 4 }] }, badConfigRel),
+    /wrangler\\u001b\[2J\\nFORGED\\rBAD\.json/,
+    "config path diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parseQueues({ consumers: [{ queue: bad, max_concurrency: 4 }] }),
+    /max_concurrency not supported/,
+    "queue diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parseKvNamespacesFromCfg({ kv_namespaces: [{ binding: "KV", id: "x", [bad]: true }] }),
+    /unknown field\(s\): bad\\u001b\[2J\\nFORGED\\rBAD/,
+    "KV diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parseServicesFromCfg({ services: [{ binding: bad, service: 123 }] }),
+    /service must be a non-empty string/,
+    "service diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parseDurableObjectsFromCfg({
+      durable_objects: { bindings: [{ name: bad, class_name: "Room", script_name: "other" }] },
+      migrations: [{ tag: "v1", new_classes: ["Room"] }],
+    }),
+    /script_name is not supported/,
+    "Durable Object diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parseWorkflowsFromCfg({ workflows: [{ name: bad, binding: "WF", class_name: "Flow", script_name: "other" }] }),
+    /script_name is not supported/,
+    "workflow diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parseExportsFromCfg({ exports: [{ entrypoint: "Public", allowed_callers: [bad] }] }),
+    /allowed_callers entries must be/,
+    "export diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parsePlatformBindingsFromCfg({ platform_bindings: [{ binding: "PAYMENT", platform: bad }] }),
+    /platform must match/,
+    "platform binding diagnostics"
+  );
+});
+
 test("collectModules: drops only top-level README, keeps nested ones", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-collect-"));
   try {
@@ -656,11 +725,20 @@ test("collectModules: refuses to follow a symlink in wrangler's outdir", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "wdl-mod-sym-"));
   const outdir = path.join(parent, "out");
   const outside = path.join(parent, "secret");
+  const bad = `evil${ESC}[2J\nFORGED\rBAD.js`;
   try {
     mkdirSync(outdir, { recursive: true });
     writeFileSync(outside, "leak");
-    symlinkSync(outside, path.join(outdir, "evil.js"));
-    assert.throws(() => collectModules(outdir), /symlink/);
+    symlinkSync(outside, path.join(outdir, bad));
+    assert.throws(
+      () => collectModules(outdir),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "module symlink diagnostics");
+        assert.match(message, /evil\\u001b\[2J\\nFORGED\\rBAD\.js/);
+        return true;
+      }
+    );
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
@@ -868,6 +946,62 @@ test("collectAssets reports invalid .assetsignore patterns with context", () => 
   }
 });
 
+test("collectAssets escapes terminal controls in asset diagnostics", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-assets-diagnostic-escape-"));
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  const badPattern = `bad${ESC}[2J\u009b\rBAD`;
+  try {
+    writeFileSync(path.join(dir, ".assetsignore"), `${badPattern}[z-a]\n`);
+    assert.throws(
+      () => collectAssets(dir),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "asset ignore diagnostics");
+        assert.match(message, /bad\\u001b\[2J\\u009b\\rBAD/);
+        return true;
+      }
+    );
+
+    writeFileSync(path.join(dir, ".assetsignore"), "");
+    writeFileSync(path.join(dir, "real.txt"), "x");
+    symlinkSync(path.join(dir, "real.txt"), path.join(dir, bad));
+    assert.throws(
+      () => collectAssets(dir),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "asset path diagnostics");
+        assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
+        return true;
+      }
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("collectAssets wraps native filesystem errors with escaped asset paths", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-assets-fs-escape-"));
+  const bad = `blocked${ESC}[2J\nFORGED\rBAD.txt`;
+  const file = path.join(dir, bad);
+  try {
+    writeFileSync(file, "secret");
+    chmodSync(file, 0);
+    assert.throws(
+      () => collectAssets(dir),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "asset filesystem diagnostics");
+        assert.match(message, /failed to read/);
+        assert.match(message, /blocked\\u001b\[2J\\nFORGED\\rBAD\.txt/);
+        return true;
+      }
+    );
+  } finally {
+    if (existsSync(file)) chmodSync(file, 0o600);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("collectAssets skips crash-leftover wdl temp configs by default", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-assets-tmpcfg-"));
   try {
@@ -905,6 +1039,26 @@ test("resolveAssetsDir: rejects a missing, empty, or non-string assets.directory
         /assets\.directory must be a non-empty string/
       );
     }
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("resolveAssetsDir: escapes terminal controls in diagnostics", () => {
+  const project = mkdtempSync(path.join(tmpdir(), "wdl-assets-dir-escape-"));
+  const bad = `missing${ESC}[2J\nFORGED\rBAD`;
+  const badConfigRel = `wrangler${ESC}[2J\nFORGED\rBAD.json`;
+  try {
+    assert.throws(
+      () => resolveAssetsDir(project, bad, badConfigRel),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "assets.directory diagnostics");
+        assert.match(message, /wrangler\\u001b\[2J\\nFORGED\\rBAD\.json/);
+        assert.match(message, /missing\\u001b\[2J\\nFORGED\\rBAD/);
+        return true;
+      }
+    );
   } finally {
     rmSync(project, { recursive: true, force: true });
   }
@@ -1011,8 +1165,7 @@ test("loadWranglerConfig: escapes parser diagnostics from config files", () => {
       (err) => {
         const message = /** @type {Error} */ (err).message;
         assert.match(message, /failed to parse wrangler\.toml/);
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach config parse errors");
-        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge config parse errors");
+        assertNoRawTerminalControls(message, "config parse errors");
         return true;
       }
     );
@@ -1549,6 +1702,50 @@ test("parseWranglerMajorVersion accepts common wrangler --version output", () =>
   assert.equal(parseWranglerMajorVersion("wrangler 4.94.0"), 4);
   assert.equal(parseWranglerMajorVersion(" ⛅️ wrangler 4.94.0\n"), 4);
   assert.equal(parseWranglerMajorVersion("not a version"), null);
+});
+
+test("checkWranglerVersion escapes unparsable version diagnostics", () => {
+  const execFile = /** @type {typeof import("node:child_process").execFileSync} */ (
+    /** @type {unknown} */ (() => `bad\u009b31m\nFORGED\rBAD`)
+  );
+  assertThrowsNoRawTerminalControls(
+    () => checkWranglerVersion({
+      execFile,
+      cwd: "/tmp/project",
+      env: {},
+      wrangler: { command: "wrangler", args: [] },
+    }),
+    /could not parse version/,
+    "wrangler version parse"
+  );
+});
+
+test("checkWranglerVersion escapes failed version probe diagnostics", () => {
+  const execFile = /** @type {typeof import("node:child_process").execFileSync} */ (
+    /** @type {unknown} */ (() => {
+      const err = new Error(`boom${ESC}[2J\nFORGED\rBAD\u009b`);
+      Object.assign(err, {
+        stdout: `out${ESC}[2J\nFORGED\rBAD`,
+        stderr: "err\u009b31m",
+      });
+      throw err;
+    })
+  );
+  assert.throws(
+    () => checkWranglerVersion({
+      execFile,
+      cwd: "/tmp/project",
+      env: {},
+      wrangler: { command: "wrangler", args: [] },
+    }),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assertNoRawTerminalControls(message, "wrangler version failure");
+      assert.match(message, /boom\\u001b\[2J\\nFORGED\\rBAD\\u009b/);
+      assert.match(message, /out\\u001b\[2J\\nFORGED\\rBAD\\nerr\\u009b31m/);
+      return true;
+    }
+  );
 });
 
 test("resolveWranglerCommand prefers explicit WDL_WRANGLER_BIN", () => {
@@ -2234,6 +2431,42 @@ test("runDeployCommand rejects non-scalar vars before bundling", async () => {
   }
 });
 
+test("runDeployCommand escapes terminal controls in [vars] diagnostics", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-vars-escape-"));
+  const bad = `BAD${ESC}[2J\nFORGED\rBAD`;
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      vars: {
+        [bad]: { nested: true },
+      },
+    }));
+
+    let execCalled = false;
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        execFile: () => {
+          execCalled = true;
+          throw new Error("execFile should not be called");
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "[vars] diagnostics");
+        assert.match(message, /BAD\\u001b\[2J\\nFORGED\\rBAD/);
+        return true;
+      }
+    );
+    assert.equal(execCalled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runDeployCommand rejects runtime-internal vars before bundling", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-vars-"));
   try {
@@ -2449,6 +2682,79 @@ test("runDeployCommand rejects vars that collide with empty declared assets", as
       /binding name collision: ASSETS/
     );
     assert.equal(fetched, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("packWranglerProject escapes progress output fields", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "wdl-pack-progress-escape-"));
+  const badEnv = `prod${ESC}[2J\nFORGED\rBAD`;
+  const projectDir = `app${ESC}[2J\nFORGED\rBAD`;
+  const dir = path.join(root, projectDir);
+  try {
+    mkdirSync(dir);
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      env: { [badEnv]: {} },
+    }));
+
+    /** @type {string[]} */
+    const stdoutLines = [];
+    await packWranglerProject({
+      cwd: root,
+      projectDir,
+      envName: badEnv,
+      stdout: (line = "") => {
+        stdoutLines.push(line);
+      },
+      execFile: /** @type {typeof import("node:child_process").execFileSync} */ ((/** @type {string} */ _cmd, /** @type {readonly string[]} */ args = []) => {
+        if (args.includes("--version")) return "wrangler 4.94.0";
+        const outDir = /** @type {string} */ (args.find((arg) => arg.startsWith("--outdir="))).slice("--outdir=".length);
+        mkdirSync(outDir, { recursive: true });
+        writeFileSync(path.join(outDir, "index.js"), "export default {}");
+      }),
+    });
+
+    const progress = stdoutLines.find((line) => line.includes("bundling via wrangler"));
+    assert.ok(progress);
+    assertNoRawTerminalControls(progress, "wrangler progress output");
+    assert.match(progress, /env=prod\\u001b\[2J\\nFORGED\\rBAD/);
+    assert.match(progress, /app\\u001b\[2J\\nFORGED\\rBAD/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("packWranglerProject escapes missing entry diagnostics", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-pack-entry-escape-"));
+  const badMain = `src/bad${ESC}[2J\nFORGED\rBAD.ts`;
+  try {
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: badMain,
+    }));
+
+    await assert.rejects(
+      () => packWranglerProject({
+        cwd: dir,
+        projectDir: ".",
+        stdout: () => {},
+        execFile: /** @type {typeof import("node:child_process").execFileSync} */ ((/** @type {string} */ _cmd, /** @type {readonly string[]} */ args = []) => {
+          if (args.includes("--version")) return "wrangler 4.94.0";
+          const outDir = /** @type {string} */ (args.find((arg) => arg.startsWith("--outdir="))).slice("--outdir=".length);
+          mkdirSync(outDir, { recursive: true });
+          writeFileSync(path.join(outDir, "other.js"), "export default {}");
+        }),
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "missing entry diagnostics");
+        assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
+        return true;
+      }
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

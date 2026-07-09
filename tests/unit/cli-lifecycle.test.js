@@ -18,17 +18,14 @@ import {
   LONG_CONTROL_TIMEOUT_MS,
   UNLIMITED_CONTROL_BODY_BYTES,
 } from "../../lib/control-fetch.js";
-import { mockDeps, response } from "./helpers.js";
+import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
-
-const ESC = String.fromCharCode(27);
 
 /** @param {unknown} err */
 function assertEscapedBadArg(err) {
   const message = /** @type {Error} */ (err).message;
-  assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach CLI errors");
-  assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+  assertNoRawTerminalControls(message, "CLI errors");
   assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
   return true;
 }
@@ -1690,8 +1687,7 @@ test("wdl dispatcher skips dotenv for top-level help and unknown commands", asyn
     assert.ok(errors.some((line) => line.includes("unknown command: bogus")));
     const escaped = errors.find((line) => line.includes("unknown command: bad"));
     assert.ok(escaped);
-    assert.doesNotMatch(escaped, new RegExp(ESC), "raw ESC must not reach unknown-command errors");
-    assert.doesNotMatch(escaped, /\nFORGED|\rBAD/, "raw line controls must not forge unknown-command errors");
+    assertNoRawTerminalControls(escaped, "unknown-command errors");
     assert.match(escaped, /bad\\u001b\[2J\\nFORGED\\rBAD/);
   } finally {
     process.exit = oldExit;
@@ -1723,8 +1719,7 @@ test("wdl dispatcher prints parseArgs errors without a Node stack", async () => 
 
   assert.equal(errors.length, 1);
   assert.match(errors[0], /error: Unknown option '--dsf\\u001b\[2J\\nFORGED\\rBAD'/);
-  assert.doesNotMatch(errors[0], new RegExp(ESC), "raw ESC must not reach parseArgs errors");
-  assert.doesNotMatch(errors[0], /\nFORGED|\rBAD/, "raw line controls must not forge parseArgs errors");
+  assertNoRawTerminalControls(errors[0], "parseArgs errors");
   assert.doesNotMatch(errors[0], /TypeError|parse_args|Node\.js/);
 });
 
@@ -2422,8 +2417,7 @@ test("wdl tail reconnects with Last-Event-ID after transport errors", async () =
   const transportLine = stderrLines.find((line) => /transport error/i.test(line));
   assert.ok(transportLine);
   assert.match(transportLine, /socket hang up\\u001b\[2J\\nFORGED\\rBAD/);
-  assert.doesNotMatch(transportLine, new RegExp(ESC), "raw ESC must not reach tail transport diagnostics");
-  assert.doesNotMatch(transportLine, /\nFORGED|\rBAD/, "raw line controls must not forge tail transport diagnostics");
+  assertNoRawTerminalControls(transportLine, "tail transport diagnostics");
 });
 
 test("wdl tail treats session recycle warnings as control-initiated reconnects", async () => {

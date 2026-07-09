@@ -5,12 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runD1Command } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
-import { mockDeps as sharedMockDeps, response } from "./helpers.js";
+import { ESC, assertNoRawTerminalControls, mockDeps as sharedMockDeps, response } from "./helpers.js";
 
 /** @typedef {import("../../lib/control-fetch.js").ControlFetchInit} ControlFetchInit */
 /** @typedef {import("./helpers.js").ControlCall} RecordedCall */
-
-const ESC = String.fromCharCode(27);
 
 /**
  * @param {unknown} err
@@ -18,8 +16,7 @@ const ESC = String.fromCharCode(27);
  */
 function assertEscapedD1Error(err, expected) {
   const message = /** @type {Error} */ (err).message;
-  assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-  assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+  assertNoRawTerminalControls(message, "the error");
   assert.match(message, expected);
   return true;
 }
@@ -385,8 +382,7 @@ test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform
       }),
       (err) => {
         const message = /** @type {Error} */ (err).message;
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+        assertNoRawTerminalControls(message, "the error");
         assert.match(message, /001_link\\u001b\[2J\\nFORGED\\rBAD\.sql is a symlink/);
         return true;
       }
@@ -760,8 +756,7 @@ test("d1 execute --file escapes terminal controls in file read errors", async ()
       }),
       (err) => {
         const message = /** @type {Error} */ (err).message;
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+        assertNoRawTerminalControls(message, "the error");
         assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD\.sql/);
         return true;
       },
@@ -811,8 +806,7 @@ test("d1 escapes terminal controls in unexpected positional errors", async () =>
     () => runD1Command(["migrations", badAction, "main", badArg, "--control-url", "http://ctl.test"], deps),
     (err) => {
       const message = /** @type {Error} */ (err).message;
-      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+      assertNoRawTerminalControls(message, "the error");
       assert.match(message, /d1 migrations apply\\u001b\[2J\\nFORGED\\rBAD received unexpected argument: bad\\u001b\[2J\\nFORGED\\rBAD/);
       return true;
     },

@@ -9,14 +9,35 @@ import {
   readControlResponse,
 } from "../../lib/control-fetch.js";
 import { currentCliVersion } from "../../lib/package-info.js";
-
-const ESC = String.fromCharCode(27);
+import { ESC, assertNoRawTerminalControls } from "./helpers.js";
 
 /**
  * @param {{ statusCode?: number, headers?: import("node:http").IncomingHttpHeaders }} [init]
  */
 function fakeResponse({ statusCode = 200, headers = {} } = {}) {
   return Object.assign(new EventEmitter(), { statusCode, headers });
+}
+
+function captureSuccessfulRequestOptions() {
+  /** @type {import("node:https").RequestOptions[]} */
+  const seen = [];
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
+  const transport = {
+    request(opts, onResponse) {
+      seen.push(opts);
+      return Object.assign(new EventEmitter(), {
+        write() {},
+        end() {
+          const res = fakeResponse();
+          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
+          res.emit("data", Buffer.from("{}"));
+          res.emit("end");
+        },
+        destroy() {},
+      });
+    },
+  };
+  return { seen, transport };
 }
 
 test("readControlResponse parses bounded response bodies", async () => {
@@ -323,59 +344,28 @@ test("controlFetch forwards streaming source errors to the consumer", async () =
 });
 
 test("controlFetch carries the URL port in Host and strips IPv6 brackets for the socket", async () => {
-  /** @type {Array<import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }>} */
-  const seen = [];
-  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
-  const transport = {
-    request(opts, onResponse) {
-      seen.push(/** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (opts));
-      return Object.assign(new EventEmitter(), {
-        write() {},
-        end() {
-          const res = fakeResponse();
-          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
-          res.emit("data", Buffer.from("{}"));
-          res.emit("end");
-        },
-        destroy() {},
-      });
-    },
-  };
+  const { seen, transport } = captureSuccessfulRequestOptions();
 
   await controlFetch("http://[::1]:8080/whoami", { transport });
   await controlFetch("http://127.0.0.1:9090/whoami", { transport });
   await controlFetch("http://ctl.test/whoami", { transport });
 
-  assert.equal(seen[0].host, "::1");
-  assert.equal(seen[0].port, 8080);
-  assert.equal(seen[0].headers.Host, "[::1]:8080");
-  assert.equal(seen[1].headers.Host, "127.0.0.1:9090");
+  const first = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen[0]);
+  const second = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen[1]);
+  const third = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen[2]);
+  assert.equal(first.host, "::1");
+  assert.equal(first.port, 8080);
+  assert.equal(first.headers.Host, "[::1]:8080");
+  assert.equal(second.headers.Host, "127.0.0.1:9090");
   // No explicit port: Host stays the bare hostname.
-  assert.equal(seen[2].headers.Host, "ctl.test");
-  assert.equal(seen[2].headers["User-Agent"], `wdl-cli/${currentCliVersion()}`);
+  assert.equal(third.headers.Host, "ctl.test");
+  assert.equal(third.headers["User-Agent"], `wdl-cli/${currentCliVersion()}`);
 });
 
 test("controlFetch parses CONTROL_CONNECT_HOST host:port overrides", async () => {
   const oldConnectHost = process.env.CONTROL_CONNECT_HOST;
   process.env.CONTROL_CONNECT_HOST = "[::1]:18443";
-  /** @type {import("node:https").RequestOptions | null} */
-  let seen = null;
-  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
-  const transport = {
-    request(opts, onResponse) {
-      seen = opts;
-      return Object.assign(new EventEmitter(), {
-        write() {},
-        end() {
-          const res = fakeResponse();
-          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
-          res.emit("data", Buffer.from("{}"));
-          res.emit("end");
-        },
-        destroy() {},
-      });
-    },
-  };
+  const { seen, transport } = captureSuccessfulRequestOptions();
 
   try {
     await controlFetch("https://ctl.example/whoami", { transport });
@@ -384,8 +374,7 @@ test("controlFetch parses CONTROL_CONNECT_HOST host:port overrides", async () =>
     else process.env.CONTROL_CONNECT_HOST = oldConnectHost;
   }
 
-  assert.ok(seen);
-  const opts = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen);
+  const opts = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen[0]);
   assert.equal(opts.host, "::1");
   assert.equal(opts.port, 18443);
   assert.equal(opts.headers.Host, "ctl.example");
@@ -395,24 +384,7 @@ test("controlFetch parses CONTROL_CONNECT_HOST host:port overrides", async () =>
 test("controlFetch uses init env for CONTROL_CONNECT_HOST overrides", async () => {
   const oldConnectHost = process.env.CONTROL_CONNECT_HOST;
   process.env.CONTROL_CONNECT_HOST = "process.example:19000";
-  /** @type {import("node:https").RequestOptions | null} */
-  let seen = null;
-  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
-  const transport = {
-    request(opts, onResponse) {
-      seen = opts;
-      return Object.assign(new EventEmitter(), {
-        write() {},
-        end() {
-          const res = fakeResponse();
-          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
-          res.emit("data", Buffer.from("{}"));
-          res.emit("end");
-        },
-        destroy() {},
-      });
-    },
-  };
+  const { seen, transport } = captureSuccessfulRequestOptions();
 
   try {
     await controlFetch("http://admin.test:8080/whoami", {
@@ -424,40 +396,21 @@ test("controlFetch uses init env for CONTROL_CONNECT_HOST overrides", async () =
     else process.env.CONTROL_CONNECT_HOST = oldConnectHost;
   }
 
-  assert.ok(seen);
-  const opts = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen);
+  const opts = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen[0]);
   assert.equal(opts.host, "127.0.0.1");
   assert.equal(opts.port, 18080);
   assert.equal(opts.headers.Host, "admin.test:8080");
 });
 
 test("controlFetch accepts bare IPv6 CONTROL_CONNECT_HOST overrides", async () => {
-  /** @type {import("node:https").RequestOptions | null} */
-  let seen = null;
-  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
-  const transport = {
-    request(opts, onResponse) {
-      seen = opts;
-      return Object.assign(new EventEmitter(), {
-        write() {},
-        end() {
-          const res = fakeResponse();
-          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
-          res.emit("data", Buffer.from("{}"));
-          res.emit("end");
-        },
-        destroy() {},
-      });
-    },
-  };
+  const { seen, transport } = captureSuccessfulRequestOptions();
 
   await controlFetch("https://ctl.example/whoami", {
     env: { CONTROL_CONNECT_HOST: "::1" },
     transport,
   });
 
-  assert.ok(seen);
-  const opts = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen);
+  const opts = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen[0]);
   assert.equal(opts.host, "::1");
   assert.equal(opts.port, 443);
   assert.equal(opts.headers.Host, "ctl.example");
@@ -487,7 +440,7 @@ test("controlFetch rejects invalid CONTROL_CONNECT_HOST values before opening a 
         (err) => {
           assert(err instanceof CliError);
           assert.match(err.message, /Invalid CONTROL_CONNECT_HOST/);
-          assert.doesNotMatch(err.message, /\u009b/, "raw C1 controls must not reach CONTROL_CONNECT_HOST errors");
+          assertNoRawTerminalControls(err.message, "CONTROL_CONNECT_HOST errors");
           return true;
         }
       );
@@ -499,29 +452,11 @@ test("controlFetch rejects invalid CONTROL_CONNECT_HOST values before opening a 
 });
 
 test("controlFetch omits TLS SNI for HTTPS IP literals", async () => {
-  /** @type {import("node:https").RequestOptions | null} */
-  let seen = null;
-  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
-  const transport = {
-    request(opts, onResponse) {
-      seen = opts;
-      return Object.assign(new EventEmitter(), {
-        write() {},
-        end() {
-          const res = fakeResponse();
-          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
-          res.emit("data", Buffer.from("{}"));
-          res.emit("end");
-        },
-        destroy() {},
-      });
-    },
-  };
+  const { seen, transport } = captureSuccessfulRequestOptions();
 
   await controlFetch("https://127.0.0.1/whoami", { transport });
 
-  assert.ok(seen);
-  const opts = /** @type {import("node:https").RequestOptions} */ (seen);
+  const opts = /** @type {import("node:https").RequestOptions} */ (seen[0]);
   assert.equal(opts.host, "127.0.0.1");
   assert.equal(opts.port, 443);
   assert.equal(opts.servername, undefined);

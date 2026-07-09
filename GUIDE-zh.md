@@ -50,6 +50,8 @@ npm link
 node /path/to/cli/bin/wdl.js deploy ./my-worker
 ```
 
+查看单个命令帮助时，可以运行 `wdl <command> --help` 或 `wdl help <command>`。
+
 ### 配置默认值
 
 推荐的做法是 `wdl token` 存储（见下文）；凭证也可以来自本机或 CI 的 shell：

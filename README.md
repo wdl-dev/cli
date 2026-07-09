@@ -111,7 +111,7 @@ wdl r2 buckets list / wdl r2 objects <list|head|get|delete> ...
 wdl workflows <list|instances|status|pause|resume|restart|terminate> ...
 wdl delete worker <name> [--dry-run] / wdl delete version <name> <version>
 wdl config explain / wdl doctor / wdl whoami [--json]
-wdl --version / wdl <command> --help
+wdl --version / wdl <command> --help / wdl help <command>
 ```
 
 Destructive commands prompt for confirmation; pass `--yes` only in automation

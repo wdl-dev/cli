@@ -58,6 +58,9 @@ If you do not want to link the CLI globally, call the entrypoint directly:
 node /path/to/cli/bin/wdl.js deploy ./my-worker
 ```
 
+For command-specific help, run `wdl <command> --help` or
+`wdl help <command>`.
+
 ### Configure Defaults
 
 The recommended setup is the `wdl token` store (see below); credentials can also

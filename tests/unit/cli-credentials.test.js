@@ -4,8 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isTokenStoreDisabled, loadCliControlEnv, loadCliDotEnv, protectedEnvKeys, resolveControlContext, resolveControlUrl, resolveNamespace, warnIfInsecureControlUrl } from "../../lib/credentials.js";
-
-const ESC = String.fromCharCode(27);
+import { ESC, assertNoRawTerminalControls } from "./helpers.js";
 
 test("isTokenStoreDisabled honors the flag and WDL_TOKEN_STORE=off", () => {
   assert.equal(isTokenStoreDisabled({}, false), false);
@@ -41,8 +40,7 @@ test("resolveControlUrl escapes invalid endpoint diagnostics", () => {
     (err) => {
       const message = /** @type {Error} */ (err).message;
       assert.match(message, /Invalid control URL/);
-      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach control URL errors");
-      assert.doesNotMatch(message, /\u009b/, "raw C1 controls must not reach control URL errors");
+      assertNoRawTerminalControls(message, "control URL errors");
       return true;
     }
   );
@@ -215,8 +213,7 @@ test("loadCliDotEnv escapes invalid section names", () => {
       (err) => {
         const message = /** @type {Error} */ (err).message;
         assert.match(message, /invalid section name/);
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach section errors");
-        assert.doesNotMatch(message, /\u009b/, "raw C1 controls must not reach section errors");
+        assertNoRawTerminalControls(message, "section errors");
         return true;
       }
     );

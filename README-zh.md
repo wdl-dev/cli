@@ -77,7 +77,7 @@ wdl r2 buckets list / wdl r2 objects <list|head|get|delete> ...
 wdl workflows <list|instances|status|pause|resume|restart|terminate> ...
 wdl delete worker <name> [--dry-run] / wdl delete version <name> <version>
 wdl config explain / wdl doctor / wdl whoami [--json]
-wdl --version / wdl <command> --help
+wdl --version / wdl <command> --help / wdl help <command>
 ```
 
 破坏性命令默认提示确认；只有自动化已核对过目标时才传 `--yes`。

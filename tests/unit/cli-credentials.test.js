@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { isTokenStoreDisabled, loadCliControlEnv, loadCliDotEnv, protectedEnvKeys, resolveControlContext, resolveControlUrl, resolveNamespace, warnIfInsecureControlUrl } from "../../lib/credentials.js";
 
+const ESC = String.fromCharCode(27);
+
 test("isTokenStoreDisabled honors the flag and WDL_TOKEN_STORE=off", () => {
   assert.equal(isTokenStoreDisabled({}, false), false);
   assert.equal(isTokenStoreDisabled({}, true), true);
@@ -31,6 +33,19 @@ test("resolveControlUrl strips trailing slashes from flags and env", () => {
 
 test("resolveControlUrl requires a configured endpoint", () => {
   assert.throws(() => resolveControlUrl({}, {}), /No control URL configured/);
+});
+
+test("resolveControlUrl escapes invalid endpoint diagnostics", () => {
+  assert.throws(
+    () => resolveControlUrl({ "control-url": `ftp://ctl.test/${ESC}[2J\u009b` }, {}),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.match(message, /Invalid control URL/);
+      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach control URL errors");
+      assert.doesNotMatch(message, /\u009b/, "raw C1 controls must not reach control URL errors");
+      return true;
+    }
+  );
 });
 
 test("resolveControlUrl accepts bare control hosts as https URLs", () => {
@@ -184,6 +199,26 @@ test("loadCliDotEnv rejects malformed quoted values", () => {
     assert.throws(
       () => loadCliDotEnv(emptyEnv(), file),
       /Invalid \.env value: missing closing quote/
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadCliDotEnv escapes invalid section names", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-section-"));
+  const file = path.join(dir, ".env");
+  try {
+    writeFileSync(file, `[BAD${ESC}[2J\u009b]\nADMIN_TOKEN=tok\n`);
+    assert.throws(
+      () => loadCliDotEnv(emptyEnv(), file),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /invalid section name/);
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach section errors");
+        assert.doesNotMatch(message, /\u009b/, "raw C1 controls must not reach section errors");
+        return true;
+      }
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

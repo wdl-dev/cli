@@ -483,6 +483,16 @@ test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays"
     () => collectRoutes({ route: "a", routes: ["b"] }, "wrangler.toml"),
     /specify either "route" or "routes"/
   );
+  assert.throws(
+    () => collectRoutes({ routes: [{ bad: `x${ESC}[2J\nFORGED\rBAD` }] }, "wrangler.toml"),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.match(message, /unsupported routes entry/);
+      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach route errors");
+      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge route errors");
+      return true;
+    }
+  );
 });
 
 test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id", () => {
@@ -987,6 +997,25 @@ test("loadWranglerConfig: parses JSONC when TOML is absent", () => {
     assert.equal(cfg.name, "jsonc-demo");
     assert.equal(cfg.main, "src/index.js");
     assert.deepEqual(loaded.shadowed, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadWranglerConfig: escapes parser diagnostics from config files", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-config-bad-"));
+  try {
+    writeFileSync(path.join(dir, "wrangler.toml"), `name = "bad${ESC}[2J\nFORGED\rBAD"\nmain =\n`);
+    assert.throws(
+      () => loadWranglerConfig(dir),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /failed to parse wrangler\.toml/);
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach config parse errors");
+        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge config parse errors");
+        return true;
+      }
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2636,6 +2665,36 @@ test("runDeployCommand explains deploy env-budget failures at the command layer"
         assert.match(message, /worker_env_too_large/);
         assert.match(message, /source_version=v2/);
         assert.match(message, /reduce \[vars\], secrets, or binding metadata/);
+        return true;
+      }
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand explains secret-envelope deploy failures at the command layer", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-secret-envelope-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => response({
+          error: "secret_encryption_unconfigured",
+          message: "provider missing",
+        }, 503),
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /secret_encryption_unconfigured/);
+        assert.match(message, /Secret-envelope configuration or stored secret data needs operator repair/i);
         return true;
       }
     );

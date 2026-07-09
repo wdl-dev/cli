@@ -6,6 +6,7 @@ import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, isNonEmptyString, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
 import { confirmAction, readSecretStdin } from "../lib/stdin.js";
 import { escapeTerminalText, writeJsonOr, writeStatusLine } from "../lib/output.js";
+import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 
 const SECRET_OPTIONS = [
   defineCliOption("worker", { type: "string" }, "--worker <w>", "Use worker-level secret scope."),
@@ -160,19 +161,10 @@ function secretMutationHint(text) {
   if (error === "secret_mutation_contention" || error === "namespace_secret_mutation_contention") {
     return "; secret mutation was not written. Retry after concurrent worker metadata updates settle.";
   }
-  if (isSecretEnvelopeError(error)) {
-    return "; secret mutation was not written. A stored secret envelope needs operator repair before retrying.";
+  if (isSecretEnvelopeErrorCode(error)) {
+    return "; secret mutation was not written. Secret-envelope configuration or stored secret data needs operator repair before retrying.";
   }
   return "";
-}
-
-/** @param {unknown} error */
-function isSecretEnvelopeError(error) {
-  return error === "invalid_envelope" ||
-    error === "secret_decrypt_failed" ||
-    error === "secret_not_encrypted" ||
-    error === "unsupported_envelope" ||
-    error === "unknown_kid";
 }
 
 function usageText() {

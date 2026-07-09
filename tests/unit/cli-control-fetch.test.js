@@ -40,7 +40,7 @@ test("readControlResponse rejects oversized response bodies", async () => {
   await assert.rejects(promise, /control response exceeded 3 bytes/);
 });
 
-test("default buffered control response cap matches platform response cap", () => {
+test("default buffered control response cap stays conservative", () => {
   assert.equal(DEFAULT_CONTROL_MAX_BODY_BYTES, 16 * 1024 * 1024);
 });
 
@@ -429,6 +429,38 @@ test("controlFetch uses init env for CONTROL_CONNECT_HOST overrides", async () =
   assert.equal(opts.host, "127.0.0.1");
   assert.equal(opts.port, 18080);
   assert.equal(opts.headers.Host, "admin.test:8080");
+});
+
+test("controlFetch accepts bare IPv6 CONTROL_CONNECT_HOST overrides", async () => {
+  /** @type {import("node:https").RequestOptions | null} */
+  let seen = null;
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
+  const transport = {
+    request(opts, onResponse) {
+      seen = opts;
+      return Object.assign(new EventEmitter(), {
+        write() {},
+        end() {
+          const res = fakeResponse();
+          onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
+          res.emit("data", Buffer.from("{}"));
+          res.emit("end");
+        },
+        destroy() {},
+      });
+    },
+  };
+
+  await controlFetch("https://ctl.example/whoami", {
+    env: { CONTROL_CONNECT_HOST: "::1" },
+    transport,
+  });
+
+  assert.ok(seen);
+  const opts = /** @type {import("node:https").RequestOptions & { headers: import("node:http").OutgoingHttpHeaders }} */ (seen);
+  assert.equal(opts.host, "::1");
+  assert.equal(opts.port, 443);
+  assert.equal(opts.headers.Host, "ctl.example");
 });
 
 test("controlFetch rejects invalid CONTROL_CONNECT_HOST values before opening a socket", () => {

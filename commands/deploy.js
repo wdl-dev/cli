@@ -7,6 +7,7 @@ import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
 import { escapeTerminalText, formatKnownWarning, shellArgForDisplay, writeStatusLine } from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
+import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
 
 export const DEPLOY_JSON_BODY_MAX_BYTES = 32 * 1024 * 1024;
@@ -206,6 +207,9 @@ function deployErrorHint(text) {
   }
   if (error === "experimental_compat_flag_unsupported") {
     return "; remove the unsupported workerd experimental compatibility flag.";
+  }
+  if (isSecretEnvelopeErrorCode(error)) {
+    return "; secret-envelope configuration or stored secret data needs operator repair before retrying.";
   }
   return "";
 }

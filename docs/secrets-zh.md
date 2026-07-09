@@ -10,7 +10,7 @@
 
 - API key、token、签名密钥，凡是不该出现在 git diff 或构建产物里的东西。
 
-非敏感配置（问候字符串、功能开关、公开 URL）放 `wrangler.jsonc` / `wrangler.toml` 的 `[vars]`。
+非敏感配置（问候字符串、功能开关、公开 URL）放 `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` 的 `[vars]`。
 
 ## 设置
 
@@ -49,6 +49,8 @@ worker 级 secret  >  命名空间级 secret  >  [vars]
 修改 worker 级 secret 会创建并 promote 新版本，但已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。需要严格撤销时，应同时考虑禁用旧凭据。
 
 Worker 级 secret mutation 是原子的：如果更新期间 active version 变化，control 会返回 `secret_mutation_contention`，CLI 会要求重试，而不是留下"已存储但未 promote"的半成功状态。Namespace secret mutation 在 retained worker metadata 持续变化时也可能返回 `namespace_secret_mutation_contention`。
+
+如果 secret mutation 返回 `secret_encryption_unconfigured`、`secret_decrypt_failed`、`invalid_envelope`、`unsupported_envelope`、`unknown_kid` 或 `secret_not_encrypted`，这次 mutation 没有写入。这类错误需要运维侧修复 secret-envelope 配置或已存储 envelope 数据；等运维确认修复后再重试。
 
 ## 约束
 

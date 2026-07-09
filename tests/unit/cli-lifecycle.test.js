@@ -845,7 +845,21 @@ test("secret mutation errors explain retry and operator-repair cases", async () 
         }, 503),
       }
     ),
-    /stored secret envelope needs operator repair/
+    /Secret-envelope configuration or stored secret data needs operator repair/
+  );
+  await assert.rejects(
+    () => runSecretCommand(
+      ["put", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"],
+      {
+        env: { ADMIN_TOKEN: "tok" },
+        stdin: stdinFrom("secret-value\n"),
+        controlFetch: async () => response({
+          error: "secret_encryption_unconfigured",
+          message: "provider missing",
+        }, 503),
+      }
+    ),
+    /Secret-envelope configuration or stored secret data needs operator repair/
   );
 });
 
@@ -1492,6 +1506,11 @@ test("wdl dispatcher routes documented commands and rejects unknown commands", a
 
     await assert.rejects(() => wdlMain(["worker-list"], { loadEnv: null }), /exit:1/);
     assert.ok(seen.some((line) => line.includes("unknown command: worker-list")));
+
+    await assert.rejects(() => wdlMain(["toString"], { loadEnv: null }), /exit:1/);
+    assert.ok(seen.some((line) => line.includes("unknown command: toString")));
+    await assert.rejects(() => wdlMain(["help", "toString"], { loadEnv: null }), /exit:0/);
+    assert.doesNotMatch(seen.join("\n"), /TypeError|COMMANDS\[|\.main/);
   } finally {
     process.exit = oldExit;
     console.error = oldError;

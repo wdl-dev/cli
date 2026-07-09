@@ -6,8 +6,8 @@ import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, option
 import { warnIfInsecureControlUrl } from "../lib/credentials.js";
 import { writeResult } from "../lib/output.js";
 import { readTokenStore, tokenStorePath } from "../lib/token-store.js";
-import { resolveCliConfigState } from "../lib/config-state.js";
-import { CLI_ROOT, readCliPackageJson } from "../lib/package-info.js";
+import { TokenStoreConfigError, resolveCliConfigState } from "../lib/config-state.js";
+import { CLI_ROOT, currentCliVersion, readCliPackageJson } from "../lib/package-info.js";
 import {
   ensureControlContextFromConfigState,
   fetchWhoami,
@@ -55,7 +55,21 @@ async function runDoctor({ values, positionals, context: baseContext }) {
   if (positionals.length > 0) throw new CliError(usageText());
 
   const context = /** @type {DoctorContext} */ (baseContext);
-  const state = resolveCliConfigState({ values, env: context.env, cwd: context.cwd, warn: context.warn });
+  let tokenStoreError = null;
+  let state;
+  try {
+    state = resolveCliConfigState({ values, env: context.env, cwd: context.cwd, warn: context.warn });
+  } catch (err) {
+    if (!(err instanceof TokenStoreConfigError)) throw err;
+    tokenStoreError = err.message;
+    state = resolveCliConfigState({
+      values,
+      env: context.env,
+      cwd: context.cwd,
+      readStore: () => ({}),
+      warn: context.warn,
+    });
+  }
   const checks = [
     checkNode(),
     checkCliVersion(),
@@ -63,7 +77,7 @@ async function runDoctor({ values, positionals, context: baseContext }) {
     checkControlUrl(state),
     checkToken(state),
     checkNamespace(state),
-    checkTokenStore(state),
+    tokenStoreError ? check({ ok: false, label: "Token store", detail: tokenStoreError }) : checkTokenStore(state),
     checkWranglerConfig(context.cwd),
   ];
   const remote = await checkRemoteWhoami({
@@ -105,7 +119,7 @@ function checkNode() {
 function checkCliVersion() {
   return check({
     ok: true,
-    label: `wdl-cli ${readCliPackageJson().version}`,
+    label: `wdl-cli ${currentCliVersion()}`,
   });
 }
 

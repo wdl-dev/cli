@@ -15,7 +15,7 @@ visible to anyone with read access.
   or build output.
 
 Put non-sensitive configuration (greeting strings, feature flags, public URLs)
-in `[vars]` in `wrangler.jsonc` / `wrangler.toml`.
+in `[vars]` in `wrangler.json` / `wrangler.jsonc` / `wrangler.toml`.
 
 ## Set
 
@@ -66,6 +66,12 @@ the update, control returns `secret_mutation_contention` and the CLI asks you to
 retry instead of leaving a stored-but-not-promoted partial update. Namespace
 secret mutations can similarly return `namespace_secret_mutation_contention`
 when retained worker metadata keeps changing.
+
+If a secret mutation returns `secret_encryption_unconfigured`,
+`secret_decrypt_failed`, `invalid_envelope`, `unsupported_envelope`,
+`unknown_kid`, or `secret_not_encrypted`, the mutation was not written. These
+are operator-side secret-envelope configuration or stored-data repair problems;
+retry after the operator reports the envelope issue repaired.
 
 ## Constraints
 

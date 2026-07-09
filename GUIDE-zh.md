@@ -505,6 +505,7 @@ printf '%s' "$DATABASE_URL" | wdl secret put --scope ns DATABASE_URL
 
 - 已有线上版本的 Worker 修改 worker-level secret 时，平台会自动创建并 promote 一个新版本，因此新流量会 cold-load 更新后的 secret。已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。
 - worker-level secret 修改是原子的。如果 mutation 期间 active version 变化，control 会返回 `secret_mutation_contention`，CLI 会要求重试，而不是留下"已存储但未 promote"的半成功状态。
+- `secret_encryption_unconfigured`、`secret_decrypt_failed`、`invalid_envelope`、`unsupported_envelope`、`unknown_kid` 或 `secret_not_encrypted` 这类 secret-envelope 错误表示 mutation 没有写入；等运维侧修复 envelope 配置或已存储数据后再重试。
 - worker-level secret 可以在第一次部署前设置；第一次部署会读取这些 secret。
 - namespace-level secret 会共享给 namespace 下的所有 Worker，但不会批量 bump 所有 Worker。它会在下一次自然 cold-load 时生效，例如新部署、runtime recycle 或 isolate eviction。
 - secret key 必须符合环境变量命名规则，例如 `STRIPE_KEY`；value 最大 64 KiB，并且和 `[vars]` 一样计入 workerLoader env budget。

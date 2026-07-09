@@ -429,6 +429,40 @@ test("doctor reports a corrupt token store as a failed check", async () => {
   });
 });
 
+test("doctor reports a corrupt token store even when it blocks credential resolution", async () => {
+  await withTempDir(async (cwd) => {
+    writeFileSync(path.join(cwd, "wrangler.jsonc"), "{}");
+    const xdg = path.join(cwd, "xdg");
+    const storePath = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    mkdirSync(path.dirname(storePath), { recursive: true });
+    writeFileSync(storePath, "[demo]\nADMIN_TOKEN=\"unterminated\n");
+    /** @type {string[]} */
+    const lines = [];
+
+    await assert.rejects(
+      () => runDoctorCommand(["--strict"], {
+        cwd,
+        env: { XDG_CONFIG_HOME: xdg, WDL_NS: "demo" },
+        execFile: () => "4.94.0\n",
+        /** @param {string} line */
+        stdout: (line) => lines.push(line),
+        controlFetch: async () => {
+          throw new Error("whoami should be skipped without resolved credentials");
+        },
+      }),
+      /doctor checks failed/
+    );
+
+    const out = lines.join("\n");
+    assert.match(out, /✗ Token store/);
+    assert.match(out, /Invalid \.env value: missing closing quote/);
+    assert.match(out, /✗ ADMIN_TOKEN/);
+    assert.match(out, /✗ CONTROL_URL/);
+    assert.doesNotMatch(out, /Token store disabled/);
+    assert.doesNotMatch(out, /Control \/whoami/);
+  });
+});
+
 test("doctor honors --no-token-store: reports the store disabled without reading it", async () => {
   await withTempDir(async (cwd) => {
     const xdg = path.join(cwd, "xdg");

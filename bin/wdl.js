@@ -30,7 +30,8 @@ const REGISTRY = [initCmd, deployCmd, secretCmd, workersCmd, deleteCmd, d1Cmd, r
 const ALIASES = { secrets: "secret" };
 
 /** @type {Record<string, CommandModule>} */
-const COMMANDS = Object.fromEntries(REGISTRY.map((c) => [c.meta.name, c]));
+const COMMANDS = Object.create(null);
+for (const c of REGISTRY) COMMANDS[c.meta.name] = c;
 for (const [alias, target] of Object.entries(ALIASES)) COMMANDS[alias] = COMMANDS[target];
 
 // The pre-scan below needs each command's flag schema; a missing one would
@@ -56,7 +57,7 @@ for (const c of REGISTRY) {
 export async function main(argv = process.argv.slice(2), deps = {}) {
   const [command, ...rest] = argv;
 
-  if (command === "help" && rest.length === 1 && COMMANDS[rest[0]]) {
+  if (command === "help" && rest.length === 1 && Object.hasOwn(COMMANDS, rest[0])) {
     return await COMMANDS[rest[0]].main(["--help"]);
   }
   if (!command || command === "-h" || command === "--help" || command === "help") {
@@ -67,12 +68,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     console.log(currentCliVersion());
     return;
   }
-  const commandModule = COMMANDS[command];
-  if (!commandModule) {
+  if (!Object.hasOwn(COMMANDS, command)) {
     console.error(`error: unknown command: ${escapeTerminalText(command)}`);
     usage(1);
     return;
   }
+  const commandModule = COMMANDS[command];
 
   const env = deps.env || process.env;
   const scanned = scanCommandArgs(commandModule, rest);

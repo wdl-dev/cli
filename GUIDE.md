@@ -727,6 +727,10 @@ Effect timing:
 - Worker-level secret changes are atomic. If the active version changes during
   the mutation, control returns `secret_mutation_contention` and the CLI asks you
   to retry instead of leaving a stored-but-not-promoted partial update.
+- Secret-envelope errors such as `secret_encryption_unconfigured`,
+  `secret_decrypt_failed`, `invalid_envelope`, `unsupported_envelope`,
+  `unknown_kid`, or `secret_not_encrypted` mean the mutation was not written;
+  retry after the operator repairs envelope configuration or stored data.
 - Worker-level secrets can be set before the first deploy; the first deploy will
   pick them up.
 - Namespace-level secret changes are shared by every Worker in the namespace,

@@ -11,7 +11,9 @@
   remains canonical for runtime/workerd bundle errors, while the CLI still
   rejects cheap local cases like Python Worker modules and ambiguous runtime env
   name collisions between `[vars]`, explicit bindings, and the implicit
-  `ASSETS` binding.
+  `ASSETS` binding. Deploy also fails fast on unmapped Wrangler runtime/deploy
+  keys such as `[site]`, `workers_dev`, `pages_build_output_dir`,
+  `observability`, `limits`, and `placement` instead of silently dropping them.
 - `wdl tail` now recognizes control-initiated `session_idle` /
   `session_expired` stream recycling and reconnects without presenting it as an
   unknown warning.

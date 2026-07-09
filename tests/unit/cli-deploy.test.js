@@ -1199,6 +1199,21 @@ test("installTempFileCleanup removes temp files on process exit and signals", ()
   }
 });
 
+test("installTempFileCleanup only swallows cleanup errors during process handlers", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-temp-cleanup-error-"));
+  try {
+    const exitProcess = /** @type {EventEmitter & { off(event: string, listener: () => void): EventEmitter }} */ (new EventEmitter());
+    installTempFileCleanup(dir, exitProcess);
+    assert.doesNotThrow(() => exitProcess.emit("exit"));
+
+    const cleanupProcess = /** @type {EventEmitter & { off(event: string, listener: () => void): EventEmitter }} */ (new EventEmitter());
+    const cleanup = installTempFileCleanup(dir, cleanupProcess);
+    assert.throws(() => cleanup(), /EISDIR|directory/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("resolveWranglerConfig: named environments require explicit selection", () => {
   assert.throws(
     () => resolveWranglerConfig({
@@ -1482,6 +1497,15 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
       workers_dev: false,
     }, null, "wrangler.toml"),
     /\[workers_dev\] — not supported/
+  );
+
+  assert.throws(
+    () => validateUnsupportedWranglerConfig({
+      name: "demo",
+      main: "src/index.js",
+      vectorize: [],
+    }, null, "wrangler.toml"),
+    /\[vectorize\] — not supported/
   );
 
   assert.throws(

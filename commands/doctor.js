@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
@@ -20,7 +20,7 @@ import {
   resolveWranglerCommand,
   wranglerChildEnv,
 } from "../lib/wrangler/command.js";
-import { WRANGLER_CONFIG_CANDIDATES } from "../lib/wrangler/config.js";
+import { selectWranglerConfigFiles } from "../lib/wrangler/config.js";
 
 const DOCTOR_OPTIONS = [
   defineCliOption("strict", { type: "boolean" }, "--strict", "Exit non-zero if any check fails."),
@@ -232,9 +232,8 @@ function checkTokenStore(state) {
 
 /** @param {string} cwd */
 function checkWranglerConfig(cwd) {
-  const found = WRANGLER_CONFIG_CANDIDATES.filter((candidate) => existsSync(path.join(cwd, candidate)));
-  const name = found[0];
-  const shadowed = found.slice(1);
+  const { selected, shadowed } = selectWranglerConfigFiles(cwd);
+  const name = selected?.name;
   return check({
     ok: Boolean(name),
     label: name ? `Wrangler config ${name}` : "Wrangler config",

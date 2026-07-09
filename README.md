@@ -16,7 +16,7 @@ Workflows, secrets, and live logs — inside your own namespace.
 ## How it relates to Cloudflare Workers
 
 - You write standard module workers (`export default { fetch }`) with a normal
-  `wrangler.toml` / `wrangler.jsonc`, pinned to `wrangler@^4`.
+  `wrangler.json` / `wrangler.jsonc` / `wrangler.toml`, pinned to `wrangler@^4`.
 - `wdl deploy` runs `wrangler deploy --dry-run` **for local bundling only** —
   nothing is ever sent to Cloudflare. Do not use `wrangler deploy` against a WDL
   platform; releases go through `wdl deploy`.
@@ -169,7 +169,7 @@ Steps:
    `wdl init <name> && cd <name> && npm install`
    (add `--ns <ns>` to `wdl init` to bake the namespace into the deploy script; otherwise it resolves from the `wdl token` default or `--ns` at deploy time.)
 4. Immediately open and read `AGENTS.md` in the new directory, then open the relevant docs and examples under `node_modules/@wdl-dev/cli/docs/` for my feature. Note: a freshly generated `AGENTS.md` is not loaded automatically mid-session — read it explicitly.
-5. Edit `wrangler.jsonc` and `src/` for the feature. Push third-party API secrets with `wdl secret put --worker <worker-name> <KEY>`; never put tokens in source, `wrangler.jsonc`, or `.env`.
+5. Edit `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` and `src/` for the feature. Push third-party API secrets with `wdl secret put --worker <worker-name> <KEY>`; never put tokens in source, Wrangler config, or `.env`.
 6. Run `npm run dry-run` first and fix local bundle issues, then deploy with `npm run deploy`.
 7. After a successful deploy, give me the Worker URL (shape `https://<namespace>.<platform-domain>/<worker-name>/`), the files you changed, and how I should verify.
 ```

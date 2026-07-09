@@ -2,12 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defineCommand } from "../../lib/command.js";
 import { CliError, defineCliOption } from "../../lib/common.js";
-import { response } from "./helpers.js";
+import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
 
 /** @typedef {Parameters<typeof defineCommand>[0]} CommandSpec */
 /** @typedef {import("../../lib/command.js").CommandContext} CommandContext */
-
-const ESC = String.fromCharCode(27);
 
 // Most tests don't care about name/summary; default them so each case only
 // states the fields it exercises.
@@ -53,8 +51,7 @@ test("defineCommand direct runner escapes parseArgs errors", async () => {
     () => cmd.run([bad]),
     (err) => {
       assert(err instanceof CliError);
-      assert.doesNotMatch(err.message, new RegExp(ESC), "raw ESC must not reach direct runner errors");
-      assert.doesNotMatch(err.message, /\nFORGED|\rBAD/, "raw line controls must not forge direct runner errors");
+      assertNoRawTerminalControls(err.message, "direct runner errors");
       assert.match(err.message, /--bad\\u001b\[2J\\nFORGED\\rBAD/);
       return true;
     },

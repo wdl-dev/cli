@@ -97,7 +97,7 @@ export default {
 
 - ❌ `[vars] = { STRIPE_KEY = "sk_live_..." }`. `[vars]` goes into the bundle.
   Use `wdl secret put`.
-- ❌ Hardcoding third-party API tokens in `.env` or `wrangler.jsonc`. Push them
+- ❌ Hardcoding third-party API tokens in `.env` or Wrangler config. Push them
   with `wdl secret put`.
 - ❌ Adding `--yes` to `wdl secret delete` without running `wdl secret list`
   first and confirming with the user.

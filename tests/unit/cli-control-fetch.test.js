@@ -149,8 +149,7 @@ test("controlFetch escapes transport error details", async () => {
     (err) => {
       assert(err instanceof CliError);
       assert.match(err.message, /E_BAD\\u001b boom\\u001b\[2J\\nFORGED\\rBAD/);
-      assert.doesNotMatch(err.message, new RegExp(ESC), "raw ESC must not reach control request errors");
-      assert.doesNotMatch(err.message, /\nFORGED|\rBAD/, "raw line controls must not forge control request errors");
+      assertNoRawTerminalControls(err.message, "control request errors");
       return true;
     }
   );

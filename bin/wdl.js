@@ -57,10 +57,19 @@ for (const c of REGISTRY) {
 export async function main(argv = process.argv.slice(2), deps = {}) {
   const [command, ...rest] = argv;
 
-  if (command === "help" && rest.length === 1 && Object.hasOwn(COMMANDS, rest[0])) {
-    return await COMMANDS[rest[0]].main(["--help"]);
+  if (command === "help") {
+    if (rest.length === 0) {
+      usage(0);
+      return;
+    }
+    if (rest.length === 1 && Object.hasOwn(COMMANDS, rest[0])) {
+      return await COMMANDS[rest[0]].main(["--help"]);
+    }
+    console.error(`error: unknown help topic: ${escapeTerminalText(rest.join(" "))}`);
+    usage(1);
+    return;
   }
-  if (!command || command === "-h" || command === "--help" || command === "help") {
+  if (!command || command === "-h" || command === "--help") {
     usage(command ? 0 : 1);
     return;
   }

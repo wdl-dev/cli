@@ -6,6 +6,7 @@ import { isHelpAlias } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, handleCliError, isMain, isNonEmptyString, optionHelp, optionParseOptions } from "../lib/common.js";
 import { NS_PATTERN, RESERVED_TENANT_NS, isReservedNs } from "../lib/ns-pattern.js";
 import { escapeTerminalText } from "../lib/output.js";
+import { WRANGLER_WDL_TMP_PREFIX } from "../lib/wrangler/config.js";
 
 const NAME_REGEX = /^[A-Za-z][A-Za-z0-9-]*$/;
 const WORKER_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{0,254}$/;
@@ -222,7 +223,7 @@ async function writeStarter(targetDir, { packageName, workerName, ns }) {
 `node_modules/
 .deploy-dist/
 .wrangler/
-.wrangler.wdl-tmp*.json
+${WRANGLER_WDL_TMP_PREFIX}*.json
 *.log
 
 # Never commit tenant credentials

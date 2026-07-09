@@ -6,9 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
-import { assertNoRawTerminalControls, response } from "./helpers.js";
-
-const ESC = String.fromCharCode(27);
+import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
 
 /**
  * @template T
@@ -270,7 +268,7 @@ test("token set escapes terminal controls in a principal-mismatch error", async 
       ),
       (err) => {
         const message = /** @type {Error} */ (err).message;
-        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not be in the error");
+        assertNoRawTerminalControls(message, "principal-mismatch errors");
         assert.match(message, /token principal is namespace/);
         return true;
       }
@@ -283,7 +281,7 @@ test("token set escapes a masked token suffix containing terminal controls", asy
     const { lines, deps: d } = deps(xdg, { stdin: stdinFrom(`tok-secret${ESC}[2J\n`) });
     await runTokenCommand(["set", "--ns", "acme", "--control-url", "https://api.example"], d);
     const out = lines.join("\n");
-    assert.doesNotMatch(out, new RegExp(ESC), "raw ESC must not reach stdout via the masked suffix");
+    assertNoRawTerminalControls(out, "masked token suffix output");
     assert.match(out, /Stored token for acme/);
   });
 });
@@ -433,7 +431,7 @@ test("token use/rm escape terminal controls in the not-found error", async () =>
     const bad = `ghost${ESC}[2J`;
     /** @param {unknown} err */
     const noEsc = (err) => {
-      assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(ESC), "raw ESC must not reach the error");
+      assertNoRawTerminalControls(/** @type {Error} */ (err).message, "token not-found errors");
       return true;
     };
     await assert.rejects(() => runTokenCommand(["use", bad], deps(xdg).deps), noEsc);

@@ -72,7 +72,7 @@ export default {
 ## 反模式
 
 - ❌ `[vars] = { STRIPE_KEY = "sk_live_..." }`。`[vars]` 会进 bundle。用 `wdl secret put`。
-- ❌ 把第三方 API token 硬编码到 `.env` 或 `wrangler.jsonc`。用 `wdl secret put` 推送。
+- ❌ 把第三方 API token 硬编码到 `.env` 或 Wrangler config。用 `wdl secret put` 推送。
 - ❌ 在没有先 `wdl secret list` 并跟用户确认时，给 `wdl secret delete` 加 `--yes`。
 - ❌ 用 `echo "$VAL" |` 而不是 `printf '%s' "$VAL" |`。`echo` 会在末尾加换行符，被一并写进 secret 值里。
 - ❌ 期望命名空间级 secret 立即给每个 worker 生效。它不会 —— 下次冷启动时才生效。需要"立刻生效"用 worker 级 secret。

@@ -1506,7 +1506,8 @@ test("wdl dispatcher routes documented commands and rejects unknown commands", a
 
     await assert.rejects(() => wdlMain(["toString"], { loadEnv: null }), /exit:1/);
     assert.ok(seen.some((line) => line.includes("unknown command: toString")));
-    await assert.rejects(() => wdlMain(["help", "toString"], { loadEnv: null }), /exit:0/);
+    await assert.rejects(() => wdlMain(["help", "toString"], { loadEnv: null }), /exit:1/);
+    assert.ok(seen.some((line) => line.includes("unknown help topic: toString")));
     assert.doesNotMatch(seen.join("\n"), /TypeError|COMMANDS\[|\.main/);
   } finally {
     process.exit = oldExit;

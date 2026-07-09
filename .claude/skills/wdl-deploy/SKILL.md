@@ -1,6 +1,6 @@
 ---
 name: wdl-deploy
-description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, workers, delete, d1, r2, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows bindings, manage D1 / R2 / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.toml` / `wrangler.jsonc` projects pinned to wrangler@^4.
+description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, workers, delete, d1, r2, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows bindings, manage D1 / R2 / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
 ---
 
 # WDL CLI deploy skill
@@ -51,8 +51,9 @@ target. WDL follows Wrangler config priority (`wrangler.json`, then
 unsupported runtime shapes such as unsupported workerd experimental
 compatibility flags and WDL-reserved injected module names; the CLI still
 fails fast for cheap local cases such as Python Workers modules, unmapped
-Wrangler runtime/deploy keys (`[site]`, `workers_dev`,
-`pages_build_output_dir`, `observability`, `limits`, `placement`, etc.), and
+top-level or selected-env Wrangler runtime/deploy keys (`[site]`,
+`workers_dev`, `pages_build_output_dir`, `observability`, `limits`,
+`placement`, etc.), and
 ambiguous runtime `env` name collisions between `[vars]`, explicit bindings,
 and the implicit `ASSETS` binding.
 

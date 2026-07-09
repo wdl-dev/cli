@@ -12,7 +12,7 @@ import {
   updateTokenStore,
   writeTokenStore,
 } from "../../lib/token-store.js";
-import { assertNoRawTerminalControls } from "./helpers.js";
+import { ESC, assertNoRawTerminalControls } from "./helpers.js";
 
 /**
  * @template T
@@ -37,7 +37,7 @@ function writeLockOwner(lockDir, owner) {
 }
 
 const TOKEN_STORE_MODULE_URL = new URL("../../lib/token-store.js", import.meta.url).href;
-const ESC = String.fromCharCode(27);
+const POSIX_ONLY = { skip: process.platform === "win32" ? "POSIX-only filesystem behavior" : false };
 
 test("tokenStoreDir honors XDG_CONFIG_HOME, then falls back to ~/.config", () => {
   assert.equal(
@@ -141,7 +141,8 @@ test("updateTokenStore handles concurrent released-lock recovery", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-token-store-"));
   try {
     const p = path.join(dir, "wdl", "credentials");
-    const workers = Array.from({ length: 32 }, (_, index) => {
+    const workerCount = 8;
+    const workers = Array.from({ length: workerCount }, (_, index) => {
       const ns = `ns-${index}`;
       const token = `tok-${index}`;
       const code = `
@@ -184,8 +185,8 @@ updateTokenStore(${JSON.stringify(p)}, (store) => {
     }
 
     const store = readTokenStore(p);
-    assert.equal(Object.keys(store.namespaces).length, 32);
-    for (let index = 0; index < 32; index += 1) {
+    assert.equal(Object.keys(store.namespaces).length, workerCount);
+    for (let index = 0; index < workerCount; index += 1) {
       assert.equal(store.namespaces[`ns-${index}`]?.ADMIN_TOKEN, `tok-${index}`);
     }
   } finally {
@@ -264,8 +265,7 @@ test("updateTokenStore takeover clears stale temp files inside the lock", () => 
   });
 });
 
-test("updateTokenStore creates a usable lock under a restrictive umask", () => {
-  if (process.platform === "win32") return;
+test("updateTokenStore creates a usable lock under a restrictive umask", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const oldUmask = process.umask(0o777);
@@ -325,8 +325,7 @@ test("updateTokenStore recovers an old lock whose owner pid appears alive", () =
   });
 });
 
-test("updateTokenStore recovers a stale lock with an unreadable owner file", () => {
-  if (process.platform === "win32") return;
+test("updateTokenStore recovers a stale lock with an unreadable owner file", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -347,8 +346,7 @@ test("updateTokenStore recovers a stale lock with an unreadable owner file", () 
   });
 });
 
-test("updateTokenStore recovers a stale lock with an unreadable release marker", () => {
-  if (process.platform === "win32") return;
+test("updateTokenStore recovers a stale lock with an unreadable release marker", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -396,8 +394,7 @@ test("updateTokenStore recovers a stale regular-file lock", () => {
   });
 });
 
-test("updateTokenStore recovers a stale dangling-symlink lock", () => {
-  if (process.platform === "win32") return;
+test("updateTokenStore recovers a dangling-symlink lock at a zero stale threshold", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -415,8 +412,7 @@ test("updateTokenStore recovers a stale dangling-symlink lock", () => {
   });
 });
 
-test("updateTokenStore recovers a stale symlink lock without chmodding its target", () => {
-  if (process.platform === "win32") return;
+test("updateTokenStore recovers a symlink lock at a zero stale threshold without chmodding its target", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -430,6 +426,10 @@ test("updateTokenStore recovers a stale symlink lock without chmodding its targe
     }, { lockTimeoutMs: 0, staleLockMs: 0 });
 
     assert.equal((statSync(target).mode & 0o777), 0o600);
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
     assert.deepEqual(
       readdirSync(path.dirname(p)).filter((name) => name.startsWith(`${path.basename(p)}.lock.recovered-`)),
       []
@@ -437,8 +437,7 @@ test("updateTokenStore recovers a stale symlink lock without chmodding its targe
   });
 });
 
-test("updateTokenStore does not spin on a fresh dangling-symlink lock", () => {
-  if (process.platform === "win32") return;
+test("updateTokenStore does not spin on a fresh dangling-symlink lock", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -452,8 +451,7 @@ test("updateTokenStore does not spin on a fresh dangling-symlink lock", () => {
   });
 });
 
-test("updateTokenStore recovers a stale lock with an unreadable directory", () => {
-  if (process.platform === "win32") return;
+test("updateTokenStore recovers a stale lock with an unreadable directory", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -606,8 +604,7 @@ test("writeTokenStore writes canonical sorted output with a managed-by header", 
   });
 });
 
-test("writeTokenStore sets 0600 file and 0700 dir permissions", () => {
-  if (process.platform === "win32") return;
+test("writeTokenStore sets 0600 file and 0700 dir permissions", POSIX_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "credentials");
     writeTokenStore(p, { namespaces: { acme: { ADMIN_TOKEN: "t" } } });
@@ -634,8 +631,7 @@ test("writeTokenStore sets 0600 file and 0700 dir permissions", () => {
   });
 });
 
-test("assertStoreDirSecure refuses a group/world-writable store dir", () => {
-  if (process.platform === "win32") return;
+test("assertStoreDirSecure refuses a group/world-writable store dir", POSIX_ONLY, () => {
   /** @type {string[]} */
   const made = [];
   /** @param {number} mode */

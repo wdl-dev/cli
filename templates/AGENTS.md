@@ -34,9 +34,9 @@ package.
 | Storing control-plane tokens locally                  | `token.md`           |
 | Deploy / dry-run / list and delete workers            | `deploy.md`          |
 
-Open the relevant doc before editing `wrangler.jsonc` / `wrangler.toml` or
-`src/`. When combining features (say "cron + KV + assets"), read each matching
-doc and merge their wrangler config snippets.
+Open the relevant doc before editing `wrangler.json` / `wrangler.jsonc` /
+`wrangler.toml` or `src/`. When combining features (say "cron + KV + assets"),
+read each matching doc and merge their wrangler config snippets.
 
 New Wrangler configs should use `compatibility_date = "2026-06-17"` unless a
 project feature requires a newer target or the operator gives a different
@@ -44,9 +44,11 @@ target. WDL follows Wrangler config priority
 (`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`). The control
 plane is canonical for unsupported runtime shapes such as unsupported workerd
 experimental compatibility flags and WDL-reserved injected module names; the
-CLI still fails fast for cheap local cases such as Python Workers modules and
-ambiguous runtime `env` name collisions between `[vars]`, explicit bindings,
-and the implicit `ASSETS` binding.
+CLI still fails fast for cheap local cases such as Python Workers modules,
+unmapped top-level or selected-env Wrangler runtime/deploy keys (`[site]`,
+`workers_dev`, `pages_build_output_dir`, etc.), and ambiguous runtime `env`
+name collisions between `[vars]`, explicit bindings, and the implicit `ASSETS`
+binding.
 
 ## Runnable end-to-end examples
 
@@ -67,10 +69,10 @@ When a snippet is not enough and you need a complete working file tree:
 
 ## Project-level anti-patterns
 
-- ❌ Hardcoding third-party API tokens or keys into code, `.env`, or
-  `wrangler.jsonc`. Push them with `wdl secret put --worker <name> <KEY>` — the
+- ❌ Hardcoding third-party API tokens or keys into code, `.env`, or Wrangler
+  config. Push them with `wdl secret put --worker <name> <KEY>` — the
   secret value is read from stdin (type it interactively, or pipe / redirect it
-  in, e.g. `echo -n "$VALUE" | wdl secret put --worker <name> <KEY>`); it is
+  in, e.g. `printf '%s' "$VALUE" | wdl secret put --worker <name> <KEY>`); it is
   deliberately not a command-line argument so it stays out of shell history.
 - ❌ Testing platform bindings with `wrangler dev` — `[[platform_bindings]]`
   never resolves in any local runtime; the binding is `undefined` locally and

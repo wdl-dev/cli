@@ -39,7 +39,7 @@ import {
   wranglerChildEnv,
 } from "../../lib/wrangler-pack.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
-import { checkWranglerVersion } from "../../lib/wrangler/command.js";
+import { checkWranglerVersion, formatWranglerFailure } from "../../lib/wrangler/command.js";
 import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
 
 /**
@@ -99,12 +99,29 @@ function fakeWranglerExecFile(_cmd, args) {
   writeFileSync(path.join(outDir, "index.js"), "export default {}");
 }
 
-/** @param {string} cmd */
+/**
+ * @param {string} cmd
+ */
 function assertWranglerCommand(cmd) {
   assert.ok(
-    cmd === "wrangler" || path.basename(cmd) === (process.platform === "win32" ? "wrangler.cmd" : "wrangler"),
+    cmd === "wrangler" ||
+      cmd === process.execPath ||
+      path.basename(cmd) === (process.platform === "win32" ? "wrangler.cmd" : "wrangler"),
     `expected wrangler command, got ${cmd}`
   );
+}
+
+/**
+ * @param {{ cmd: string, args: readonly string[] }} call
+ */
+function assertWranglerVersionProbe(call) {
+  assertWranglerCommand(call.cmd);
+  if (call.cmd === process.execPath) {
+    assert.match(call.args[0] || "", /wrangler[\\/]bin[\\/]wrangler\.js$/);
+    assert.deepEqual(call.args.slice(1), ["--version"]);
+    return;
+  }
+  assert.deepEqual(call.args, ["--version"]);
 }
 
 test("stripJsonComments removes line and block comments", () => {
@@ -1199,7 +1216,7 @@ test("installTempFileCleanup removes temp files on process exit and signals", ()
   }
 });
 
-test("installTempFileCleanup only swallows cleanup errors during process handlers", () => {
+test("installTempFileCleanup only swallows cleanup errors when explicitly requested or during process handlers", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-temp-cleanup-error-"));
   try {
     const exitProcess = /** @type {EventEmitter & { off(event: string, listener: () => void): EventEmitter }} */ (new EventEmitter());
@@ -1209,6 +1226,7 @@ test("installTempFileCleanup only swallows cleanup errors during process handler
     const cleanupProcess = /** @type {EventEmitter & { off(event: string, listener: () => void): EventEmitter }} */ (new EventEmitter());
     const cleanup = installTempFileCleanup(dir, cleanupProcess);
     assert.throws(() => cleanup(), /EISDIR|directory/i);
+    assert.doesNotThrow(() => cleanup({ ignoreErrors: true }));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1384,7 +1402,7 @@ test("validateUnsupportedWranglerConfig: rejects unsupported top-level config ev
       analytics_engine_datasets: [{ binding: "AE" }],
       env: { staging: {} },
     }, "staging", "wrangler.toml"),
-    /\[analytics_engine_datasets\] — not supported/
+    /unsupported Wrangler field "analytics_engine_datasets"/
   );
 });
 
@@ -1399,7 +1417,7 @@ test("validateUnsupportedWranglerConfig: rejects unsupported config inside the s
         },
       },
     }, "staging", "wrangler.toml"),
-    /env\.staging uses \[analytics_engine_datasets\] — not supported/
+    /env\.staging uses unsupported Wrangler field "analytics_engine_datasets"/
   );
 });
 
@@ -1414,6 +1432,19 @@ test("validateUnsupportedWranglerConfig: top-level allowed_callers is rejected w
   );
 });
 
+test("validateUnsupportedWranglerConfig: empty top-level allowed_callers is still rejected by presence", () => {
+  for (const value of [[], null, false, ""]) {
+    assert.throws(
+      () => validateUnsupportedWranglerConfig({
+        name: "demo",
+        main: "src/index.js",
+        allowed_callers: value,
+      }, null, "wrangler.toml"),
+      /top-level allowed_callers — removed/
+    );
+  }
+});
+
 test("validateUnsupportedWranglerConfig: env-scoped allowed_callers is rejected too", () => {
   assert.throws(
     () => validateUnsupportedWranglerConfig({
@@ -1423,6 +1454,19 @@ test("validateUnsupportedWranglerConfig: env-scoped allowed_callers is rejected 
     }, "staging", "wrangler.toml"),
     /env\.staging uses top-level allowed_callers — removed/
   );
+});
+
+test("validateUnsupportedWranglerConfig: empty env-scoped allowed_callers is still rejected by presence", () => {
+  for (const value of [[], null, false, ""]) {
+    assert.throws(
+      () => validateUnsupportedWranglerConfig({
+        name: "demo",
+        main: "src/index.js",
+        env: { staging: { allowed_callers: value } },
+      }, "staging", "wrangler.toml"),
+      /env\.staging uses top-level allowed_callers — removed/
+    );
+  }
 });
 
 test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy keys", () => {
@@ -1486,7 +1530,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
         main: "src/index.js",
         [key]: unsupportedWranglerFixtureValue(key, objectShapeKeys, booleanShapeKeys),
       }, null, "wrangler.toml"),
-      new RegExp(`\\[${key}\\] — not supported`)
+      new RegExp(`unsupported Wrangler field "${key}"`)
     );
   }
 
@@ -1496,7 +1540,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
       main: "src/index.js",
       workers_dev: false,
     }, null, "wrangler.toml"),
-    /\[workers_dev\] — not supported/
+    /unsupported Wrangler field "workers_dev"/
   );
 
   assert.throws(
@@ -1505,7 +1549,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
       main: "src/index.js",
       vectorize: [],
     }, null, "wrangler.toml"),
-    /\[vectorize\] — not supported/
+    /unsupported Wrangler field "vectorize"/
   );
 
   assert.throws(
@@ -1518,7 +1562,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
         },
       },
     }, "staging", "wrangler.toml"),
-    /env\.staging uses \[preview_urls\] — not supported/
+    /env\.staging uses unsupported Wrangler field "preview_urls"/
   );
 
   // The rejection lists the actual supported surface.
@@ -1558,7 +1602,7 @@ test("validateUnsupportedWranglerConfig rejects module-binding and container sec
       null,
       "wrangler.toml"
     ),
-    /\[wasm_modules\] — not supported/
+    /unsupported Wrangler field "wasm_modules"/
   );
   assert.throws(
     () => validateUnsupportedWranglerConfig(
@@ -1566,7 +1610,7 @@ test("validateUnsupportedWranglerConfig rejects module-binding and container sec
       null,
       "wrangler.toml"
     ),
-    /\[containers\] — not supported/
+    /unsupported Wrangler field "containers"/
   );
 });
 
@@ -1749,7 +1793,7 @@ test("checkWranglerVersion escapes failed version probe diagnostics", () => {
     /** @type {unknown} */ (() => {
       const err = new Error(`boom${ESC}[2J\nFORGED\rBAD\u009b`);
       Object.assign(err, {
-        stdout: `out${ESC}[2J\nFORGED\rBAD`,
+        stdout: `out${ESC}[2J\nline\rBAD`,
         stderr: "err\u009b31m",
       });
       throw err;
@@ -1766,10 +1810,39 @@ test("checkWranglerVersion escapes failed version probe diagnostics", () => {
       const message = /** @type {Error} */ (err).message;
       assertNoRawTerminalControls(message, "wrangler version failure");
       assert.match(message, /boom\\u001b\[2J\\nFORGED\\rBAD\\u009b/);
-      assert.match(message, /out\\u001b\[2J\\nFORGED\\rBAD\\nerr\\u009b31m/);
+      assert.match(message, /out\\u001b\[2J\nline\\rBAD\nerr\\u009b31m/);
       return true;
     }
   );
+});
+
+test("checkWranglerVersion ENOENT hint mentions the npx opt-in", () => {
+  const execFile = /** @type {typeof import("node:child_process").execFileSync} */ (
+    /** @type {unknown} */ (() => {
+      const err = new Error("spawn wrangler ENOENT");
+      Object.assign(err, { code: "ENOENT" });
+      throw err;
+    })
+  );
+  assert.throws(
+    () => checkWranglerVersion({
+      execFile,
+      cwd: "/tmp/project",
+      env: {},
+      wrangler: { command: "wrangler", args: [] },
+    }),
+    /WDL_ALLOW_NPX_WRANGLER=1/
+  );
+});
+
+test("formatWranglerFailure escapes captured dry-run diagnostics", () => {
+  const message = formatWranglerFailure(Object.assign(new Error(`boom${ESC}[2J\nFORGED\rBAD\u009b`), {
+    stdout: `out${ESC}[2J\nline\rBAD`,
+    stderr: "err\u009b31m",
+  }));
+  assertNoRawTerminalControls(message, "wrangler build failure");
+  assert.match(message, /boom\\u001b\[2J\\nFORGED\\rBAD\\u009b/);
+  assert.match(message, /out\\u001b\[2J\nline\\rBAD\nerr\\u009b31m/);
 });
 
 test("resolveWranglerCommand prefers explicit WDL_WRANGLER_BIN", () => {
@@ -1797,7 +1870,7 @@ test("resolveWranglerCommand prefers project-local wrangler without npx", () => 
         env: { WDL_ALLOW_NPX_WRANGLER: "1" },
         packageDirs: [],
       }),
-      { command: bin, args: [], source: "local" }
+      { command: bin, args: [], source: "project" }
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1812,6 +1885,18 @@ test("resolveWranglerCommand uses PATH wrangler by default", () => {
       packageDirs: [],
     }),
     { command: "wrangler", args: [], source: "path" }
+  );
+});
+
+test("resolveWranglerCommand labels the CLI package wrangler as package", () => {
+  const resolved = resolveWranglerCommand({
+    absProject: "/project",
+    env: { PATH: "" },
+  });
+  assert.equal(resolved.source, "package");
+  assert.ok(
+    resolved.command.includes("node") || resolved.command.includes("wrangler"),
+    "package resolver should return a runnable wrangler command"
   );
 });
 
@@ -1866,7 +1951,7 @@ test("resolveWranglerCommand ignores unrelated cwd local wrangler", () => {
         env: {},
         packageDirs: [packageDir],
       }),
-      { command: packageBin, args: [], source: "local" }
+      { command: packageBin, args: [], source: "package" }
     );
   } finally {
     process.chdir(originalCwd);
@@ -1888,7 +1973,7 @@ test("resolveWranglerCommand on win32 runs the wrangler JS entry via node instea
 
     assert.deepEqual(
       resolveWranglerCommand({ absProject: dir, env: {}, packageDirs: [], platform: "win32" }),
-      { command: process.execPath, args: [script], source: "local" }
+      { command: process.execPath, args: [script], source: "project" }
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2039,8 +2124,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
     );
 
     assert.equal(execCalls.length, 2);
-    assertWranglerCommand(execCalls[0].cmd);
-    assert.deepEqual(execCalls[0].args, ["--version"]);
+    assertWranglerVersionProbe(execCalls[0]);
     assert.equal(execCalls[0].opts.cwd, dir);
     assert.deepEqual(execCalls[0].opts.stdio, ["ignore", "pipe", "pipe"]);
     assert.equal(execCalls[0].opts.encoding, "utf8");
@@ -2108,8 +2192,7 @@ test("runDeployCommand escapes terminal controls in unexpected positional errors
     }),
     (err) => {
       const message = /** @type {Error} */ (err).message;
-      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+      assertNoRawTerminalControls(message, "deploy positional errors");
       assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
       return true;
     },
@@ -2211,6 +2294,42 @@ test("runDeployCommand removes the sanitized temp config when wrangler exec fail
 
     assert.ok(tmpConfigSeen, "wrangler stub should have observed the --config path");
     assert.equal(existsSync(tmpConfigSeen), false, "temp config should be removed even when wrangler fails");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand does not mask a wrangler failure when temp config cleanup fails", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-cleanup-mask-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+    }));
+
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: (/** @type {string} */ _cmd, /** @type {readonly string[]} */ args) => {
+          if (args.includes("--version")) return "wrangler 4.94.0";
+          const cfgIdx = args.indexOf("--config");
+          rmSync(/** @type {string} */ (args[cfgIdx + 1]), { force: true });
+          mkdirSync(/** @type {string} */ (args[cfgIdx + 1]));
+          throw Object.assign(new Error("wrangler boom"), {
+            status: 1,
+            stderr: "fake wrangler failure",
+          });
+        },
+        controlFetch: async () => {
+          throw new Error("control should not be hit when bundling fails");
+        },
+      }),
+      /wrangler build failed/
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2808,8 +2927,7 @@ test("runDeployCommand passes through wrangler output in verbose mode", async ()
     });
 
     assert.equal(execCalls.length, 2);
-    assertWranglerCommand(execCalls[0].cmd);
-    assert.deepEqual(execCalls[0].args, ["--version"]);
+    assertWranglerVersionProbe(execCalls[0]);
     assert.equal(execCalls[1].opts.stdio, "inherit");
     assert.equal(Object.hasOwn(execCalls[1].opts, "encoding"), false);
   } finally {
@@ -2842,8 +2960,7 @@ test("runDeployCommand rejects wrangler v3 before dry-run", async () => {
       /requires Wrangler v4 \(wrangler@\^4\); found v3/
     );
     assert.equal(execCalls.length, 1);
-    assertWranglerCommand(execCalls[0].cmd);
-    assert.deepEqual(execCalls[0].args, ["--version"]);
+    assertWranglerVersionProbe(execCalls[0]);
     assert.deepEqual(lines, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2915,8 +3032,7 @@ test("runDeployCommand warns with wdl secret hints for missing caller secrets", 
     });
 
     assert.equal(warnings.length, 1);
-    assert.doesNotMatch(warnings[0], new RegExp(ESC), "raw ESC must not reach deploy warnings");
-    assert.doesNotMatch(warnings[0], /\nFORGED|\rBAD/, "raw line controls must not forge deploy warnings");
+    assertNoRawTerminalControls(warnings[0], "deploy warnings");
     assert.match(warnings[0], /wdl secret put --ns 'demo\\u001b\[2J\\nFORGED\\rBAD' --scope ns <KEY>/);
     assert.match(warnings[0], /--worker 'api\\u001b\[2J\\nFORGED\\rBAD' <KEY>/);
   } finally {
@@ -2962,8 +3078,8 @@ test("runDeployCommand renders deploy warnings from error responses", async () =
     );
 
     assert.equal(warnings.length, 1);
-    assert.doesNotMatch(warnings[0], new RegExp(ESC), "raw ESC must not reach deploy error warnings");
-    assert.doesNotMatch(warnings[0], /\nFORGED|\rBAD/, "raw line controls must not forge deploy error warnings");
+    assertNoRawTerminalControls(warnings[0], "deploy error warnings");
+    assert.doesNotMatch(warnings[0], /task-secret/);
     assert.match(warnings[0], /wdl secret put --ns 'demo\\u001b\[2J\\nFORGED\\rBAD' --scope ns <KEY>/);
     assert.match(warnings[0], /--worker 'api\\u001b\[2J\\nFORGED\\rBAD' <KEY>/);
   } finally {
@@ -3433,7 +3549,7 @@ test("runDeployCommand escapes a control-supplied version before printing", asyn
     });
 
     const out = stdoutLines.join("\n");
-    assert.ok(!out.includes("\u001b"), "raw ESC byte must not reach stdout");
+    assertNoRawTerminalControls(out, "deploy success output");
     assert.ok(out.includes("promoting v1\\u001b[2J"));
     assert.ok(out.includes("@v1\\u001b[2J live"));
   } finally {

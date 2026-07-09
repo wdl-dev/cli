@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { main, __test__ } from "../../commands/init.js";
+import { ESC, assertNoRawTerminalControls } from "./helpers.js";
 
 const { parseArgs, validateNs, validateWorker, resolveWdlCliDep } = __test__;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const ESC = String.fromCharCode(27);
 
 /** @param {(dir: string) => Promise<unknown>} fn */
 async function withTempCwd(fn) {
@@ -71,8 +71,7 @@ test("parseArgs escapes terminal controls in argv errors", () => {
     () => parseArgs(["demo", bad]),
     (err) => {
       const message = /** @type {Error} */ (err).message;
-      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
-      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+      assertNoRawTerminalControls(message, "the error");
       assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
       return true;
     },
@@ -84,8 +83,7 @@ test("main escapes terminal controls in project name errors", async () => {
   await withTempCwd(async () => {
     const { exitCode, errOutput } = await captureExit(() => main([bad]));
     assert.equal(exitCode, 1);
-    assert.doesNotMatch(errOutput, new RegExp(ESC), "raw ESC must not reach project-name errors");
-    assert.doesNotMatch(errOutput, /\nFORGED|\rBAD/, "raw line controls must not forge project-name errors");
+    assertNoRawTerminalControls(errOutput, "project-name errors");
     assert.match(errOutput, /project name "bad\\u001b\[2J\\nFORGED\\rBAD" must match/);
   });
 });
@@ -105,8 +103,7 @@ test("validateNs escapes terminal controls in rejected namespace values", () => 
     () => validateNs(bad, "--ns"),
     (err) => {
       const message = /** @type {Error} */ (err).message;
-      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach --ns errors");
-      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge --ns errors");
+      assertNoRawTerminalControls(message, "--ns errors");
       assert.match(message, /--ns "bad\\u001b\[2J\\nFORGED\\rBAD" is not a valid tenant namespace/);
       return true;
     },
@@ -131,8 +128,7 @@ test("validateWorker escapes terminal controls in rejected worker values", () =>
     () => validateWorker(bad, "--worker"),
     (err) => {
       const message = /** @type {Error} */ (err).message;
-      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach --worker errors");
-      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge --worker errors");
+      assertNoRawTerminalControls(message, "--worker errors");
       assert.match(message, /--worker "bad\\u001b\[2J\\nFORGED\\rBAD" must match/);
       return true;
     },

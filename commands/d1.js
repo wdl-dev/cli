@@ -18,7 +18,7 @@ import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, isPathInside, optionHelp, unexpectedArgument } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import { escapeTerminalText, writeResult } from "../lib/output.js";
+import { escapeTerminalText, formatDiagnosticValue, writeResult } from "../lib/output.js";
 
 const D1_EXECUTE_MODES = ["all", "raw", "run", "exec"];
 
@@ -203,7 +203,7 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
       await context.fetchJson(`${migrationsBase}/status`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ migrations: migrations.map(({ sql: _sql, ...rest }) => rest) }),
+        body: serializeMigrationStatusRequest(migrations),
       }, "show d1 migration status")
     );
     writeResult(values.json === true, body, () => formatD1MigrationStatus(body), stdout);
@@ -224,6 +224,15 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
     return;
   }
 }
+
+/**
+ * @param {import("../lib/d1-files.js").MigrationFile[]} migrations
+ * @returns {string}
+ */
+export function serializeMigrationStatusRequest(migrations) {
+  return JSON.stringify({ migrations: migrations.map(({ sql: _sql, ...rest }) => rest) });
+}
+
 /**
  * @typedef {{ values: D1Flags, env: NodeJS.ProcessEnv, cwd: string, databaseRef: string, warn?: (line: string) => void }} MigrationsDirArgs
  */
@@ -313,11 +322,11 @@ function resolveMigrationsDir({ values, env, cwd, databaseRef, warn }) {
   const matches = byId.length > 0 ? byId : byName;
 
   if (matches.length > 1) {
-    throw new CliError(`${escapeTerminalText(configRel)}: multiple [[d1_databases]] entries match ${escapeTerminalText(JSON.stringify(databaseRef))}`);
+    throw new CliError(`${escapeTerminalText(configRel)}: multiple [[d1_databases]] entries match ${formatDiagnosticValue(databaseRef)}`);
   }
   if (matches.length === 0) {
     throw new CliError(
-      `${escapeTerminalText(configRel)}: no matching [[d1_databases]] entry for ${escapeTerminalText(JSON.stringify(databaseRef))}; ` +
+      `${escapeTerminalText(configRel)}: no matching [[d1_databases]] entry for ${formatDiagnosticValue(databaseRef)}; ` +
       "use a configured database_name/database_id or pass --dir explicitly"
     );
   }
@@ -361,7 +370,7 @@ function resolveConfiguredMigrationsDir({ configDir, migrationsDir, configRel, b
   if (!isPathInside(root, resolved)) {
     throw new CliError(
       `${escapeTerminalText(configRel)}: [[d1_databases]] ${escapeTerminalText(binding)}: ` +
-      `migrations_dir must stay inside the project (got ${escapeTerminalText(JSON.stringify(migrationsDir))})`
+      `migrations_dir must stay inside the project (got ${formatDiagnosticValue(migrationsDir)})`
     );
   }
   return resolved;

@@ -160,12 +160,12 @@ names like `my-worker-preview`; WDL does not append that suffix. See
 When multiple Wrangler config files exist, the CLI follows Wrangler's priority:
 `wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`.
 
-**Supported:** `name`, `main`, `compatibility_date`/`flags`, `[vars]`,
+**Supported:** `name`, `main`, `compatibility_date` / `compatibility_flags`, `[vars]`,
 `[[kv_namespaces]]`, `[[d1_databases]]`, `[[durable_objects.bindings]]`,
 `[[workflows]]`, `[[r2_buckets]]`, `[assets] directory`, `[triggers] crons`,
 `[[triggers.schedules]]` (with timezone, a platform extension),
 `[[queues.producers]]` / `[[queues.consumers]]`, `[[services]]`,
-`[[platform_bindings]]`, `[env.<name>]`.
+`[[platform_bindings]]`, `[[exports]]`, `[env.<name>]`.
 
 **Unsupported (deploy fails):** Analytics Engine. Durable Objects supports
 same-worker classes only; `script_name` and rename/delete migrations are not
@@ -177,10 +177,11 @@ supported only when the operator enables them. Python Workers modules, workerd
 experimental compatibility flags, and WDL-reserved injected module names are
 rejected during deploy: the CLI fails fast on local `.py` modules, and the
 control plane is canonical for workerd compatibility and bundle-shape policy.
-Unmapped Wrangler runtime/deploy config that WDL would otherwise ignore is also
-rejected by the CLI, including legacy `[site]` Workers Sites, `workers_dev`,
-`pages_build_output_dir`, `observability`, `limits`, `placement`, and other
-unsupported binding/config sections named in the error.
+Top-level or selected-environment Wrangler runtime/deploy config fields and
+sections that WDL would otherwise ignore are also rejected by the CLI, including
+legacy `[site]` Workers Sites, `workers_dev`, `pages_build_output_dir`,
+`observability`, `limits`, `placement`, and other unsupported binding/config
+fields or sections named in the error.
 `assets.run_worker_first` is silently ignored.
 
 Cron triggers and queue consumers are runtime dispatch features; declare them

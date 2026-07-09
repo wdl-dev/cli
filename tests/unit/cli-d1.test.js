@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runD1Command } from "../../commands/d1.js";
+import { runD1Command, serializeMigrationStatusRequest } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { ESC, assertNoRawTerminalControls, mockDeps as sharedMockDeps, response } from "./helpers.js";
 
@@ -312,18 +312,33 @@ test("d1 migrations apply surfaces control request body size errors", async () =
   }
 });
 
+test("d1 migrations status can send oversized metadata bodies to control", () => {
+  const migrations = Array.from({ length: 2_200 }, (_, i) => {
+    const stem = `${String(i).padStart(4, "0")}_${"m".repeat(220)}`;
+    return {
+      id: `${stem}.sql`,
+      name: stem,
+      checksum: "a".repeat(64),
+      sql: "select 1;",
+    };
+  });
+  const body = serializeMigrationStatusRequest(migrations);
+  assert.ok(
+    body.length > 1_048_576,
+    "oversized local migration metadata is sent to control for canonical rejection"
+  );
+  assert.equal(body.includes("select 1;"), false);
+  const parsed = /** @type {{ migrations: Array<Record<string, unknown>> }} */ (parseBody(body));
+  assert.equal(parsed.migrations.length, migrations.length);
+  assert.equal(Object.hasOwn(parsed.migrations[0], "sql"), false);
+});
+
 test("d1 migrations status surfaces control request body size errors", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-status-413-"));
   try {
     const migrations = path.join(dir, "migrations");
     mkdirSync(migrations);
-    for (let i = 0; i < 4_600; i += 1) {
-      const suffix = String(i).padStart(4, "0");
-      writeFileSync(
-        path.join(migrations, `001_${suffix}_${"x".repeat(170)}.sql`),
-        "select 1;"
-      );
-    }
+    writeFileSync(path.join(migrations, "001_init.sql"), "select 1;");
 
     /** @type {RecordedCall[]} */
     const calls = [];
@@ -354,10 +369,6 @@ test("d1 migrations status surfaces control request body size errors", async () 
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/migrations/status");
-    assert.ok(
-      typeof calls[0].init.body === "string" && calls[0].init.body.length > 1_048_576,
-      "oversized local migration status bodies are sent to control for canonical rejection"
-    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -96,9 +96,9 @@ Cloudflare Workers / Wrangler 的 `--env preview` 通常会发布带环境后缀
 `[env.<name>]` 可以覆盖多类配置，但继承规则不同：
 
 - Non-inheritable：`[env.<name>].vars`、`[[env.<name>.kv_namespaces]]`、`[[env.<name>.d1_databases]]`、`[[env.<name>.r2_buckets]]`、`[[env.<name>.queues.*]]`、`[[env.<name>.services]]`、`[[env.<name>.workflows]]` 等。选中 env 后，顶层同类配置不会回退进来。
-- Inheritable：`main`、`compatibility_date` / `compatibility_flags`、`route` / `routes`、`[assets]`、`[triggers]` 等。env 里没写时继续使用顶层值；env 里写了则覆盖顶层值。
+- Inheritable：`main`、`compatibility_date` / `compatibility_flags`、`route` / `routes`、`[[migrations]]`、`[assets]`、`[triggers]` 等。env 里没写时继续使用顶层值；env 里写了则覆盖顶层值。
 
-因此，共享的 `vars` 或 binding 不能只放顶层后期待所有 env 自动继承；每个 env 都需要声明自己要用的 runtime vars 和 bindings。共享的 assets / cron 等可放顶层，只在差异 env 下覆盖。
+因此，共享的 `vars` 或 binding 不能只放顶层后期待所有 env 自动继承；每个 env 都需要声明自己要用的 runtime vars 和 bindings。共享的 DO migrations、assets / cron 等可放顶层，只在差异 env 下覆盖。
 
 ## 反模式
 

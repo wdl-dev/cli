@@ -50,9 +50,11 @@ target. WDL follows Wrangler config priority (`wrangler.json`, then
 `wrangler.jsonc`, then `wrangler.toml`). The control plane is canonical for
 unsupported runtime shapes such as unsupported workerd experimental
 compatibility flags and WDL-reserved injected module names; the CLI still
-fails fast for cheap local cases such as Python Workers modules and ambiguous
-runtime `env` name collisions between `[vars]`, explicit bindings, and the
-implicit `ASSETS` binding.
+fails fast for cheap local cases such as Python Workers modules, unmapped
+Wrangler runtime/deploy keys (`[site]`, `workers_dev`,
+`pages_build_output_dir`, `observability`, `limits`, `placement`, etc.), and
+ambiguous runtime `env` name collisions between `[vars]`, explicit bindings,
+and the implicit `ASSETS` binding.
 
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
 overrides the TCP target the admin token connects to (Host header + TLS SNI

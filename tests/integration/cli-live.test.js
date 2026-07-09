@@ -280,11 +280,7 @@ test("live CLI integration covers command surface against a WDL control plane", 
       if (!cleaned.appWorker) run(["delete", "worker", appWorker, "--yes", "--json"], { env: directTenantEnv });
     });
     cleanupStep("delete durable object worker", () => {
-      try {
-        run(["delete", "worker", doWorker, "--yes", "--json"], { env: directTenantEnv });
-      } catch {
-        // The DO smoke may not have deployed if an earlier step failed.
-      }
+      run(["delete", "worker", doWorker, "--yes", "--json"], { env: directTenantEnv });
     });
     cleanupStep("delete workflow worker", () => {
       try {
@@ -299,11 +295,7 @@ test("live CLI integration covers command surface against a WDL control plane", 
       }
     });
     cleanupStep("delete env worker", () => {
-      try {
-        run(["delete", "worker", envWorker, "--yes", "--json"], { env: directTenantEnv });
-      } catch {
-        // The env smoke may not have deployed if an earlier step failed.
-      }
+      run(["delete", "worker", envWorker, "--yes", "--json"], { env: directTenantEnv });
     });
 
     await step("d1 commands create, migrate, list, execute", () => {
@@ -371,7 +363,7 @@ test("live CLI integration covers command surface against a WDL control plane", 
       assert.deepEqual(kvPut, { key: "counter", value: 1 });
     });
 
-    await step("tenant runtime exercises assets, queues, and cron registration", async () => {
+    await step("tenant runtime exercises assets and queue delivery", async () => {
       const assetUrl = /** @type {{ url?: string }} */ (await tenantJson(ctx, ns, appWorker, "/asset-url"));
       assert.match(String(assetUrl.url), /hello\.txt/);
 

@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
-import { escapeTerminalText, formatKnownWarning, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, formatKnownWarning, shellSingleQuote, writeStatusLine } from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
 
@@ -137,19 +137,26 @@ function renderDeployWarnings(warnings, { ns, workerName, stderr }) {
   // Control's deploy warnings are the only signal for several binding
   // misconfigurations — surface them so failures don't defer to runtime.
   if (!Array.isArray(warnings) || warnings.length === 0) return;
+  const nsArg = shellArg(ns);
+  const workerArg = shellArg(workerName);
   for (const w of warnings) {
     if (w && Array.isArray(w.missingCallerSecrets) && w.missingCallerSecrets.length) {
       const keys = escapeTerminalText(w.missingCallerSecrets.join(", "));
       stderr(
         `warning: platform binding "${escapeTerminalText(w.binding)}" (platform="${escapeTerminalText(w.platform)}"): ` +
         `missing caller secrets ${keys}\n` +
-        `  ns-wide:    wdl secret put --ns ${ns} --scope ns <KEY>\n` +
-        `  per-worker: wdl secret put --ns ${ns} --worker ${workerName} <KEY>`
+        `  ns-wide:    wdl secret put --ns ${nsArg} --scope ns <KEY>\n` +
+        `  per-worker: wdl secret put --ns ${nsArg} --worker ${workerArg} <KEY>`
       );
     } else {
       stderr(`warning: ${formatKnownWarning(w, DEPLOY_WARNING_KEYS)}`);
     }
   }
+}
+
+/** @param {unknown} value */
+function shellArg(value) {
+  return escapeTerminalText(shellSingleQuote(value));
 }
 
 /**

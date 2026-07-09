@@ -10,6 +10,8 @@ import {
 } from "../../lib/control-fetch.js";
 import { currentCliVersion } from "../../lib/package-info.js";
 
+const ESC = String.fromCharCode(27);
+
 /**
  * @param {{ statusCode?: number, headers?: import("node:http").IncomingHttpHeaders }} [init]
  */
@@ -103,6 +105,33 @@ test("controlFetch wraps request socket errors as CliError", async () => {
     () => controlFetch("http://ctl.test/whoami", { transport }),
     (err) => err instanceof CliError &&
       err.message === "control request failed: ECONNREFUSED connect refused"
+  );
+});
+
+test("controlFetch escapes transport error details", async () => {
+  /** @type {import("../../lib/control-fetch.js").ControlTransport} */
+  const transport = {
+    request() {
+      const req = Object.assign(new EventEmitter(), {
+        write() {},
+        end() {
+          req.emit("error", Object.assign(new Error(`boom${ESC}[2J\nFORGED\rBAD`), { code: `E_BAD${ESC}` }));
+        },
+        destroy() {},
+      });
+      return req;
+    },
+  };
+
+  await assert.rejects(
+    () => controlFetch("http://ctl.test/whoami", { transport }),
+    (err) => {
+      assert(err instanceof CliError);
+      assert.match(err.message, /E_BAD\\u001b boom\\u001b\[2J\\nFORGED\\rBAD/);
+      assert.doesNotMatch(err.message, new RegExp(ESC), "raw ESC must not reach control request errors");
+      assert.doesNotMatch(err.message, /\nFORGED|\rBAD/, "raw line controls must not forge control request errors");
+      return true;
+    }
   );
 });
 
@@ -402,10 +431,18 @@ test("controlFetch uses init env for CONTROL_CONNECT_HOST overrides", async () =
   assert.equal(opts.headers.Host, "admin.test:8080");
 });
 
-test("controlFetch rejects invalid CONTROL_CONNECT_HOST ports before opening a socket", () => {
+test("controlFetch rejects invalid CONTROL_CONNECT_HOST values before opening a socket", () => {
   const oldConnectHost = process.env.CONTROL_CONNECT_HOST;
   try {
-    for (const value of ["127.0.0.1:99999", "[::1]:99999", "http://127.0.0.1:99999"]) {
+    for (const value of [
+      "   ",
+      "file:///tmp/control.sock",
+      "127.0.0.1:abc",
+      "127.0.0.1:abc\u009b",
+      "127.0.0.1:99999",
+      "[::1]:99999",
+      "http://127.0.0.1:99999",
+    ]) {
       process.env.CONTROL_CONNECT_HOST = value;
       assert.throws(
         () => controlFetch("http://ctl.test/whoami", {
@@ -415,8 +452,12 @@ test("controlFetch rejects invalid CONTROL_CONNECT_HOST ports before opening a s
             },
           },
         }),
-        (err) => err instanceof CliError &&
-          err.message.includes(`Invalid CONTROL_CONNECT_HOST ${JSON.stringify(value)}`)
+        (err) => {
+          assert(err instanceof CliError);
+          assert.match(err.message, /Invalid CONTROL_CONNECT_HOST/);
+          assert.doesNotMatch(err.message, /\u009b/, "raw C1 controls must not reach CONTROL_CONNECT_HOST errors");
+          return true;
+        }
       );
     }
   } finally {

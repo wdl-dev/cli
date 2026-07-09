@@ -1104,6 +1104,21 @@ test("resolveWranglerConfig: selected environment can override inherited assets"
   assert.deepEqual(cfg.assets, { directory: "./prod-public" });
 });
 
+test("resolveWranglerConfig: selected environment can override durable object migrations", () => {
+  const { cfg } = resolveWranglerConfig({
+    name: "demo",
+    main: "src/index.js",
+    migrations: [{ tag: "v1", new_classes: ["TopObject"] }],
+    env: {
+      prod: {
+        migrations: [{ tag: "v2", new_sqlite_classes: ["ProdObject"] }],
+      },
+    },
+  }, "prod", "wrangler.jsonc");
+
+  assert.deepEqual(cfg.migrations, [{ tag: "v2", new_sqlite_classes: ["ProdObject"] }]);
+});
+
 test("resolveWranglerConfig: rejects unknown environment names", () => {
   assert.throws(
     () => resolveWranglerConfig({
@@ -1122,11 +1137,11 @@ test("resolveWranglerConfig: rejects top-level-only keys inside an environment",
       main: "src/index.js",
       env: {
         staging: {
-          migrations: [],
+          keep_vars: true,
         },
       },
     }, "staging", "wrangler.toml"),
-    /env\.staging\.migrations is top-level only/
+    /env\.staging\.keep_vars is top-level only/
   );
 });
 
@@ -1213,17 +1228,93 @@ test("validateUnsupportedWranglerConfig: env-scoped allowed_callers is rejected 
   );
 });
 
-test("validateUnsupportedWranglerConfig rejects unmapped wrangler binding sections", () => {
-  for (const key of ["ai", "vectorize", "hyperdrive", "browser", "mtls_certificates"]) {
+test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy keys", () => {
+  const objectShapeKeys = new Set([
+    "ai",
+    "browser",
+    "cache",
+    "limits",
+    "observability",
+    "placement",
+    "previews",
+    "python_modules",
+    "site",
+    "unsafe_hello_world",
+  ]);
+  const booleanShapeKeys = new Set([
+    "first_party_worker",
+    "legacy_env",
+    "preview_urls",
+    "upload_source_maps",
+    "workers_dev",
+  ]);
+  for (const key of [
+    "agent_memory",
+    "ai",
+    "artifacts",
+    "browser",
+    "cache",
+    "cloudchamber",
+    "compliance_region",
+    "hyperdrive",
+    "first_party_worker",
+    "flagship",
+    "legacy_env",
+    "limits",
+    "logpush",
+    "media",
+    "mtls_certificates",
+    "observability",
+    "pages_build_output_dir",
+    "placement",
+    "preview_urls",
+    "previews",
+    "ratelimits",
+    "python_modules",
+    "site",
+    "stream",
+    "streaming_tail_consumers",
+    "unsafe_hello_world",
+    "upload_source_maps",
+    "vectorize",
+    "vpc_networks",
+    "vpc_services",
+    "websearch",
+    "worker_loaders",
+    "workers_dev",
+  ]) {
     assert.throws(
       () => validateUnsupportedWranglerConfig({
         name: "demo",
         main: "src/index.js",
-        [key]: key === "ai" || key === "browser" ? { binding: "B" } : [{ binding: "B" }],
+        [key]: unsupportedWranglerFixtureValue(key, objectShapeKeys, booleanShapeKeys),
       }, null, "wrangler.toml"),
       new RegExp(`\\[${key}\\] — not supported`)
     );
   }
+
+  assert.throws(
+    () => validateUnsupportedWranglerConfig({
+      name: "demo",
+      main: "src/index.js",
+      workers_dev: false,
+    }, null, "wrangler.toml"),
+    /\[workers_dev\] — not supported/
+  );
+
+  assert.throws(
+    () => validateUnsupportedWranglerConfig({
+      name: "demo",
+      main: "src/index.js",
+      env: {
+        staging: {
+          preview_urls: false,
+        },
+      },
+    }, "staging", "wrangler.toml"),
+    /env\.staging uses \[preview_urls\] — not supported/
+  );
+
   // The rejection lists the actual supported surface.
   try {
     validateUnsupportedWranglerConfig(
@@ -1239,6 +1330,20 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler binding sectio
     assert.match(message, /\[triggers\]/);
   }
 });
+
+/**
+ * @param {string} key
+ * @param {Set<string>} objectShapeKeys
+ * @param {Set<string>} booleanShapeKeys
+ * @returns {unknown}
+ */
+function unsupportedWranglerFixtureValue(key, objectShapeKeys, booleanShapeKeys) {
+  if (objectShapeKeys.has(key)) return { binding: "B" };
+  if (booleanShapeKeys.has(key)) return true;
+  if (key === "compliance_region") return "eu";
+  if (key === "pages_build_output_dir") return "dist";
+  return [{ binding: "B" }];
+}
 
 test("validateUnsupportedWranglerConfig rejects module-binding and container sections", () => {
   assert.throws(
@@ -2417,16 +2522,18 @@ test("runDeployCommand reports captured wrangler output only when dry-run fails"
 
 test("runDeployCommand warns with wdl secret hints for missing caller secrets", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-warning-"));
+  const badNs = `demo${ESC}[2J\nFORGED\rBAD`;
+  const badWorker = `api${ESC}[2J\nFORGED\rBAD`;
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
     writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
-    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({ name: badWorker, main: "src/index.js" }));
 
     /** @type {string[]} */
     const warnings = [];
     let fetchCount = 0;
-    await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
+    await runDeployCommand([dir, "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok", WDL_NS: badNs },
       stdout: () => {},
       stderr: (/** @type {string} */ line) => warnings.push(/** @type {string} */ line),
       execFile: fakeWranglerExecFile,
@@ -2449,8 +2556,10 @@ test("runDeployCommand warns with wdl secret hints for missing caller secrets", 
     });
 
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /wdl secret put --ns demo --scope ns <KEY>/);
-    assert.match(warnings[0], /wdl secret put --ns demo --worker api <KEY>/);
+    assert.doesNotMatch(warnings[0], new RegExp(ESC), "raw ESC must not reach deploy warnings");
+    assert.doesNotMatch(warnings[0], /\nFORGED|\rBAD/, "raw line controls must not forge deploy warnings");
+    assert.match(warnings[0], /wdl secret put --ns 'demo\\u001b\[2J\\nFORGED\\rBAD' --scope ns <KEY>/);
+    assert.match(warnings[0], /--worker 'api\\u001b\[2J\\nFORGED\\rBAD' <KEY>/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2458,16 +2567,18 @@ test("runDeployCommand warns with wdl secret hints for missing caller secrets", 
 
 test("runDeployCommand renders deploy warnings from error responses", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-error-warning-"));
+  const badNs = `demo${ESC}[2J\nFORGED\rBAD`;
+  const badWorker = `api${ESC}[2J\nFORGED\rBAD`;
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
     writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
-    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({ name: badWorker, main: "src/index.js" }));
 
     /** @type {string[]} */
     const warnings = [];
     await assert.rejects(
-      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
-        env: { ADMIN_TOKEN: "tok" },
+      () => runDeployCommand([dir, "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok", WDL_NS: badNs },
         stdout: () => {},
         stderr: (/** @type {string} */ line) => warnings.push(/** @type {string} */ line),
         execFile: fakeWranglerExecFile,
@@ -2485,8 +2596,10 @@ test("runDeployCommand renders deploy warnings from error responses", async () =
     );
 
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /wdl secret put --ns demo --scope ns <KEY>/);
-    assert.match(warnings[0], /wdl secret put --ns demo --worker api <KEY>/);
+    assert.doesNotMatch(warnings[0], new RegExp(ESC), "raw ESC must not reach deploy error warnings");
+    assert.doesNotMatch(warnings[0], /\nFORGED|\rBAD/, "raw line controls must not forge deploy error warnings");
+    assert.match(warnings[0], /wdl secret put --ns 'demo\\u001b\[2J\\nFORGED\\rBAD' --scope ns <KEY>/);
+    assert.match(warnings[0], /--worker 'api\\u001b\[2J\\nFORGED\\rBAD' <KEY>/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

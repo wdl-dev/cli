@@ -475,6 +475,50 @@ test("delete worker supports dry-run query and raw json output", async () => {
   assert.deepEqual(lines, [JSON.stringify(body, null, 2)]);
 });
 
+test("delete worker dry-run renders workflow blockers in human output", async () => {
+  const hostile = `bad${ESC}[2J\nFORGED\rBAD`;
+  const body = {
+    dryRun: true,
+    namespace: `demo-${hostile}`,
+    name: `api-${hostile}`,
+    deleted: false,
+    activeDeleted: `v2-${hostile}`,
+    versionsDeleted: [`v1-${hostile}`],
+    affectedHosts: [`host-${hostile}.example`],
+    blockers: [{
+      version: `v1-${hostile}`,
+      referrers: [{
+        callerNs: `ns-${hostile}`,
+        callerWorker: `worker-${hostile}`,
+        callerVersion: `version-${hostile}`,
+        binding: `binding-${hostile}`,
+      }],
+    }],
+    workflowBlocker: {
+      error: `workflow_instances_active-${hostile}`,
+      message: `demo/api has active workflow instances ${hostile}`,
+      count: 1,
+      blockers: [{ workflowKey: `wf-${hostile}`, instanceId: `inst-${hostile}` }],
+    },
+  };
+  const { lines, deps } = mockDeps(body);
+
+  await runDeleteCommand(
+    ["worker", "--ns", "demo", "api", "--dry-run", "--control-url", "http://ctl.test"],
+    deps
+  );
+
+  const joined = lines.join("\n");
+  assert.doesNotMatch(joined, new RegExp(ESC), "raw ESC must not reach delete dry-run output");
+  assert.doesNotMatch(joined, /\nFORGED|\rBAD/, "raw line controls must not forge delete dry-run output");
+  assert.ok(lines.some((line) => /workflow blocker/.test(line)));
+  assert.match(joined, /DRY RUN demo-bad\\u001b\[2J\\nFORGED\\rBAD\/api-bad\\u001b\[2J\\nFORGED\\rBAD/);
+  assert.match(joined, /affected hosts: host-bad\\u001b\[2J\\nFORGED\\rBAD\.example/);
+  assert.match(joined, /binding=binding-bad\\u001b\[2J\\nFORGED\\rBAD/);
+  assert.match(joined, /workflow_instances_active-bad\\u001b\[2J\\nFORGED\\rBAD/);
+  assert.match(joined, /wf-bad\\u001b\[2J\\nFORGED\\rBAD instance=inst-bad\\u001b\[2J\\nFORGED\\rBAD/);
+});
+
 test("delete worker requires confirmation unless --yes or --dry-run is used", async () => {
   /** @type {ControlCall[]} */
   const calls = [];
@@ -1229,7 +1273,7 @@ test("r2 object get, head, and delete reject blank keys", async () => {
 test("r2 object key preserves empty path segments but rejects dot segments", async () => {
   /** @type {ControlCall[]} */
   const calls = [];
-  await runR2Command(["objects", "head", "bkt", "a//b", "--ns", "demo", "--control-url", "http://ctl.test"], {
+  const deps = {
     env: { ADMIN_TOKEN: "tok" },
     stdout: () => {},
     controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
@@ -1241,8 +1285,14 @@ test("r2 object key preserves empty path segments but rejects dot segments", asy
         text: async () => "",
       };
     },
-  });
+  };
+  await runR2Command(["objects", "head", "bkt", "a//b", "--ns", "demo", "--control-url", "http://ctl.test"], deps);
+  await runR2Command(["objects", "head", "bkt", "/a", "--ns", "demo", "--control-url", "http://ctl.test"], deps);
+  await runR2Command(["objects", "head", "bkt", "a/", "--ns", "demo", "--control-url", "http://ctl.test"], deps);
+
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/r2/buckets/bkt/objects/a//b");
+  assert.equal(calls[1].url, "http://ctl.test/ns/demo/r2/buckets/bkt/objects//a");
+  assert.equal(calls[2].url, "http://ctl.test/ns/demo/r2/buckets/bkt/objects/a/");
 
   await assert.rejects(
     () => runR2Command(["objects", "get", "bkt", "a/./b", "--ns", "demo", "--control-url", "http://ctl.test"], {
@@ -2320,7 +2370,7 @@ test("wdl tail reconnects with Last-Event-ID after transport errors", async () =
               ts: 1,
             })}\n\n`);
             setImmediate(() => {
-              res.emit("error", Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }));
+              res.emit("error", Object.assign(new Error(`socket hang up${ESC}[2J\nFORGED\rBAD`), { code: "ECONNRESET" }));
             });
           });
         } else {
@@ -2350,7 +2400,11 @@ test("wdl tail reconnects with Last-Event-ID after transport errors", async () =
   assert.ok(requestsSeen.length >= 2);
   assert.equal(requestsSeen[0].headers["last-event-id"], undefined);
   assert.equal(requestsSeen[1].headers["last-event-id"], "100-0");
-  assert.ok(stderrLines.some((line) => /transport error/i.test(line)));
+  const transportLine = stderrLines.find((line) => /transport error/i.test(line));
+  assert.ok(transportLine);
+  assert.match(transportLine, /socket hang up\\u001b\[2J\\nFORGED\\rBAD/);
+  assert.doesNotMatch(transportLine, new RegExp(ESC), "raw ESC must not reach tail transport diagnostics");
+  assert.doesNotMatch(transportLine, /\nFORGED|\rBAD/, "raw line controls must not forge tail transport diagnostics");
 });
 
 test("wdl tail treats session recycle warnings as control-initiated reconnects", async () => {

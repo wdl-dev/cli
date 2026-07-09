@@ -177,6 +177,10 @@ supported only when the operator enables them. Python Workers modules, workerd
 experimental compatibility flags, and WDL-reserved injected module names are
 rejected during deploy: the CLI fails fast on local `.py` modules, and the
 control plane is canonical for workerd compatibility and bundle-shape policy.
+Unmapped Wrangler runtime/deploy config that WDL would otherwise ignore is also
+rejected by the CLI, including legacy `[site]` Workers Sites, `workers_dev`,
+`pages_build_output_dir`, `observability`, `limits`, `placement`, and other
+unsupported binding/config sections named in the error.
 `assets.run_worker_first` is silently ignored.
 
 Cron triggers and queue consumers are runtime dispatch features; declare them

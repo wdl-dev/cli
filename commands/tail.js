@@ -259,7 +259,7 @@ async function runTail({ values, positionals, context: baseContext }) {
         const detail = transportErr instanceof Error
           ? `${transportErr.name}: ${transportErr.message}`
           : String(transportErr);
-        stderr(`tail transport error (${detail}); will reconnect`);
+        stderr(`tail transport error (${escapeTerminalText(detail)}); will reconnect`);
       }
       // Only stable sessions reset consecutiveAtCap. A flapping network can
       // establish TCP/TLS and still die quickly; keep backing off there.

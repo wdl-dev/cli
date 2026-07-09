@@ -7,13 +7,14 @@
 - `wdl init`, examples, and docs now default new Wrangler configs to
   `compatibility_date = "2026-06-17"` for the documented feature baseline.
 - `wdl deploy` now follows Wrangler config priority
-  (`wrangler.json`, `wrangler.jsonc`, `wrangler.toml`); the control plane
-  remains canonical for runtime/workerd bundle errors, while the CLI still
-  rejects cheap local cases like Python Worker modules and ambiguous runtime env
-  name collisions between `[vars]`, explicit bindings, and the implicit
-  `ASSETS` binding. Deploy also fails fast on unmapped Wrangler runtime/deploy
-  keys such as `[site]`, `workers_dev`, `pages_build_output_dir`,
-  `observability`, `limits`, and `placement` instead of silently dropping them.
+  (`wrangler.json`, `wrangler.jsonc`, `wrangler.toml`) and parses both JSON
+  filenames with Wrangler's JSONC syntax; the control plane remains canonical
+  for runtime/workerd bundle errors, while the CLI still rejects cheap local
+  cases like Python Worker modules and ambiguous runtime env name collisions
+  between `[vars]`, explicit bindings, and the implicit `ASSETS` binding.
+  Deploy also fails fast on unmapped Wrangler runtime/deploy keys such as
+  `[site]`, `workers_dev`, `pages_build_output_dir`, `observability`, `limits`,
+  and `placement` instead of silently dropping them.
 - `wdl deploy` resolves Wrangler from `WDL_WRANGLER_BIN`, the Worker project's
   local install, the CLI package's bundled dependency, then `PATH`; `npx` stays
   opt-in via `WDL_ALLOW_NPX_WRANGLER=1`.
@@ -21,7 +22,8 @@
   control responses up to 16 MiB by default.
 - `CONTROL_CONNECT_HOST` now accepts `host:port`, bracketed or bare IPv6, and
   `http://` / `https://` override URLs, while rejecting blank hosts, non-http
-  schemes, and invalid ports before opening a control connection.
+  schemes, and invalid ports before opening a control connection. URL schemes
+  choose the default TCP port; request transport still follows `CONTROL_URL`.
 - `wdl tail` now recognizes control-initiated `session_idle` /
   `session_expired` stream recycling and reconnects without presenting it as an
   unknown warning.

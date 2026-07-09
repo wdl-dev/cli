@@ -87,7 +87,7 @@ ADMIN_TOKEN=<acme-staging-token>
 
 CLI 只会从 `.env` 读取 WDL 平台变量：`ADMIN_TOKEN`、`CONTROL_URL`、`CONTROL_CONNECT_HOST`、`WDL_NS`。优先级是 `CLI flag > shell/CI env > [resolved-ns] section > base .env > wdl token store`，都没有提供时命令直接报错——没有内置默认值。namespace 解析顺序是 `--ns`，然后是 shell 或 base `.env` 里的 `WDL_NS`，再然后是 token store 的默认 namespace。section 名可以是 `[acme]` 这类 tenant namespace，也可以是 `[__name__]` 这种运维保留的不透明 section。Tenant Wrangler 配置默认仍使用普通 tenant namespace 语法，除非运维方明确给了这种 namespace token；否则不要把 `__name__` 形态写进 `[[services]].ns`、`allowed_callers` 或命令示例。如果没有解析出 namespace，section 会全部跳过；后续命令如果需要 namespace 或 token，会按正常校验报错。只有临时切换 namespace 时才需要显式传 `--ns`。不带 scheme 的生产 control host（例如 `api.wdl.dev`）默认补 `https://`；`localhost:8080` 或 `*.test:8080` 这类本地开发地址默认补 `http://`。任何不带 scheme 的 `:8080` control URL 都会按本地 HTTP 处理。需要强制使用其它协议时，显式写 scheme。
 
-`CONTROL_CONNECT_HOST` 是本地开发 / 调试用的覆盖开关：它改变请求实际连接的 TCP 目标，而 HTTP Host header 和 TLS SNI 仍跟随 `CONTROL_URL`（所以 HTTPS 下控制面证书仍会拒绝被重定向的连接；纯 http 没有这层保护）。只在本地开发用 —— 不要在 CI 或生产 shell 中持久设置，残留值可能把 admin token 路由到非预期目标。
+`CONTROL_CONNECT_HOST` 是本地开发 / 调试用的覆盖开关：它改变请求实际连接的 TCP 目标，而 HTTP Host header 和 TLS SNI 仍跟随 `CONTROL_URL`（所以 HTTPS 下控制面证书仍会拒绝被重定向的连接；纯 http 没有这层保护）。只在本地开发用 —— 不要在 CI 或生产 shell 中持久设置，残留值可能把 admin token 路由到非预期目标。覆盖值写成 URL 时，scheme 只决定默认 TCP 端口（`http` 为 80，`https` 为 443）；请求使用 HTTP 还是 HTTPS、Host 和 SNI 仍由 `CONTROL_URL` 决定。
 
 推荐的做法是把这些凭证放进托管存储，而不是 shell export 或项目 `.env`：`wdl token set --ns <ns> --control-url <url>` 用隐藏输入读取 token、调 `/whoami` 校验后按 namespace 存入 `~/.config/wdl/credentials`（不进 shell 历史、也不落在项目文件里）。存储是优先级最低的层——命令行标志、shell env、项目 `.env` 仍然胜出——`wdl token list` / `wdl token rm` 管理它。第一个存入的 namespace 成为默认（一行 base `WDL_NS`，和项目 `.env` 一样），命令不带 `--ns` 也能跑；`wdl token use <ns>` 切换默认。详见 [token-zh.md](./docs/token-zh.md)。
 
@@ -149,6 +149,8 @@ APP_NAME = "hello"
 你可以继续使用 `wrangler dev` 做本地开发；部署到本平台时改用 `wdl deploy`。平台部署命令会调用 `wrangler deploy --dry-run`（Wrangler v4）打包项目，解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。TypeScript、模块解析、esbuild 打包等流程仍走 wrangler 的标准路径。
 
 如果同时存在多个 Wrangler 配置文件，WDL 跟随 Wrangler 的优先级：`wrangler.json`，然后 `wrangler.jsonc`，最后 `wrangler.toml`。
+
+`wrangler.json` 和 `wrangler.jsonc` 都按 Wrangler 的 JSONC 语法解析，支持注释和尾随逗号。
 
 配置好 CLI 默认值后执行：
 

@@ -159,6 +159,8 @@ names like `my-worker-preview`; WDL does not append that suffix. See
 
 When multiple Wrangler config files exist, the CLI follows Wrangler's priority:
 `wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`.
+Both JSON filenames use Wrangler's JSONC syntax, including comments and
+trailing commas.
 
 **Supported:** `name`, `main`, `compatibility_date` / `compatibility_flags`, `[vars]`,
 `[[kv_namespaces]]`, `[[d1_databases]]`, `[[durable_objects.bindings]]`,

@@ -33,8 +33,6 @@ import {
   resolveAssetsDir,
   resolveWranglerCommand,
   resolveWranglerConfig,
-  stripJsonComments,
-  stripTrailingCommas,
   validateUnsupportedWranglerConfig,
   wranglerChildEnv,
 } from "../../lib/wrangler-pack.js";
@@ -155,42 +153,6 @@ function assertWranglerVersionProbe(call) {
   assert.deepEqual(call.args, ["--version"]);
 }
 
-test("stripJsonComments removes line and block comments", () => {
-  const raw = `{
-    // line
-    "name": "demo", /* block */
-    "value": "keep // inside string"
-  }`;
-  const out = stripJsonComments(raw);
-  assert.ok(!out.includes("// line"));
-  assert.ok(!out.includes("/* block */"));
-  assert.ok(out.includes('"value": "keep // inside string"'));
-});
-
-test("stripTrailingCommas removes trailing commas outside strings", () => {
-  const raw = `{
-    "arr": [1, 2,],
-    "obj": { "x": 1, },
-    "literal": ",}"
-  }`;
-  const out = stripTrailingCommas(raw);
-  assert.ok(out.includes('"literal": ",}"'));
-  assert.ok(out.includes('"arr": [1, 2]'));
-  assert.ok(out.includes('"obj": { "x": 1 }'));
-});
-
-test("stripTrailingCommas keeps escaped quotes and backslashes inside strings", () => {
-  const raw = `{
-    "quoted": "say \\"hi\\"",
-    "path": "C:\\\\tmp\\\\,}",
-    "arr": [1,],
-  }`;
-  const out = stripTrailingCommas(raw);
-  assert.ok(out.includes('"quoted": "say \\"hi\\""'));
-  assert.ok(out.includes('"path": "C:\\\\tmp\\\\,}"'));
-  assert.ok(out.includes('"arr": [1]'));
-});
-
 test("parseJsonc accepts comments and trailing commas", () => {
   const cfg = parseJsonc(`{
     // hello
@@ -203,6 +165,27 @@ test("parseJsonc accepts comments and trailing commas", () => {
     name: "demo",
     vars: { GREETING: "hi" },
   });
+});
+
+test("parseJsonc matches Wrangler handling of BOM and CR-only comments", () => {
+  const cfg = parseJsonc('\ufeff{\r// comment\r"name": "demo",\r}\r');
+  assert.deepEqual(cfg, { name: "demo" });
+});
+
+test("parseJsonc rejects comments that splice JSON tokens", () => {
+  assert.throws(() => parseJsonc('{"value": 1/* comment */2}'), /CommaExpected/);
+});
+
+test("parseJsonc rejects unterminated block comments", () => {
+  assert.throws(() => parseJsonc('{"name": "demo"} /*'), /UnexpectedEndOfComment/);
+});
+
+test("parseJsonc preserves reserved keys without changing object prototypes", () => {
+  const cfg = parseJsonc('{"__proto__": {"polluted": true}, "name": "demo"}');
+  assert.ok(cfg && typeof cfg === "object" && !Array.isArray(cfg));
+  assert.equal(Object.getPrototypeOf(cfg), Object.prototype);
+  assert.equal(Object.hasOwn(cfg, "__proto__"), true);
+  assert.equal(/** @type {Record<string, unknown>} */ (cfg).polluted, undefined);
 });
 
 test("parseTriggers: missing/empty yields []", () => {
@@ -1181,26 +1164,49 @@ test("loadWranglerConfig: prefers wrangler.json when multiple config files exist
   }
 });
 
-test("loadWranglerConfig: parses JSONC when TOML is absent", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "wdl-config-jsonc-"));
-  try {
-    writeFileSync(
-      path.join(dir, "wrangler.jsonc"),
-      `{
-        // comment
-        "name": "jsonc-demo",
-        "main": "src/index.js",
-      }`
-    );
+test("loadWranglerConfig: parses JSONC syntax in JSON config formats", () => {
+  for (const name of ["wrangler.json", "wrangler.jsonc"]) {
+    const dir = mkdtempSync(path.join(tmpdir(), "wdl-config-jsonc-"));
+    try {
+      writeFileSync(
+        path.join(dir, name),
+        `{
+          // comment
+          "name": "jsonc-demo",
+          "main": "src/index.js",
+        }`
+      );
 
-    const loaded = loadWranglerConfig(dir);
-    const cfg = /** @type {{ name?: string, main?: string }} */ (loaded.cfg);
-    assert.equal(loaded.path, path.join(dir, "wrangler.jsonc"));
-    assert.equal(cfg.name, "jsonc-demo");
-    assert.equal(cfg.main, "src/index.js");
-    assert.deepEqual(loaded.shadowed, []);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+      const loaded = loadWranglerConfig(dir);
+      const cfg = /** @type {{ name?: string, main?: string }} */ (loaded.cfg);
+      assert.equal(loaded.path, path.join(dir, name));
+      assert.equal(cfg.name, "jsonc-demo");
+      assert.equal(cfg.main, "src/index.js");
+      assert.deepEqual(loaded.shadowed, []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("loadWranglerConfig: rejects invalid JSONC in JSON config formats", () => {
+  const invalidCases = [
+    ['{"value": 1/* comment */2}', "CommaExpected"],
+    ['{"name": "demo"} /*', "UnexpectedEndOfComment"],
+  ];
+  for (const name of ["wrangler.json", "wrangler.jsonc"]) {
+    for (const [source, expected] of invalidCases) {
+      const dir = mkdtempSync(path.join(tmpdir(), "wdl-config-jsonc-invalid-"));
+      try {
+        writeFileSync(path.join(dir, name), source);
+        assert.throws(
+          () => loadWranglerConfig(dir),
+          new RegExp(`failed to parse ${name.replace(".", "\\.")}: ${expected}`)
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
   }
 });
 

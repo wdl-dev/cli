@@ -95,6 +95,8 @@ wdl deploy . --env production
 
 如果同时存在多个 Wrangler 配置文件，CLI 跟随 Wrangler 的优先级：`wrangler.json`，然后 `wrangler.jsonc`，最后 `wrangler.toml`。
 
+`wrangler.json` 和 `wrangler.jsonc` 都按 Wrangler 的 JSONC 语法解析，支持注释和尾随逗号。
+
 **支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`[env.<name>]`。
 
 **不支持（部署失败）：** Analytics Engine。Durable Objects 仅支持同 worker class；`script_name`、rename/delete migration 暂未实现。WDL Workflows 仅支持当前 Worker 内定义的 workflow class，不是完整 Cloudflare Workflows parity；`script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 暂不支持。`route` / `routes` 仅在运维方启用时支持。Python Workers modules、workerd experimental compatibility flags 和 WDL 保留注入模块名会在部署时被拒绝：CLI 会对本地 `.py` module fail-fast，workerd compatibility 与 bundle-shape policy 由 control plane canonical 判断。WDL 会忽略、且无法映射进 manifest 的顶层或所选 env Wrangler runtime/deploy 配置字段和 section 也会由 CLI 直接拒绝，包括 legacy `[site]` Workers Sites、`workers_dev`、`pages_build_output_dir`、`observability`、`limits`、`placement`，以及错误信息点名的其它 unsupported binding/config field 或 section。`assets.run_worker_first` 会被静默忽略。

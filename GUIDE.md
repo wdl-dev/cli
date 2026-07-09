@@ -125,7 +125,9 @@ the request connects to while the HTTP Host header and TLS SNI keep tracking
 `CONTROL_URL` (so over HTTPS the control plane's certificate still rejects a
 redirected connection; plain http has no such check). Use it only for local
 development — never set it persistently in a CI or production shell, where a
-stale value could route the admin token to an unintended target.
+stale value could route the admin token to an unintended target. When the
+override is a URL, its scheme only selects the default TCP port (`http` uses 80;
+`https` uses 443); request transport, Host, and SNI still follow `CONTROL_URL`.
 
 The recommended setup keeps these credentials in a managed store rather than a
 shell export or a project `.env`: `wdl token set --ns <ns> --control-url <url>`
@@ -229,6 +231,8 @@ related build behavior still follow Wrangler.
 
 When several Wrangler config files exist, WDL follows Wrangler's priority:
 `wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`.
+Both JSON filenames use Wrangler's JSONC syntax, including comments and
+trailing commas.
 
 After configuring the CLI defaults:
 

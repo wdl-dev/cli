@@ -380,6 +380,27 @@ test("controlFetch parses CONTROL_CONNECT_HOST host:port overrides", async () =>
   assert.equal(opts.servername, "ctl.example");
 });
 
+test("controlFetch derives CONTROL_CONNECT_HOST URL default ports from the override scheme", async () => {
+  const { seen, transport } = captureSuccessfulRequestOptions();
+
+  await controlFetch("https://ctl.example/whoami", {
+    env: { CONTROL_CONNECT_HOST: "http://127.0.0.1" },
+    transport,
+  });
+  await controlFetch("https://ctl.example/whoami", {
+    env: { CONTROL_CONNECT_HOST: "http://127.0.0.1:80" },
+    transport,
+  });
+  await controlFetch("http://ctl.example/whoami", {
+    env: { CONTROL_CONNECT_HOST: "https://127.0.0.1" },
+    transport,
+  });
+
+  assert.equal(seen[0].port, 80);
+  assert.equal(seen[1].port, 80);
+  assert.equal(seen[2].port, 443);
+});
+
 test("controlFetch uses init env for CONTROL_CONNECT_HOST overrides", async () => {
   const oldConnectHost = process.env.CONTROL_CONNECT_HOST;
   process.env.CONTROL_CONNECT_HOST = "process.example:19000";

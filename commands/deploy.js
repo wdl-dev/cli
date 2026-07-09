@@ -123,7 +123,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
  * }} arg
  */
 async function fetchDeployJson({ context, url, init, label, ns, workerName, stderr }) {
-  const res = await context.controlFetch(url, init);
+  const res = await context.controlFetch(url, { ...init, env: init.env ?? context.env });
   if (res.ok) return await readJsonOrFail(res, label);
   const text = await res.text();
   renderDeployWarningsFromErrorBody(text, { ns, workerName, stderr });

@@ -706,7 +706,7 @@ test("secret put reads stdin, trims one newline, and encodes key", async () => {
   await runSecretCommand(
     ["put", "--ns", "demo", "--scope", "ns", "KEY/ONE", "--control-url", "http://ctl.test"],
     {
-      env: { ADMIN_TOKEN: "tok" },
+      env: { ADMIN_TOKEN: "tok", CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
       stdin: stdinFrom("secret-value\n"),
       stdout: (/** @type {string} */ line) => lines.push(line),
       controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
@@ -719,6 +719,7 @@ test("secret put reads stdin, trims one newline, and encodes key", async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/secrets/KEY%2FONE");
   assert.equal(calls[0].init.method, "PUT");
+  assert.equal(calls[0].init.env?.CONTROL_CONNECT_HOST, "127.0.0.1:18080");
   assert.equal(calls[0].init.body, JSON.stringify({ value: "secret-value" }));
   assert.deepEqual(lines, ["✓ demo (ns)/KEY/ONE set — effect on next natural cold-load"]);
 });

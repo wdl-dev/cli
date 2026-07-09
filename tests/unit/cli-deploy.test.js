@@ -1222,6 +1222,26 @@ test("loadWranglerConfig: escapes parser diagnostics from config files", () => {
   }
 });
 
+test("loadWranglerConfig: escapes config read errors", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "wdl-config-read-"));
+  const dir = path.join(root, `bad${ESC}[2J\nFORGED\rBAD`);
+  try {
+    mkdirSync(dir);
+    mkdirSync(path.join(dir, "wrangler.json"));
+    assert.throws(
+      () => loadWranglerConfig(dir),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /failed to read wrangler\.json/);
+        assertNoRawTerminalControls(message, "config read errors");
+        return true;
+      }
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("installTempFileCleanup removes temp files on process exit and signals", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-temp-cleanup-"));
   try {
@@ -2128,6 +2148,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
       {
         env: {
           ADMIN_TOKEN: "tok",
+          CONTROL_CONNECT_HOST: "127.0.0.1:18080",
           WDL_NS: "demo space",
           CLOUDFLARE_API_TOKEN: "real-cf-token",
         },
@@ -2172,6 +2193,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
     assert.equal(fetchCalls[0].url, "http://ctl.test/ns/demo%20space/worker/api/deploy");
     assert.equal(fetchCalls[0].init.method, "POST");
     assert.equal(fetchCalls[0].init.timeoutMs, LONG_CONTROL_TIMEOUT_MS);
+    assert.equal(fetchCalls[0].init.env?.CONTROL_CONNECT_HOST, "127.0.0.1:18080");
     assert.deepEqual(fetchCalls[0].init.headers, {
       "content-type": "application/json",
       "x-admin-token": "tok",
@@ -2192,6 +2214,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
 
     assert.equal(fetchCalls[1].url, "http://ctl.test/ns/demo%20space/worker/api/promote");
     assert.equal(fetchCalls[1].init.method, "POST");
+    assert.equal(fetchCalls[1].init.env?.CONTROL_CONNECT_HOST, "127.0.0.1:18080");
     assert.deepEqual(JSON.parse(/** @type {string} */ (fetchCalls[1].init.body)), { version: "v1" });
     assert.ok(lines.includes("  bundled by wrangler"));
     assert.ok(lines.includes("✓ demo space/api@v1 live"));

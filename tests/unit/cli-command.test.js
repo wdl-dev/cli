@@ -181,13 +181,13 @@ test("context.fetchJson fetches with the given init and parses JSON", async () =
     run: ({ context }) => context.fetchJson("http://x/y", { headers: { a: "b" } }, "do thing"),
   });
   const body = await cmd.run([], {
-    env: {},
+    env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
     /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} init */
     controlFetch: async (url, init) => { got = { url, init }; return response({ ok: 1 }); },
   });
   assert.deepEqual(body, { ok: 1 });
   assert.equal(got.url, "http://x/y");
-  assert.deepEqual(got.init, { headers: { a: "b" } });
+  assert.deepEqual(got.init, { headers: { a: "b" }, env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" } });
 });
 
 test("context.fetchJson throws a CliError on a non-2xx response", async () => {
@@ -251,13 +251,23 @@ test("context.fetchJson renders reserved module arrays from control errors", asy
 
 test("context.fetchStream returns the raw response after a status check", async () => {
   const ok = response("bytes");
+  let got = /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (
+    /** @type {unknown} */ (null)
+  );
   const cmd = define({
     options: [],
     usage: () => "",
     run: ({ context }) => context.fetchStream("http://x", { method: "HEAD" }, "get"),
   });
-  const res = await cmd.run([], { env: {}, controlFetch: async () => ok });
+  const res = await cmd.run([], {
+    env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
+    controlFetch: async (/** @type {string} */ _url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init) => {
+      got = init;
+      return ok;
+    },
+  });
   assert.equal(res, ok);
+  assert.deepEqual(got, { method: "HEAD", env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" } });
 
   const bad = define({
     options: [],

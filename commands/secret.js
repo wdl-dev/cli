@@ -138,7 +138,7 @@ async function runSecret({ values, positionals, context }) {
  * @param {string} label
  */
 async function fetchSecretMutationJson(context, url, init, label) {
-  const res = await context.controlFetch(url, init);
+  const res = await context.controlFetch(url, { ...init, env: init.env ?? context.env });
   if (res.ok) return await readJsonOrFail(res, label);
   const text = await res.text();
   throw new CliError(`${label} failed: ${formatHttpError(res.status, text, res.headers)}${secretMutationHint(text)}`);

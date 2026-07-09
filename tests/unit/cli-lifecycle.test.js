@@ -818,46 +818,43 @@ test("secret put explains env-budget failures as unwritten mutations", async () 
 });
 
 test("secret mutation errors explain retry and operator-repair cases", async () => {
-  await assert.rejects(
-    () => runSecretCommand(
-      ["delete", "--ns", "demo", "--worker", "api", "KEY", "--yes", "--control-url", "http://ctl.test"],
-      {
-        env: { ADMIN_TOKEN: "tok" },
-        controlFetch: async () => response({
-          error: "secret_mutation_contention",
-          message: "active version changed",
-        }, 503),
-      }
-    ),
-    /Retry after concurrent worker metadata updates settle/
-  );
-  await assert.rejects(
-    () => runSecretCommand(
-      ["delete", "--ns", "demo", "--scope", "ns", "KEY", "--yes", "--control-url", "http://ctl.test"],
-      {
-        env: { ADMIN_TOKEN: "tok" },
-        controlFetch: async () => response({
-          error: "secret_decrypt_failed",
-          message: "bad envelope",
-        }, 503),
-      }
-    ),
-    /Secret-envelope configuration or stored secret data needs operator repair/
-  );
-  await assert.rejects(
-    () => runSecretCommand(
-      ["put", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"],
-      {
-        env: { ADMIN_TOKEN: "tok" },
-        stdin: stdinFrom("secret-value\n"),
-        controlFetch: async () => response({
-          error: "secret_encryption_unconfigured",
-          message: "provider missing",
-        }, 503),
-      }
-    ),
-    /Secret-envelope configuration or stored secret data needs operator repair/
-  );
+  for (const error of ["secret_mutation_contention", "namespace_secret_mutation_contention"]) {
+    await assert.rejects(
+      () => runSecretCommand(
+        ["delete", "--ns", "demo", "--worker", "api", "KEY", "--yes", "--control-url", "http://ctl.test"],
+        {
+          env: { ADMIN_TOKEN: "tok" },
+          controlFetch: async () => response({
+            error,
+            message: "active version changed",
+          }, 503),
+        }
+      ),
+      /Retry after concurrent worker metadata updates settle/
+    );
+  }
+  for (const error of [
+    "invalid_envelope",
+    "secret_decrypt_failed",
+    "secret_encryption_unconfigured",
+    "secret_not_encrypted",
+    "unsupported_envelope",
+    "unknown_kid",
+  ]) {
+    await assert.rejects(
+      () => runSecretCommand(
+        ["delete", "--ns", "demo", "--scope", "ns", "KEY", "--yes", "--control-url", "http://ctl.test"],
+        {
+          env: { ADMIN_TOKEN: "tok" },
+          controlFetch: async () => response({
+            error,
+            message: "bad envelope",
+          }, 503),
+        }
+      ),
+      /Secret-envelope configuration or stored secret data needs operator repair/
+    );
+  }
 });
 
 test("secret put and delete support raw json output", async () => {
@@ -1805,13 +1802,20 @@ test("wdl tail rejects --since for multi-worker sessions", async () => {
 });
 
 test("wdl tail rejects invalid max-reconnects input", async () => {
+  const bad = `forever${ESC}[2J\nFORGED\rBAD\u009b`;
   await assert.rejects(
     () => runTailCommand(
-      ["foo", "--max-reconnects", "forever", "--ns", "demo", "--token", "t",
+      ["foo", "--max-reconnects", bad, "--ns", "demo", "--token", "t",
        "--control-url", "http://ctl.test"],
       { env: {}, stdout: () => {}, stderr: () => {} }
     ),
-    /--max-reconnects must be a non-negative integer/
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.match(message, /--max-reconnects must be a non-negative integer/);
+      assert.match(message, /forever\\u001b\[2J\\nFORGED\\rBAD\\u009b/);
+      assertNoRawTerminalControls(message, "--max-reconnects errors");
+      return true;
+    }
   );
 });
 
@@ -2533,6 +2537,55 @@ test("wdl tail --raw still treats session recycle warnings as control-initiated 
     code: "session_idle",
     message: "client idle",
   });
+});
+
+test("wdl tail --raw treats non-object SSE JSON payloads as raw values", async () => {
+  /** @type {string[]} */
+  const stdoutLines = [];
+  let requestCount = 0;
+  const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} _opts
+     * @param {(res: import("node:http").IncomingMessage) => void} cb
+     */
+    request(_opts, cb) {
+      requestCount += 1;
+      const req = fakeHttpReq();
+      setImmediate(() => {
+        const res = fakeHttpRes();
+        cb(res);
+        if (requestCount === 1) {
+          setImmediate(() => {
+            res.emit("data", "data: null\n\n");
+            res.emit("end");
+          });
+        } else {
+          setImmediate(() => {
+            res.emit("error", new CliError("test stop"));
+          });
+        }
+      });
+      return req;
+    },
+  };
+
+  await assert.rejects(
+    () => runTailCommand(
+      ["foo", "--raw", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
+      {
+        env: {},
+        stdout: (/** @type {string} */ line) => stdoutLines.push(line),
+        stderr: () => {},
+        transport: fakeTransport,
+        sleepFn: async () => {},
+      }
+    ),
+    { message: "test stop" }
+  );
+
+  assert.deepEqual(stdoutLines.map((line) => JSON.parse(line)), [
+    { event: "message", raw: null },
+  ]);
 });
 
 test("wdl tail increases backoff until a stable session resets it", async () => {

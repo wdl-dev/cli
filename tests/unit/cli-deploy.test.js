@@ -100,6 +100,37 @@ function fakeWranglerExecFile(_cmd, args) {
 }
 
 /**
+ * @param {unknown} body
+ * @param {number} [status]
+ * @returns {Promise<Error>}
+ */
+async function rejectDeployWithControlBody(body, status = 400) {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-control-error-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+    /** @type {unknown} */
+    let rejected;
+    try {
+      await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => response(body, status),
+      });
+    } catch (err) {
+      rejected = err;
+    }
+    assert(rejected instanceof Error);
+    return rejected;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * @param {string} cmd
  */
 function assertWranglerCommand(cmd) {
@@ -3116,6 +3147,20 @@ test("runDeployCommand explains deploy env-budget failures at the command layer"
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand explains worker code size and Python module failures", async () => {
+  for (const { error, status, expected } of [
+    { error: "worker_code_too_large", status: 413, expected: /reduce generated Worker code size or split the worker/ },
+    { error: "python_workers_unsupported", status: 400, expected: /Python Workers modules are not supported by WDL/ },
+  ]) {
+    const err = await rejectDeployWithControlBody({
+      error,
+      message: "control rejected deploy",
+    }, status);
+    assert.match(err.message, new RegExp(error));
+    assert.match(err.message, expected);
   }
 });
 

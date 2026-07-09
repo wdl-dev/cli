@@ -226,6 +226,29 @@ test("context.fetchJson escapes structured error context keys", async () => {
   );
 });
 
+test("context.fetchJson renders reserved module arrays from control errors", async () => {
+  const cmd = define({
+    options: [],
+    usage: () => "",
+    run: ({ context }) => context.fetchJson("http://x", {}, "deploy"),
+  });
+  await assert.rejects(
+    () => cmd.run([], {
+      env: {},
+      controlFetch: async () => response({
+        error: "worker_code_invalid",
+        message: "reserved injected module name",
+        reserved_modules: ["_wdl-wrapper.js", "_wdl-init.js"],
+      }, 400),
+    }),
+    (err) => {
+      assert(err instanceof CliError);
+      assert.match(err.message, /reserved_modules=\["_wdl-wrapper\.js","_wdl-init\.js"\]/);
+      return true;
+    },
+  );
+});
+
 test("context.fetchStream returns the raw response after a status check", async () => {
   const ok = response("bytes");
   const cmd = define({

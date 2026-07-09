@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isTokenStoreDisabled, loadCliControlEnv, loadCliDotEnv, protectedEnvKeys, resolveControlContext, resolveControlUrl, resolveNamespace, warnIfInsecureControlUrl } from "../../lib/credentials.js";
@@ -551,6 +551,26 @@ test("loadCliDotEnv ignores a missing file", () => {
   const env = emptyEnv();
   assert.deepEqual(loadCliDotEnv(env, "/tmp/wdl-missing-env-file"), []);
   assert.deepEqual(env, {});
+});
+
+test("loadCliDotEnv wraps unreadable .env filesystem errors", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-unreadable-"));
+  try {
+    const file = path.join(dir, `.env${ESC}[2J\nFORGED\rBAD`);
+    mkdirSync(file);
+    assert.throws(
+      () => loadCliDotEnv(emptyEnv(), file),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /Cannot read \.env file/);
+        assert.match(message, /\.env\\u001b\[2J\\nFORGED\\rBAD/);
+        assertNoRawTerminalControls(message, ".env read errors");
+        return true;
+      }
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("loadCliControlEnv drops a .env control endpoint when the token is from the shell", () => {

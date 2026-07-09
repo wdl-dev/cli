@@ -14,6 +14,14 @@
   `ASSETS` binding. Deploy also fails fast on unmapped Wrangler runtime/deploy
   keys such as `[site]`, `workers_dev`, `pages_build_output_dir`,
   `observability`, `limits`, and `placement` instead of silently dropping them.
+- `wdl deploy` resolves Wrangler from `WDL_WRANGLER_BIN`, the Worker project's
+  local install, the CLI package's bundled dependency, then `PATH`; `npx` stays
+  opt-in via `WDL_ALLOW_NPX_WRANGLER=1`.
+- Control requests now include a `wdl-cli/<version>` User-Agent and buffer JSON
+  control responses up to 16 MiB by default.
+- `CONTROL_CONNECT_HOST` now accepts `host:port`, bracketed or bare IPv6, and
+  `http://` / `https://` override URLs, while rejecting blank hosts, non-http
+  schemes, and invalid ports before opening a control connection.
 - `wdl tail` now recognizes control-initiated `session_idle` /
   `session_expired` stream recycling and reconnects without presenting it as an
   unknown warning.
@@ -33,8 +41,9 @@
 ### Fixed
 
 - Control connection failures, invalid 2xx JSON responses, unreadable
-  `wdl d1 execute --file` inputs, and unexpected positional arguments now fail
-  with CLI errors instead of raw Node errors or silently ignored input.
+  project `.env` files, unreadable `wdl d1 execute --file` inputs, and
+  unexpected positional arguments now fail with CLI errors instead of raw Node
+  errors or silently ignored input.
 - `wdl d1 migrations apply` now rejects symlinked `.sql` migration files instead
   of silently dropping them.
 - `wdl deploy` now renders deploy warnings attached to failed upload responses,

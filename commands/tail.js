@@ -12,7 +12,7 @@ import {
   validateControlHeaders,
 } from "../lib/control-fetch.js";
 import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
-import { escapeTerminalLines, escapeTerminalText } from "../lib/output.js";
+import { escapeTerminalLines, escapeTerminalText, formatDiagnosticValue } from "../lib/output.js";
 
 const RECONNECT_INITIAL_MS = 1_000;
 const RECONNECT_MAX_MS = 5_000;
@@ -144,7 +144,7 @@ async function runTail({ values, positionals, context: baseContext }) {
     const raw = values["max-reconnects"];
     if (!/^\d+$/.test(raw)) {
       throw new CliError(
-        `--max-reconnects must be a non-negative integer (got ${JSON.stringify(raw)}); ` +
+        `--max-reconnects must be a non-negative integer (got ${formatDiagnosticValue(raw)}); ` +
         `use 0 to disable the cap`,
       );
     }
@@ -518,8 +518,14 @@ export class SseParser {
 function renderEvent({ event, raw, stdout, stderr, isMultiWorker }) {
   /** @type {TailPayload} */
   let payload;
-  try { payload = JSON.parse(event.data); }
-  catch { payload = { event: event.event, raw: event.data }; }
+  try {
+    const decoded = JSON.parse(event.data);
+    payload = decoded && typeof decoded === "object" && !Array.isArray(decoded)
+      ? /** @type {TailPayload} */ (decoded)
+      : { event: event.event, raw: decoded };
+  } catch {
+    payload = { event: event.event, raw: event.data };
+  }
 
   const eventType = payload.event || event.event;
   const isServerRecycle = eventType === "tail_warning" &&

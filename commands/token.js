@@ -5,14 +5,15 @@
 // which stored namespace is the default when --ns is omitted, and `rm` deletes
 // the local copy without revoking it.
 
+import { existsSync } from "node:fs";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
 import { flagSet, resolveControlUrl, warnIfInsecureControlUrl } from "../lib/credentials.js";
 import { readSecretStdin } from "../lib/stdin.js";
-import { escapeTerminalText, maskToken, writeResult, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, maskToken, shellSingleQuote, writeResult, writeStatusLine } from "../lib/output.js";
 import { isAdminAcceptableNs } from "../lib/ns-pattern.js";
 import { fetchWhoami, namespaceFromPrincipal } from "../lib/whoami.js";
-import { readTokenStore, tokenStorePath, writeTokenStore } from "../lib/token-store.js";
+import { readTokenStore, tokenStorePath, updateTokenStore } from "../lib/token-store.js";
 
 const TOKEN_OPTIONS = [
   defineCliOption("label", { type: "string" }, "--label <text>", "Human label shown by `wdl token list` (set)."),
@@ -120,29 +121,30 @@ async function tokenSet({ values, context }) {
   }
 
   const storePath = tokenStorePath(context.env);
-  const store = readTokenStore(storePath);
-  const previous = Object.hasOwn(store.namespaces, ns) ? store.namespaces[ns] : {};
-  const wasEmpty = Object.keys(store.namespaces).length === 0;
-  // defineProperty, not `store.namespaces[ns] = …`: a namespace named "__proto__"
-  // would otherwise hit the prototype setter and never create an own section
-  // (mirrors readTokenStore's section creation).
-  Object.defineProperty(store.namespaces, ns, {
-    value: {
-      CONTROL_URL: controlUrl,
-      ADMIN_TOKEN: token,
-      LABEL: typeof values.label === "string" ? values.label : previous.LABEL,
-    },
-    writable: true,
-    enumerable: true,
-    configurable: true,
+  const becameDefault = updateTokenStore(storePath, (store) => {
+    const previous = Object.hasOwn(store.namespaces, ns) ? store.namespaces[ns] : {};
+    const wasEmpty = Object.keys(store.namespaces).length === 0;
+    // defineProperty, not `store.namespaces[ns] = …`: a namespace named "__proto__"
+    // would otherwise hit the prototype setter and never create an own section
+    // (mirrors readTokenStore's section creation).
+    Object.defineProperty(store.namespaces, ns, {
+      value: {
+        CONTROL_URL: controlUrl,
+        ADMIN_TOKEN: token,
+        LABEL: typeof values.label === "string" ? values.label : previous.LABEL,
+      },
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    // Only the first stored namespace (an empty store) auto-becomes the default,
+    // or an explicit --default. A later set must NOT silently steal the default
+    // just because it is currently null — the default may have been deliberately
+    // cleared by removing it from an ambiguous set.
+    const nextDefault = Boolean(values.default) || wasEmpty;
+    if (nextDefault) store.defaultNs = ns;
+    return nextDefault;
   });
-  // Only the first stored namespace (an empty store) auto-becomes the default,
-  // or an explicit --default. A later set must NOT silently steal the default
-  // just because it is currently null — the default may have been deliberately
-  // cleared by removing it from an ambiguous set.
-  const becameDefault = Boolean(values.default) || wasEmpty;
-  if (becameDefault) store.defaultNs = ns;
-  writeTokenStore(storePath, store);
   writeStatusLine(context.stdout, `Stored token for ${ns} @ ${controlUrl} (${maskToken(token)}).`);
   if (becameDefault) {
     writeStatusLine(context.stdout, `${ns} is now the default namespace (used when --ns is omitted).`);
@@ -157,12 +159,9 @@ function tokenUse({ values, context, nsArg }) {
   const ns = nsArg || (flagSet(values, "ns") ? values.ns : null);
   if (!ns) throw new CliError("token use requires a namespace: wdl token use <namespace>");
   const storePath = tokenStorePath(context.env);
-  const store = readTokenStore(storePath);
-  if (!Object.hasOwn(store.namespaces, ns)) {
-    throw new CliError(`no stored token for namespace "${escapeTerminalText(ns)}" — run \`wdl token set --ns ${escapeTerminalText(ns)}\` first`);
-  }
-  store.defaultNs = ns;
-  writeTokenStore(storePath, store);
+  updateStoredNamespace(storePath, ns, "use", (store) => {
+    store.defaultNs = ns;
+  });
   writeStatusLine(context.stdout, `Default namespace set to ${ns} (used when --ns is omitted).`);
 }
 
@@ -186,18 +185,47 @@ function tokenRemove({ values, context }) {
   const ns = flagSet(values, "ns") ? values.ns : null;
   if (!ns) throw new CliError("token rm requires an explicit --ns <namespace>");
   const storePath = tokenStorePath(context.env);
-  const store = readTokenStore(storePath);
-  if (!Object.hasOwn(store.namespaces, ns)) throw new CliError(`no stored token for namespace "${escapeTerminalText(ns)}"`);
-  delete store.namespaces[ns];
-  // Keep the "a lone stored namespace is the default" invariant after any
-  // removal: a sole survivor becomes the default even if an earlier removal
-  // already cleared it; removing the current default from a still-ambiguous set
-  // clears it (an explicit --ns or `wdl token use` is then needed).
-  const remaining = Object.keys(store.namespaces);
-  if (remaining.length === 1) store.defaultNs = remaining[0];
-  else if (store.defaultNs === ns) store.defaultNs = null;
-  writeTokenStore(storePath, store);
+  updateStoredNamespace(storePath, ns, "rm", (store) => {
+    delete store.namespaces[ns];
+    // Keep the "a lone stored namespace is the default" invariant after any
+    // removal: a sole survivor becomes the default even if an earlier removal
+    // already cleared it; removing the current default from a still-ambiguous set
+    // clears it (an explicit --ns or `wdl token use` is then needed).
+    const remaining = Object.keys(store.namespaces);
+    if (remaining.length === 1) store.defaultNs = remaining[0];
+    else if (store.defaultNs === ns) store.defaultNs = null;
+  });
   writeStatusLine(context.stdout, `Removed the stored token for ${ns}. This does not revoke it on the control plane.`);
+}
+
+/**
+ * @param {string} storePath
+ * @param {string} ns
+ * @param {"use" | "rm"} command
+ * @param {(store: ReturnType<typeof readTokenStore>) => void} mutate
+ */
+function updateStoredNamespace(storePath, ns, command, mutate) {
+  if (!existsSync(`${storePath}.lock`) && !Object.hasOwn(readTokenStore(storePath).namespaces, ns)) {
+    throwMissingStoredNamespace(ns, command);
+  }
+  updateTokenStore(storePath, (store) => {
+    if (!Object.hasOwn(store.namespaces, ns)) throwMissingStoredNamespace(ns, command);
+    mutate(store);
+  });
+}
+
+/**
+ * @param {string} ns
+ * @param {"use" | "rm"} command
+ */
+function throwMissingStoredNamespace(ns, command) {
+  const escaped = escapeTerminalText(ns);
+  const quoted = escapeTerminalText(shellSingleQuote(ns));
+  throw new CliError(
+    command === "use"
+      ? `no stored token for namespace "${escaped}" — run \`wdl token set --ns ${quoted}\` first`
+      : `no stored token for namespace "${escaped}"`
+  );
 }
 
 /**
@@ -214,7 +242,16 @@ function tokenRemove({ values, context }) {
 function formatTokenList(rows) {
   if (rows.length === 0) return ["(no stored tokens)"];
   const header = ["", "NAMESPACE", "LABEL", "CONTROL URL", "TOKEN"];
-  const cells = [header, ...rows.map((r) => [r.default ? "*" : "", r.namespace, r.label, r.controlUrl, r.token])];
+  const cells = [
+    header,
+    ...rows.map((r) => [
+      r.default ? "*" : "",
+      r.namespace,
+      r.label,
+      r.controlUrl,
+      r.token,
+    ].map((cell) => escapeTerminalText(cell))),
+  ];
   const widths = header.map((_, col) => Math.max(...cells.map((l) => l[col].length)));
   const lines = cells.map((l) => l.map((cell, col) => cell.padEnd(widths[col])).join("  ").trimEnd());
   if (rows.some((r) => r.default)) lines.push("", "* default namespace (used when --ns is omitted)");

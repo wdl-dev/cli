@@ -7,26 +7,21 @@
 - `wdl init`, examples, and docs now default new Wrangler configs to
   `compatibility_date = "2026-06-17"` for the documented feature baseline.
 - `wdl deploy` now follows Wrangler config priority
-  (`wrangler.json`, `wrangler.jsonc`, `wrangler.toml`) and rejects unsupported
-  Python Worker modules, the explicit workerd `experimental` compatibility
-  flag, WDL-reserved runtime module names, and runtime env name collisions
-  (including `[vars]`, explicit bindings, and the implicit `ASSETS` binding)
-  locally. The control plane remains canonical for other unsupported
-  experimental compatibility flags.
+  (`wrangler.json`, `wrangler.jsonc`, `wrangler.toml`); the control plane
+  remains canonical for runtime/workerd bundle errors, while the CLI still
+  rejects cheap local cases like Python Worker modules and ambiguous runtime env
+  name collisions between `[vars]`, explicit bindings, and the implicit
+  `ASSETS` binding.
 - `wdl tail` now recognizes control-initiated `session_idle` /
   `session_expired` stream recycling and reconnects without presenting it as an
   unknown warning.
 - `wdl doctor --strict` now exits non-zero when any local or remote readiness
   check fails, while the default `wdl doctor` remains report-only.
-- `wdl d1 migrations status/apply` now preflights the 1 MiB control-plane JSON
-  request cap before uploading migration metadata or SQL.
 - `wdl r2` preserves empty object-key path segments while still rejecting `.`
   and `..` segments, validates list `--limit` locally, and requires `--out`
   when `objects get` would otherwise write raw bytes to an interactive terminal.
 - `wdl workflows status --step-limit` now requires `--include-steps`, matching
   the control request it affects.
-- Queue consumer `max_batch_timeout` is now capped locally at the platform's
-  60-second limit.
 - Top-level help for successful requests now prints to stdout, and
   `wdl help <command>` prints that command's help.
 - When multiple Wrangler config files exist, deploy and D1 migrations now warn
@@ -52,11 +47,18 @@
 - Secret mutation failures now add command-specific guidance for env-budget,
   contention, and secret-envelope errors, including that the failed mutation was
   not written.
+- `wdl token list` now escapes credential labels and endpoints before rendering
+  the human table output.
 
 ### Security
 
 - `wdl token` credential writes now use a temp-file plus rename so an existing
   credentials symlink is replaced rather than followed.
+- `wdl token set/use/rm` now serialize credential-store read-modify-write
+  mutations with a recoverable lock, and credential-store temporary filenames
+  are unguessable.
+- Credential-store read and write failures now escape filesystem details before
+  rendering CLI errors.
 - `wdl tail` now caps SSE line buffering to avoid unbounded memory growth on a
   malformed stream.
 - `wdl deploy` now registers process-exit and SIGINT/SIGTERM cleanup for its

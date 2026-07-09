@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -8,6 +9,7 @@ import {
   readTokenStore,
   tokenStoreDir,
   tokenStorePath,
+  updateTokenStore,
   writeTokenStore,
 } from "../../lib/token-store.js";
 
@@ -24,6 +26,17 @@ function withTempDir(fn) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+/**
+ * @param {string} lockDir
+ * @param {string} owner
+ */
+function writeLockOwner(lockDir, owner) {
+  writeFileSync(path.join(lockDir, "owner"), owner, { mode: 0o600 });
+}
+
+const TOKEN_STORE_MODULE_URL = new URL("../../lib/token-store.js", import.meta.url).href;
+const ESC = String.fromCharCode(27);
 
 test("tokenStoreDir honors XDG_CONFIG_HOME, then falls back to ~/.config", () => {
   assert.equal(
@@ -65,6 +78,429 @@ test("writeTokenStore then readTokenStore round-trips namespaces and fields", ()
     };
     writeTokenStore(p, store);
     assert.deepEqual(readTokenStore(p), store);
+  });
+});
+
+test("writeTokenStore uses an unguessable temporary filename", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const fixedNow = 1234567890;
+    const oldNow = Date.now;
+    Date.now = () => fixedNow;
+    try {
+      const legacyTmpPath = `${p}.${process.pid}.${fixedNow}.tmp`;
+      mkdirSync(path.dirname(p), { recursive: true });
+      writeFileSync(legacyTmpPath, "stale temp");
+      writeTokenStore(p, { namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } } });
+      assert.deepEqual(readTokenStore(p), {
+        defaultNs: null,
+        namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+      });
+      assert.equal(readFileSync(legacyTmpPath, "utf8"), "stale temp");
+    } finally {
+      Date.now = oldNow;
+    }
+  });
+});
+
+test("updateTokenStore serializes read-modify-write with a lock directory", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+      store.defaultNs = "acme";
+    });
+    updateTokenStore(p, (store) => {
+      store.namespaces.beta = { ADMIN_TOKEN: "tok-beta" };
+    });
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: "acme",
+      namespaces: {
+        acme: { ADMIN_TOKEN: "tok-acme" },
+        beta: { ADMIN_TOKEN: "tok-beta" },
+      },
+    });
+    assert.throws(
+      () => {
+        rmSync(lockDir, { recursive: true, force: true });
+        mkdirSync(lockDir, { recursive: true });
+        try {
+          updateTokenStore(p, () => {}, { lockTimeoutMs: 0 });
+        } finally {
+          rmSync(lockDir, { recursive: true, force: true });
+        }
+      },
+      /credential store is locked/
+    );
+  });
+});
+
+test("updateTokenStore handles concurrent released-lock recovery", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-token-store-"));
+  try {
+    const p = path.join(dir, "wdl", "credentials");
+    const workers = Array.from({ length: 32 }, (_, index) => {
+      const ns = `ns-${index}`;
+      const token = `tok-${index}`;
+      const code = `
+import { updateTokenStore } from ${JSON.stringify(TOKEN_STORE_MODULE_URL)};
+updateTokenStore(${JSON.stringify(p)}, (store) => {
+  store.namespaces[${JSON.stringify(ns)}] = { ADMIN_TOKEN: ${JSON.stringify(token)} };
+}, { lockTimeoutMs: 30_000 });
+`;
+      const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return new Promise((resolve, reject) => {
+        /** @type {Buffer[]} */
+        const stdout = [];
+        /** @type {Buffer[]} */
+        const stderr = [];
+        child.stdout.on("data", (chunk) => stdout.push(chunk));
+        child.stderr.on("data", (chunk) => stderr.push(chunk));
+        child.on("error", reject);
+        child.on("close", (code) => {
+          if (code === 0) {
+            resolve(undefined);
+            return;
+          }
+          reject(new Error([
+            `child ${ns} exited ${code}`,
+            Buffer.concat(stdout).toString("utf8"),
+            Buffer.concat(stderr).toString("utf8"),
+          ].join("\n")));
+        });
+      });
+    });
+
+    const results = await Promise.allSettled(workers);
+    const failures = results.filter((item) => item.status === "rejected");
+    if (failures.length > 0) {
+      assert.fail(failures.map((item) =>
+        item.status === "rejected" ? String(item.reason?.stack || item.reason) : ""
+      ).join("\n"));
+    }
+
+    const store = readTokenStore(p);
+    assert.equal(Object.keys(store.namespaces).length, 32);
+    for (let index = 0; index < 32; index += 1) {
+      assert.equal(store.namespaces[`ns-${index}`]?.ADMIN_TOKEN, `tok-${index}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("updateTokenStore retries a read-modify-write when the lock is superseded before commit", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    writeTokenStore(p, { namespaces: { existing: { ADMIN_TOKEN: "tok-existing" } } });
+    let attempts = 0;
+
+    updateTokenStore(p, (store) => {
+      attempts += 1;
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+      if (attempts === 1) {
+        rmSync(`${p}.lock`, { recursive: true, force: true });
+        updateTokenStore(p, (innerStore) => {
+          innerStore.namespaces.beta = { ADMIN_TOKEN: "tok-beta" };
+        });
+      }
+    });
+
+    assert.equal(attempts, 2);
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: {
+        acme: { ADMIN_TOKEN: "tok-acme" },
+        beta: { ADMIN_TOKEN: "tok-beta" },
+        existing: { ADMIN_TOKEN: "tok-existing" },
+      },
+    });
+  });
+});
+
+test("updateTokenStore recovers a stale lock directory", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(lockDir, { recursive: true });
+    const staleTime = new Date(Date.now() - 10_000);
+    utimesSync(lockDir, staleTime, staleTime);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 1 });
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+  });
+});
+
+test("updateTokenStore takeover clears stale temp files inside the lock", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    const staleTmp = path.join(lockDir, "credentials.old-writer.tmp");
+    mkdirSync(lockDir, { recursive: true });
+    writeLockOwner(lockDir, "0:stale-owner");
+    writeFileSync(staleTmp, "stale");
+    const staleTime = new Date(Date.now() - 10_000);
+    utimesSync(lockDir, staleTime, staleTime);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 1 });
+
+    assert.equal(existsSync(staleTmp), false);
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+  });
+});
+
+test("updateTokenStore creates a usable lock under a restrictive umask", () => {
+  if (process.platform === "win32") return;
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const oldUmask = process.umask(0o777);
+    try {
+      updateTokenStore(p, (store) => {
+        store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+      });
+    } finally {
+      process.umask(oldUmask);
+    }
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+    const owner = readFileSync(path.join(`${p}.lock`, "owner"), "utf8");
+    assert.equal(readFileSync(path.join(`${p}.lock`, "released"), "utf8"), owner);
+  });
+});
+
+test("updateTokenStore does not steal a fresh lock whose owner pid is not visible", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(lockDir, { recursive: true });
+    writeLockOwner(lockDir, "0:dead-or-remote-test-owner");
+
+    try {
+      assert.throws(
+        () => updateTokenStore(p, () => {}, { lockTimeoutMs: 0, staleLockMs: 60_000 }),
+        /credential store is locked/
+      );
+      assert.equal(readFileSync(path.join(lockDir, "owner"), "utf8"), "0:dead-or-remote-test-owner");
+    } finally {
+      rmSync(lockDir, { recursive: true, force: true });
+    }
+  });
+});
+
+test("updateTokenStore recovers an old lock whose owner pid appears alive", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(lockDir, { recursive: true });
+    writeLockOwner(lockDir, `${process.pid}:possibly-reused-test-owner`);
+    const staleTime = new Date(Date.now() - 10_000);
+    utimesSync(lockDir, staleTime, staleTime);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 1 });
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+  });
+});
+
+test("updateTokenStore recovers a stale lock with an unreadable owner file", () => {
+  if (process.platform === "win32") return;
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(lockDir, { recursive: true });
+    writeLockOwner(lockDir, "0:dead-test-owner");
+    chmodSync(path.join(lockDir, "owner"), 0o000);
+    const staleTime = new Date(Date.now() - 10_000);
+    utimesSync(lockDir, staleTime, staleTime);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 1 });
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+  });
+});
+
+test("updateTokenStore recovers a stale lock with an unreadable release marker", () => {
+  if (process.platform === "win32") return;
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    const owner = "123:released-test-owner";
+    mkdirSync(lockDir, { recursive: true });
+    writeLockOwner(lockDir, owner);
+    const releasedPath = path.join(lockDir, "released");
+    writeFileSync(releasedPath, owner, { mode: 0o600 });
+    chmodSync(releasedPath, 0o000);
+    const staleTime = new Date(Date.now() - 10_000);
+    utimesSync(lockDir, staleTime, staleTime);
+
+    try {
+      updateTokenStore(p, (store) => {
+        store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+      }, { lockTimeoutMs: 0, staleLockMs: 1 });
+    } finally {
+      if (existsSync(releasedPath)) chmodSync(releasedPath, 0o600);
+    }
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+  });
+});
+
+test("updateTokenStore recovers a stale regular-file lock", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(path.dirname(p), { recursive: true });
+    writeFileSync(lockDir, "not a directory");
+    const staleTime = new Date(Date.now() - 10_000);
+    utimesSync(lockDir, staleTime, staleTime);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 1 });
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+  });
+});
+
+test("updateTokenStore recovers a stale dangling-symlink lock", () => {
+  if (process.platform === "win32") return;
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(path.dirname(p), { recursive: true });
+    symlinkSync(path.join(dir, "missing-lock-target"), lockDir);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 0 });
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+  });
+});
+
+test("updateTokenStore recovers a stale symlink lock without chmodding its target", () => {
+  if (process.platform === "win32") return;
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    const target = path.join(dir, "symlink-target");
+    mkdirSync(path.dirname(p), { recursive: true });
+    writeFileSync(target, "target", { mode: 0o600 });
+    symlinkSync(target, lockDir);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 0 });
+
+    assert.equal((statSync(target).mode & 0o777), 0o600);
+    assert.deepEqual(
+      readdirSync(path.dirname(p)).filter((name) => name.startsWith(`${path.basename(p)}.lock.recovered-`)),
+      []
+    );
+  });
+});
+
+test("updateTokenStore does not spin on a fresh dangling-symlink lock", () => {
+  if (process.platform === "win32") return;
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(path.dirname(p), { recursive: true });
+    symlinkSync(path.join(dir, "missing-lock-target"), lockDir);
+
+    assert.throws(
+      () => updateTokenStore(p, () => {}, { lockTimeoutMs: 0, staleLockMs: 60_000 }),
+      /credential store is locked/
+    );
+  });
+});
+
+test("updateTokenStore recovers a stale lock with an unreadable directory", () => {
+  if (process.platform === "win32") return;
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    mkdirSync(lockDir, { recursive: true });
+    writeLockOwner(lockDir, "0:unreadable-dir-owner");
+    const staleTime = new Date(Date.now() - 10_000);
+    utimesSync(lockDir, staleTime, staleTime);
+    chmodSync(lockDir, 0o000);
+
+    updateTokenStore(p, (store) => {
+      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+    }, { lockTimeoutMs: 0, staleLockMs: 1 });
+
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+    });
+    assert.deepEqual(
+      readdirSync(path.dirname(p)).filter((name) => name.startsWith(`${path.basename(p)}.lock.recovered-`)),
+      []
+    );
+  });
+});
+
+test("updateTokenStore refuses to write or release after lock ownership changes", () => {
+  withTempDir((dir) => {
+    const p = path.join(dir, "wdl", "credentials");
+    const lockDir = `${p}.lock`;
+    writeTokenStore(p, { namespaces: { existing: { ADMIN_TOKEN: "tok-existing" } } });
+
+    try {
+      assert.throws(
+        () => updateTokenStore(p, (store) => {
+          store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+          rmSync(lockDir, { recursive: true, force: true });
+          mkdirSync(lockDir, { recursive: true });
+          writeLockOwner(lockDir, "new-owner");
+        }, { lockTimeoutMs: 0 }),
+        /credential store is locked/
+      );
+      assert.deepEqual(readTokenStore(p), {
+        defaultNs: null,
+        namespaces: { existing: { ADMIN_TOKEN: "tok-existing" } },
+      });
+      assert.equal(readFileSync(path.join(lockDir, "owner"), "utf8"), "new-owner");
+    } finally {
+      rmSync(lockDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -213,11 +649,67 @@ test("assertStoreDirSecure refuses a group/world-writable store dir", () => {
     assert.doesNotThrow(() => assertStoreDirSecure(mkdir(0o755))); // read/exec, not writable
     assert.throws(() => assertStoreDirSecure(mkdir(0o770)), /group\/world-writable/);
     assert.throws(() => assertStoreDirSecure(mkdir(0o777)), /group\/world-writable/);
+    const bad = path.join(mkdtempSync(path.join(tmpdir(), "wdl-store-secure-")), `bad${ESC}dir\nFORGED\rBAD`);
+    mkdirSync(bad);
+    chmodSync(bad, 0o777);
+    made.push(path.dirname(bad));
+    assert.throws(
+      () => assertStoreDirSecure(bad),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        return true;
+      }
+    );
     // The win32 branch never inspects POSIX mode bits.
     assert.doesNotThrow(() => assertStoreDirSecure(mkdir(0o777), "win32"));
   } finally {
     for (const d of made) rmSync(d, { recursive: true, force: true });
   }
+});
+
+test("updateTokenStore escapes write-side filesystem errors", () => {
+  withTempDir((dir) => {
+    const badXdg = path.join(dir, `bad${ESC}dir\nFORGED\rBAD`);
+    writeFileSync(badXdg, "");
+    const p = path.join(badXdg, "wdl", "credentials");
+
+    assert.throws(
+      () => updateTokenStore(p, (store) => {
+        store.namespaces.acme = { ADMIN_TOKEN: "tok" };
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /failed to update credential store/);
+        assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        return true;
+      }
+    );
+  });
+});
+
+test("writeTokenStore escapes write-side filesystem errors", () => {
+  withTempDir((dir) => {
+    const badXdg = path.join(dir, `bad${ESC}dir\nFORGED\rBAD`);
+    writeFileSync(badXdg, "");
+    const p = path.join(badXdg, "wdl", "credentials");
+
+    assert.throws(
+      () => writeTokenStore(p, { defaultNs: null, namespaces: { acme: { ADMIN_TOKEN: "tok" } } }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /failed to write credential store/);
+        assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        return true;
+      }
+    );
+  });
 });
 
 test("readTokenStore rejects a key outside any section", () => {

@@ -21,7 +21,6 @@ import { confirmAction } from "../lib/stdin.js";
 import { writeResult } from "../lib/output.js";
 
 const D1_EXECUTE_MODES = ["all", "raw", "run", "exec"];
-export const D1_MIGRATIONS_JSON_BODY_MAX_BYTES = 1024 * 1024;
 
 const D1_OPTIONS = [
   defineCliOption("sql", { type: "string" }, "--sql <sql>", "SQL text for execute."),
@@ -200,14 +199,11 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
 
   if (action === "status") {
     const migrations = loadLocalMigrations({ values, env, cwd, databaseRef, warn });
-    const requestBody = serializeD1MigrationsBody({
-      migrations: migrations.map(({ sql: _sql, ...rest }) => rest),
-    }, "d1 migrations status");
     const body = /** @type {Parameters<typeof formatD1MigrationStatus>[0]} */ (
       await context.fetchJson(`${migrationsBase}/status`, {
         method: "POST",
         headers,
-        body: requestBody,
+        body: JSON.stringify({ migrations: migrations.map(({ sql: _sql, ...rest }) => rest) }),
       }, "show d1 migration status")
     );
     writeResult(values.json === true, body, () => formatD1MigrationStatus(body), stdout);
@@ -216,37 +212,18 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
 
   if (action === "apply") {
     const migrations = loadLocalMigrations({ values, env, cwd, databaseRef, warn });
-    const requestBody = serializeD1MigrationsBody({ migrations }, "d1 migrations apply");
     const body = /** @type {Parameters<typeof formatD1MigrationApply>[0]} */ (
       await context.fetchJson(`${migrationsBase}/apply`, {
         method: "POST",
         headers,
-        body: requestBody,
+        body: JSON.stringify({ migrations }),
         timeoutMs: LONG_CONTROL_TIMEOUT_MS,
       }, "apply d1 migrations")
     );
     writeResult(values.json === true, body, () => formatD1MigrationApply(body), stdout);
     return;
   }
-
 }
-
-/**
- * @param {unknown} body
- * @param {string} label
- * @param {number} [maxBytes]
- */
-export function serializeD1MigrationsBody(body, label, maxBytes = D1_MIGRATIONS_JSON_BODY_MAX_BYTES) {
-  const text = JSON.stringify(body);
-  const bytes = Buffer.byteLength(text);
-  if (bytes > maxBytes) {
-    throw new CliError(
-      `${label} request is ${bytes} bytes, exceeds ${maxBytes} byte control-plane request cap`
-    );
-  }
-  return text;
-}
-
 /**
  * @typedef {{ values: D1Flags, env: NodeJS.ProcessEnv, cwd: string, databaseRef: string, warn?: (line: string) => void }} MigrationsDirArgs
  */

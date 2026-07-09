@@ -226,7 +226,7 @@ https://<namespace>.<platform-domain>/<worker-name>/
 
 ## 支持的 wrangler 配置
 
-WDL 会拒绝一些 Wrangler 能打包、但平台不能运行的形状：Python Workers modules、不支持的 workerd experimental compatibility flags、使用 WDL 保留注入模块名（例如 `_wdl-wrapper.js`）的模块，以及和 runtime binding 名冲突的 `[vars]` key。CLI 本地只拒绝显式的 `experimental` compatibility flag；其它不支持的 experimental flags 仍以 control plane 校验为准。Deploy 和 secret mutation 还会校验留有 headroom 的 workerd 1 MiB `workerLoader` env budget；过大的 `[vars]`、secrets、binding metadata 或 retained versions 可能触发 `worker_env_too_large`。
+Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canonical validator 拒绝，包括不支持的 workerd experimental compatibility flags 和 WDL 保留注入模块名。CLI 仍会对低成本的本地问题 fail-fast，例如 Python Workers modules，以及 `[vars]`、显式 bindings、隐式 `ASSETS` binding 之间的 runtime `env` 名称冲突。Deploy 和 secret mutation 还会校验留有 headroom 的 workerd 1 MiB `workerLoader` env budget；过大的 `[vars]`、secrets、binding metadata 或 retained versions 可能触发 `worker_env_too_large`。
 
 | 配置 | 支持情况 |
 | --- | --- |
@@ -570,7 +570,7 @@ Queue consumers 是 runtime dispatch 目标。把它声明在可路由的 tenant
 | 重试延迟 | `[[queues.consumers]].retry_delay` 是默认重试延迟，单位秒。`msg.retry({ delaySeconds })` / `batch.retryAll({ delaySeconds })` 会覆盖默认值；`delaySeconds: 0` 表示立即重试。 |
 | attempts | handler 看到的 `msg.attempts` 首投从 `1` 开始。`max_retries = N` 时，一条消息最多会被投递 `N + 1` 次，然后进入死信处理。 |
 | 死信队列 | 尊重 `dead_letter_queue` 配置；未配置时使用该 queue 的默认 DLQ。 |
-| Batch timeout | `max_batch_timeout` 必须是 0..60 秒；它会被解析并保存，以兼容 Cloudflare 配置；但当前 dispatch 由 `max_batch_size` 截断，不应依赖 timeout 触发 batch flush。 |
+| Batch timeout | CLI 会转发通过基础整数 delay 解析的 `max_batch_timeout` 以兼容配置；WDL control 负责执行更严格的 Cloudflare 兼容 0..60 秒范围。当前 dispatch 由 `max_batch_size` 截断，不应依赖 timeout 触发 batch flush。 |
 | 不支持的配置 | `max_concurrency` 会在部署阶段直接拒绝，不会静默忽略。 |
 
 `examples/queues-demo` 提供了单 Worker 生产、消费 queue 消息，并把投递状态写入 KV 的完整示例。

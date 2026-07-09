@@ -9,7 +9,7 @@ test("bundle module helpers infer file types", () => {
   assert.equal(inferType("worker.js"), "module");
   assert.equal(inferType("x.mjs"), "module");
   assert.equal(inferType("x.cjs"), "cjs");
-  assert.equal(inferType("x.py"), "data");
+  assert.equal(inferType("x.py"), "py");
   assert.equal(inferType("x.json"), "json");
   assert.equal(inferType("x.svg"), "text");
   assert.equal(inferType("x.wasm"), "wasm");
@@ -24,5 +24,6 @@ test("toWireModule encodes supported module types", () => {
   assert.deepEqual(toWireModule(Buffer.from("{\"a\":1}"), "json"), { json: { a: 1 } });
   assert.deepEqual(toWireModule(Buffer.from([1, 2]), "wasm"), { wasm_b64: "AQI=" });
   assert.deepEqual(toWireModule(Buffer.from([3, 4]), "data"), { data_b64: "AwQ=" });
+  assert.throws(() => toWireModule(Buffer.from("print('hi')"), "py"), /Unknown module type "py"/);
   assert.throws(() => toWireModule(Buffer.from("x"), "ruby"), /Unknown module type "ruby"/);
 });

@@ -52,6 +52,14 @@ function toError(err) {
   return err instanceof Error ? err : new Error(String(err));
 }
 
+/** @returns {Error & { code: string }} */
+function tailAbortError() {
+  const err = /** @type {Error & { code: string }} */ (new Error("tail request aborted"));
+  err.name = "AbortError";
+  err.code = "ABORT_ERR";
+  return err;
+}
+
 const command = defineCommand({
   name: "tail",
   summary: "Live-tail worker console output and uncaught exceptions.",
@@ -397,7 +405,10 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
       if (signal?.aborted && isExpectedAbortError(err)) return resolve({});
       reject(err);
     });
-    onAbort = () => { req.destroy(); };
+    onAbort = () => {
+      clearConnectTimer();
+      req.destroy(tailAbortError());
+    };
     if (signal) {
       signal.addEventListener("abort", onAbort, { once: true });
     }

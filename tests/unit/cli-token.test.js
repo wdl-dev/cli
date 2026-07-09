@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
@@ -345,6 +345,48 @@ test("token list formats stored namespaces with masked tokens and marks the defa
   });
 });
 
+test("token list escapes terminal controls inside table cells", async () => {
+  await withTempXdg(async (xdg) => {
+    writeTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg }), {
+      defaultNs: "acme",
+      namespaces: {
+        acme: {
+          CONTROL_URL: "https://api.example\nFORGED\rBAD",
+          ADMIN_TOKEN: "tok-abcd1234",
+          LABEL: `prod${ESC}[2J\nFORGED`,
+        },
+      },
+    });
+    const { lines, deps: d } = deps(xdg);
+    await runTokenCommand(["list"], d);
+    const out = lines.join("\n");
+
+    assert.doesNotMatch(out, new RegExp(ESC), "raw ESC must not reach token list output");
+    assert.doesNotMatch(out, /\nFORGED|\rBAD/, "raw line controls must not forge table rows");
+    assert.match(out, /prod\\u001b\[2J\\nFORGED/);
+    assert.match(out, /https:\/\/api\.example\\nFORGED\\rBAD/);
+  });
+});
+
+test("token list escapes credential-store read errors", async () => {
+  await withTempXdg(async (xdg) => {
+    const badXdg = path.join(xdg, `bad${ESC}dir\nFORGED\rBAD`);
+    writeFileSync(badXdg, "");
+
+    await assert.rejects(
+      () => runTokenCommand(["list"], deps(badXdg).deps),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /failed to read credential store/);
+        assert.match(message, /bad\\u001bdir\\nFORGED\\rBAD/);
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not reach the error");
+        return true;
+      }
+    );
+  });
+});
+
 test("token use switches the default namespace and rejects an unstored one", async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
@@ -361,6 +403,22 @@ test("token use switches the default namespace and rejects an unstored one", asy
       () => runTokenCommand(["use", "ghost"], deps(xdg).deps),
       /no stored token for namespace "ghost"/
     );
+  });
+});
+
+test("token use/rm unknown namespaces do not create an empty store directory", async () => {
+  await withTempXdg(async (xdg) => {
+    const storeDir = path.join(xdg, "wdl");
+    await assert.rejects(
+      () => runTokenCommand(["use", "ghost"], deps(xdg).deps),
+      /no stored token for namespace "ghost"/
+    );
+    assert.equal(existsSync(storeDir), false);
+    await assert.rejects(
+      () => runTokenCommand(["rm", "--ns", "ghost"], deps(xdg).deps),
+      /no stored token for namespace "ghost"/
+    );
+    assert.equal(existsSync(storeDir), false);
   });
 });
 

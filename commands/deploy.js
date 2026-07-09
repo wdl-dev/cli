@@ -181,7 +181,7 @@ function deployErrorHint(text) {
     return "; reduce generated Worker code size or split the worker.";
   }
   if (error === "worker_code_invalid") {
-    return "; rename modules that collide with WDL-reserved _wdl-*.js runtime module names.";
+    return "; fix the Worker bundle shape reported by the control plane.";
   }
   if (error === "python_workers_unsupported") {
     return "; Python Workers modules are not supported by WDL.";

@@ -53,7 +53,7 @@ export default {
 - `retry_delay` 和 `message.retry({ delaySeconds })` 可用于延迟重试；显式传 `delaySeconds` 会覆盖 consumer 的 `retry_delay`，传 `0` 表示立即重试。
 - `message.attempts` 从 1 起计，因此 `max_retries = N` 意味着 handler 最多观察到 N + 1 次尝试，之后消息进入 dead-letter queue。
 - Dead-letter queue 是有界的诊断通道（默认约 1 万条，近似裁剪）——应及时排空，不要当作持久归档使用。
-- `max_batch_timeout` 必须是 0..60 秒；它会被解析保存，但当前不要依赖它做完整的等待聚合；实际 dispatch 主要由 `max_batch_size` 和平台调度节奏截断。
+- CLI 会转发通过基础整数 delay 解析的 `max_batch_timeout` 以兼容配置；WDL control 负责执行更严格的 Cloudflare 兼容 0..60 秒范围。当前不要依赖它做完整的等待聚合，实际 dispatch 主要由 `max_batch_size` 和平台调度节奏截断。
 - `max_concurrency` 当前不支持，部署时会被拒绝。
 - Queue consumer 是 runtime dispatch 目标，应声明在可路由的 tenant Worker 上，不要声明在 platform binding target Worker 上。
 

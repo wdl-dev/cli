@@ -326,15 +326,14 @@ for you.
 
 ## Supported Wrangler Configuration
 
-WDL rejects a few shapes that Wrangler can bundle but the platform cannot run:
-Python Workers modules, unsupported workerd experimental compatibility flags,
-modules using WDL-reserved injected names such as `_wdl-wrapper.js`, and
-`[vars]` keys that collide with runtime binding names. The CLI locally rejects
-the explicit `experimental` compatibility flag; the control plane remains the
-canonical check for other unsupported experimental flags. Deploy and secret
-mutation also enforce the headroomed 1 MiB workerd `workerLoader` env budget;
-large `[vars]`, secrets, binding metadata, or retained versions can fail with
-`worker_env_too_large`.
+The control plane is the canonical validator for shapes that Wrangler can
+bundle but WDL cannot run, including unsupported workerd experimental
+compatibility flags and WDL-reserved injected module names. The CLI still
+fails fast for cheap local cases such as Python Worker modules and ambiguous
+runtime `env` name collisions between `[vars]`, explicit bindings, and the
+implicit `ASSETS` binding. Deploy and secret mutation also enforce the
+headroomed 1 MiB workerd `workerLoader` env budget; large `[vars]`, secrets,
+binding metadata, or retained versions can fail with `worker_env_too_large`.
 
 | Configuration                                                                                                                                                                                                                                                                                                                                    | Support                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -803,7 +802,7 @@ Queue behavior tenants can rely on:
 | Retry delay        | `[[queues.consumers]].retry_delay` is the default retry delay in seconds. `msg.retry({ delaySeconds })` / `batch.retryAll({ delaySeconds })` override it; `delaySeconds: 0` means immediate retry.       |
 | Attempts           | The handler sees `msg.attempts` starting at `1`. With `max_retries = N`, a message can be delivered up to `N + 1` times before dead-letter handling.                                                     |
 | Dead letter queue  | `dead_letter_queue` is honored. If omitted, failed messages use the queue's default DLQ.                                                                                                                 |
-| Batch timeout      | `max_batch_timeout` must be 0..60 seconds. It is parsed and saved for Cloudflare config compatibility, but dispatch is currently capped by `max_batch_size`; do not depend on timeout-based batch flushing. |
+| Batch timeout      | The CLI forwards `max_batch_timeout` values that pass basic integer delay parsing for config compatibility; WDL control enforces the tighter Cloudflare-compatible 0..60 second range. Dispatch is currently capped by `max_batch_size`; do not depend on timeout-based batch flushing. |
 | Unsupported config | `max_concurrency` is rejected during deploy instead of being silently ignored.                                                                                                                           |
 
 See `examples/queues-demo` for a single Worker that produces queue messages,

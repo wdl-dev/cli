@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { D1_MIGRATIONS_JSON_BODY_MAX_BYTES, runD1Command, serializeD1MigrationsBody } from "../../commands/d1.js";
+import { runD1Command } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { mockDeps as sharedMockDeps, response } from "./helpers.js";
 
@@ -256,6 +256,102 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
   }
 });
 
+test("d1 migrations apply surfaces control request body size errors", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-413-"));
+  try {
+    const migrations = path.join(dir, "migrations");
+    mkdirSync(migrations);
+    writeFileSync(path.join(migrations, "001_init.sql"), `-- ${"x".repeat(1_050_000)}`);
+
+    /** @type {RecordedCall[]} */
+    const calls = [];
+    await assert.rejects(
+      () => runD1Command([
+        "migrations",
+        "apply",
+        "main",
+        "--dir",
+        "migrations",
+        "--control-url",
+        "http://ctl.test",
+      ], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        stdout: () => {},
+        /** @param {string} url @param {ControlFetchInit} [init] */
+        controlFetch: async (url, init = {}) => {
+          calls.push({ url, init });
+          return response({
+            error: "request_body_too_large",
+            message: "migration request too large",
+          }, 413);
+        },
+      }),
+      /apply d1 migrations failed: 413 request_body_too_large: migration request too large/
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/migrations/apply");
+    assert.ok(
+      typeof calls[0].init.body === "string" && calls[0].init.body.length > 1_048_576,
+      "oversized local migration bodies are sent to control for canonical rejection"
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("d1 migrations status surfaces control request body size errors", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-status-413-"));
+  try {
+    const migrations = path.join(dir, "migrations");
+    mkdirSync(migrations);
+    for (let i = 0; i < 4_600; i += 1) {
+      const suffix = String(i).padStart(4, "0");
+      writeFileSync(
+        path.join(migrations, `001_${suffix}_${"x".repeat(170)}.sql`),
+        "select 1;"
+      );
+    }
+
+    /** @type {RecordedCall[]} */
+    const calls = [];
+    await assert.rejects(
+      () => runD1Command([
+        "migrations",
+        "status",
+        "main",
+        "--dir",
+        "migrations",
+        "--control-url",
+        "http://ctl.test",
+      ], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        stdout: () => {},
+        /** @param {string} url @param {ControlFetchInit} [init] */
+        controlFetch: async (url, init = {}) => {
+          calls.push({ url, init });
+          return response({
+            error: "request_body_too_large",
+            message: "migration status request too large",
+          }, 413);
+        },
+      }),
+      /show d1 migration status failed: 413 request_body_too_large: migration status request too large/
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/migrations/status");
+    assert.ok(
+      typeof calls[0].init.body === "string" && calls[0].init.body.length > 1_048_576,
+      "oversized local migration status bodies are sent to control for canonical rejection"
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform === "win32" }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-symlink-"));
   try {
@@ -278,17 +374,6 @@ test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("serializeD1MigrationsBody enforces the control request body cap", () => {
-  assert.equal(D1_MIGRATIONS_JSON_BODY_MAX_BYTES, 1024 * 1024);
-  assert.equal(serializeD1MigrationsBody({ migrations: [] }, "d1 migrations apply", 32), '{"migrations":[]}');
-  assert.throws(
-    () => serializeD1MigrationsBody({
-      migrations: [{ id: "001_big.sql", name: "001_big", checksum: "x", sql: "x".repeat(80) }],
-    }, "d1 migrations apply", 64),
-    /d1 migrations apply request is \d+ bytes, exceeds 64 byte control-plane request cap/
-  );
 });
 
 test("d1 migrations_dir from wrangler config cannot escape the project", async () => {

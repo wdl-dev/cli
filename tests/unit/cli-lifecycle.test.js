@@ -2030,6 +2030,55 @@ test("wdl tail rejects invalid auth headers before opening an SSE request", asyn
   assert.equal(opened, false);
 });
 
+test("wdl tail abort destroys the SSE request with a tolerated abort error", async () => {
+  /** @type {Array<Error & { code?: string }>} */
+  const destroyedWith = [];
+  let requestCount = 0;
+  const fakeTransport = {
+    /**
+     * @param {import("node:https").RequestOptions} _opts
+     * @param {(res: import("node:http").IncomingMessage) => void} _cb
+     */
+    request(_opts, _cb) {
+      requestCount += 1;
+      const emitter = new EventEmitter();
+      const req = /** @type {import("../../lib/control-fetch.js").ControlClientRequest} */ (
+        /** @type {unknown} */ (Object.assign(emitter, {
+          end() {},
+          /** @param {Error & { code?: string }} [err] */
+          destroy(err) {
+            if (err) destroyedWith.push(err);
+            setImmediate(() => emitter.emit(
+              "error",
+              err || Object.assign(new Error("socket closed"), { code: "ECONNRESET" }),
+            ));
+          },
+        }))
+      );
+      setImmediate(() => process.emit("SIGINT"));
+      return req;
+    },
+  };
+
+  await runTailCommand(
+    ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
+    {
+      env: {},
+      stdout: () => {},
+      stderr: () => {},
+      transport: fakeTransport,
+      sleepFn: async () => {
+        throw new Error("tail should not reconnect after abort");
+      },
+    }
+  );
+
+  assert.equal(requestCount, 1);
+  assert.equal(destroyedWith.length, 1);
+  assert.equal(destroyedWith[0].name, "AbortError");
+  assert.equal(destroyedWith[0].code, "ABORT_ERR");
+});
+
 test("wdl tail sends --since on the initial URL, not duplicated as Last-Event-ID", async () => {
   /** @type {Array<{ path: import("node:https").RequestOptions["path"], headers: import("node:http").OutgoingHttpHeaders }>} */
   const requestsSeen = [];

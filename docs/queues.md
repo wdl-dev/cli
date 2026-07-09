@@ -66,9 +66,11 @@ and leave it to the platform's `max_retries` and `dead_letter_queue` handling.
 - The dead-letter queue is a bounded diagnostic channel (about 10k entries by
   default, approximately trimmed) — drain it promptly rather than treating it
   as a durable archive.
-- `max_batch_timeout` must be 0..60 seconds. It is parsed and saved, but do not
-  rely on it for full wait-based aggregation yet; actual dispatch is mostly cut
-  off by `max_batch_size` and the platform's scheduling cadence.
+- The CLI forwards `max_batch_timeout` values that pass basic integer delay
+  parsing for config compatibility; WDL control enforces the tighter
+  Cloudflare-compatible 0..60 second range. Do not rely on it for full
+  wait-based aggregation yet; actual dispatch is mostly cut off by
+  `max_batch_size` and the platform's scheduling cadence.
 - `max_concurrency` is not supported and is rejected at deploy time.
 - Queue consumers are runtime dispatch targets; declare them on routeable tenant
   Workers, not on platform binding target Workers.

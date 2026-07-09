@@ -3,9 +3,9 @@
 // "meant worker, wrote ns" credential leaks.
 
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, isNonEmptyString, optionHelp, readJsonOrFail } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, isNonEmptyString, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
 import { confirmAction, readSecretStdin } from "../lib/stdin.js";
-import { writeJsonOr, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, writeJsonOr, writeStatusLine } from "../lib/output.js";
 
 const SECRET_OPTIONS = [
   defineCliOption("worker", { type: "string" }, "--worker <w>", "Use worker-level secret scope."),
@@ -69,7 +69,7 @@ async function runSecret({ values, positionals, context }) {
   const scopeLabel = worker ? `${ns}/${worker}` : `${ns} (ns)`;
 
   if (subcommand === "list") {
-    if (keyArg) throw new CliError(`secret list received unexpected argument: ${keyArg}`);
+    if (keyArg) throw unexpectedArgument("secret list", keyArg);
     const { headers } = context.resolveControl();
     const body = /** @type {SecretResponse} */ (await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list"));
     if (writeJsonOr(Boolean(values.json), body, stdout)) return;
@@ -81,7 +81,7 @@ async function runSecret({ values, positionals, context }) {
 
   if (subcommand === "put") {
     if (!keyArg) throw new CliError("put requires a KEY argument");
-    if (extraArg) throw new CliError(`secret put received unexpected argument: ${extraArg}`);
+    if (extraArg) throw unexpectedArgument("secret put", extraArg);
     const { headers } = context.resolveControl();
     // Empty string is a set secret (≠ unset), matching wrangler.
     const value = await readSecretStdin(stdin, {
@@ -106,7 +106,7 @@ async function runSecret({ values, positionals, context }) {
 
   if (subcommand === "delete") {
     if (!keyArg) throw new CliError("delete requires a KEY argument");
-    if (extraArg) throw new CliError(`secret delete received unexpected argument: ${extraArg}`);
+    if (extraArg) throw unexpectedArgument("secret delete", extraArg);
     const { headers } = context.resolveControl();
     await confirmAction({
       yes: values.yes === true,
@@ -127,7 +127,7 @@ async function runSecret({ values, positionals, context }) {
     return;
   }
 
-  throw new CliError(`unknown subcommand: ${subcommand}`);
+  throw new CliError(`unknown subcommand: ${escapeTerminalText(subcommand)}`);
 }
 
 /**

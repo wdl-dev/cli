@@ -8,6 +8,7 @@ import { main, __test__ } from "../../commands/init.js";
 
 const { parseArgs, validateNs, validateWorker, resolveWdlCliDep } = __test__;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const ESC = String.fromCharCode(27);
 
 /** @param {(dir: string) => Promise<unknown>} fn */
 async function withTempCwd(fn) {
@@ -64,6 +65,31 @@ test("parseArgs rejects unknown flags", () => {
   assert.throws(() => parseArgs(["demo", "--unknown"]), /unknown flag/);
 });
 
+test("parseArgs escapes terminal controls in argv errors", () => {
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  assert.throws(
+    () => parseArgs(["demo", bad]),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+      assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
+      return true;
+    },
+  );
+});
+
+test("main escapes terminal controls in project name errors", async () => {
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  await withTempCwd(async () => {
+    const { exitCode, errOutput } = await captureExit(() => main([bad]));
+    assert.equal(exitCode, 1);
+    assert.doesNotMatch(errOutput, new RegExp(ESC), "raw ESC must not reach project-name errors");
+    assert.doesNotMatch(errOutput, /\nFORGED|\rBAD/, "raw line controls must not forge project-name errors");
+    assert.match(errOutput, /project name "bad\\u001b\[2J\\nFORGED\\rBAD" must match/);
+  });
+});
+
 test("validateNs rejects names that fail the tenant grammar", () => {
   assert.throws(() => validateNs("ACME", "--ns"), /not a valid tenant namespace/);
   assert.throws(() => validateNs("admin", "--ns"), /not a valid tenant namespace/);
@@ -71,6 +97,20 @@ test("validateNs rejects names that fail the tenant grammar", () => {
   assert.throws(() => validateNs("-bad", "--ns"), /start and end with a letter or digit/);
   assert.throws(() => validateNs("bad-", "--ns"), /start and end with a letter or digit/);
   assert.throws(() => validateNs("a".repeat(64), "--ns"), /1-63 lowercase/);
+});
+
+test("validateNs escapes terminal controls in rejected namespace values", () => {
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  assert.throws(
+    () => validateNs(bad, "--ns"),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach --ns errors");
+      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge --ns errors");
+      assert.match(message, /--ns "bad\\u001b\[2J\\nFORGED\\rBAD" is not a valid tenant namespace/);
+      return true;
+    },
+  );
 });
 
 test("validateNs accepts lowercase + digits + hyphens", () => {
@@ -83,6 +123,20 @@ test("validateWorker rejects names that fail the worker grammar", () => {
   assert.throws(() => validateWorker("-starts-with-hyphen", "--worker"), /must match/);
   assert.throws(() => validateWorker("contains.dot", "--worker"), /must match/);
   assert.throws(() => validateWorker("contains/slash", "--worker"), /must match/);
+});
+
+test("validateWorker escapes terminal controls in rejected worker values", () => {
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  assert.throws(
+    () => validateWorker(bad, "--worker"),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach --worker errors");
+      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge --worker errors");
+      assert.match(message, /--worker "bad\\u001b\[2J\\nFORGED\\rBAD" must match/);
+      return true;
+    },
+  );
 });
 
 test("validateWorker accepts letters digits underscores and hyphens", () => {

@@ -1,7 +1,7 @@
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import { writeResult } from "../lib/output.js";
+import { escapeTerminalText, writeResult } from "../lib/output.js";
 import {
   formatInstanceList,
   formatInstanceStatus,
@@ -103,7 +103,7 @@ async function runWorkflows({ values, positionals, context }) {
     return;
   }
 
-  throw new CliError(`unknown workflows subcommand: ${subcommand}\n${usageText()}`);
+  throw new CliError(`unknown workflows subcommand: ${escapeTerminalText(subcommand)}\n${usageText()}`);
 }
 
 /**
@@ -138,7 +138,7 @@ function requireInstanceRef(positionals, label) {
  */
 function requireNoExtraPositionals(positionals, expected, label) {
   if (positionals.length > expected) {
-    throw new CliError(`${label} received unexpected argument: ${positionals[expected]}`);
+    throw unexpectedArgument(label, positionals[expected]);
   }
 }
 

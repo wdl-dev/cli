@@ -17,6 +17,7 @@ import * as tokenCmd from "../commands/token.js";
 import { isHelpAlias } from "../lib/command.js";
 import { commonCliOptions, formatHelp, handleCliError, isMain } from "../lib/common.js";
 import { flagSet, isTokenStoreDisabled, loadCliControlEnv } from "../lib/credentials.js";
+import { escapeTerminalText } from "../lib/output.js";
 import { currentCliVersion } from "../lib/package-info.js";
 import { tokenStoreReader } from "../lib/token-store.js";
 
@@ -68,7 +69,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   }
   const commandModule = COMMANDS[command];
   if (!commandModule) {
-    console.error(`error: unknown command: ${command}`);
+    console.error(`error: unknown command: ${escapeTerminalText(command)}`);
     usage(1);
     return;
   }

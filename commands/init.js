@@ -5,6 +5,7 @@ import { parseArgs as nodeParseArgs } from "node:util";
 import { isHelpAlias } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, handleCliError, isMain, isNonEmptyString, optionHelp, optionParseOptions } from "../lib/common.js";
 import { NS_PATTERN, RESERVED_TENANT_NS, isReservedNs } from "../lib/ns-pattern.js";
+import { escapeTerminalText } from "../lib/output.js";
 
 const NAME_REGEX = /^[A-Za-z][A-Za-z0-9-]*$/;
 const WORKER_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{0,254}$/;
@@ -45,7 +46,7 @@ export async function main(argv = process.argv.slice(2)) {
 
     if (!NAME_REGEX.test(packageName)) {
       throw new CliError(
-        `project name "${packageName}" must match ${NAME_REGEX} ` +
+        `project name "${escapeTerminalText(packageName)}" must match ${NAME_REGEX} ` +
         `(letter, then letters / digits / hyphens).`,
       );
     }
@@ -86,7 +87,7 @@ function parseArgs(argv) {
     // "unknown flag: <flag>" wording (flag name best-effort from the message).
     if (err instanceof Error && /** @type {{ code?: unknown }} */ (err).code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
       const flag = /'([^']+)'/.exec(err.message)?.[1] ?? "";
-      throw new CliError(`unknown flag: ${flag}`);
+      throw new CliError(`unknown flag: ${escapeTerminalText(flag)}`);
     }
     throw err;
   }
@@ -95,7 +96,7 @@ function parseArgs(argv) {
   const values = parsed.values;
   const { positionals } = parsed;
   if (positionals.length > 1) {
-    throw new CliError(`unexpected argument: ${positionals[1]}`);
+    throw new CliError(`unexpected argument: ${escapeTerminalText(positionals[1])}`);
   }
   const helpAlias = isHelpAlias(positionals);
   return {
@@ -133,7 +134,7 @@ function resolveTarget(target) {
 function validateNs(value, label) {
   if (!TENANT_NS_RE.test(value) || RESERVED_TENANT_NS.has(value) || isReservedNs(value)) {
     throw new CliError(
-      `${label} "${value}" is not a valid tenant namespace ` +
+      `${escapeTerminalText(label)} "${escapeTerminalText(value)}" is not a valid tenant namespace ` +
       `(1-63 lowercase letters / digits / hyphens, start and end with a letter or digit; reserved names are not allowed).`,
     );
   }
@@ -146,7 +147,7 @@ function validateNs(value, label) {
 function validateWorker(value, label) {
   if (!WORKER_NAME_REGEX.test(value)) {
     throw new CliError(
-      `${label} "${value}" must match ${WORKER_NAME_REGEX} ` +
+      `${escapeTerminalText(label)} "${escapeTerminalText(value)}" must match ${WORKER_NAME_REGEX} ` +
       `(letter or digit, then letters / digits / underscores / hyphens; up to 255 chars).`,
     );
   }
@@ -166,9 +167,9 @@ async function ensureEmpty(dir, isInPlace) {
   }
   const offending = entries.filter(name => !IGNORABLE_DIR_ENTRIES.has(name));
   if (offending.length === 0) return;
-  const where = isInPlace ? "current directory" : dir;
+  const where = isInPlace ? "current directory" : escapeTerminalText(dir);
   throw new CliError(
-    `${where} is not empty (found: ${offending.slice(0, 5).join(", ")}` +
+    `${where} is not empty (found: ${offending.slice(0, 5).map(escapeTerminalText).join(", ")}` +
     (offending.length > 5 ? ", …" : "") +
     `). Refusing to overwrite.`,
   );

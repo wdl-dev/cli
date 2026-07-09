@@ -40,6 +40,8 @@ import {
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { response } from "./helpers.js";
 
+const ESC = String.fromCharCode(27);
+
 /**
  * The options bag the deploy pipeline passes to its injected execFile dep. The
  * fakes record whichever subset each test asserts on; every field the deploy
@@ -1737,6 +1739,25 @@ test("runDeployCommand rejects unexpected positional arguments", async () => {
       },
     }),
     /deploy received unexpected argument: extra/
+  );
+});
+
+test("runDeployCommand escapes terminal controls in unexpected positional errors", async () => {
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  await assert.rejects(
+    () => runDeployCommand([".", bad, "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+      execFile: () => {
+        throw new Error("execFile should not be called");
+      },
+    }),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+      assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
+      return true;
+    },
   );
 });
 

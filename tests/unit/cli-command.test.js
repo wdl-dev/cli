@@ -7,6 +7,8 @@ import { response } from "./helpers.js";
 /** @typedef {Parameters<typeof defineCommand>[0]} CommandSpec */
 /** @typedef {import("../../lib/command.js").CommandContext} CommandContext */
 
+const ESC = String.fromCharCode(27);
+
 // Most tests don't care about name/summary; default them so each case only
 // states the fields it exercises.
 /** @param {Omit<CommandSpec, "name" | "summary"> & { name?: string, summary?: string }} spec */
@@ -35,6 +37,28 @@ test("defineCommand exposes name/summary metadata and the parse schema", () => {
   assert.deepEqual(meta, { name: "workers", summary: "List workers.", autoloadEnv: true });
   // The dispatcher pre-scans argv with this schema (ns overlay, help alias).
   assert.deepEqual(Object.keys(parseOptions).toSorted(), ["help", "ns"]);
+});
+
+test("defineCommand direct runner escapes parseArgs errors", async () => {
+  const bad = `--bad${ESC}[2J\nFORGED\rBAD`;
+  const cmd = define({
+    options: ["ns"],
+    usage: () => "usage",
+    run: () => {
+      throw new Error("run body should not be called");
+    },
+  });
+
+  await assert.rejects(
+    () => cmd.run([bad]),
+    (err) => {
+      assert(err instanceof CliError);
+      assert.doesNotMatch(err.message, new RegExp(ESC), "raw ESC must not reach direct runner errors");
+      assert.doesNotMatch(err.message, /\nFORGED|\rBAD/, "raw line controls must not forge direct runner errors");
+      assert.match(err.message, /--bad\\u001b\[2J\\nFORGED\\rBAD/);
+      return true;
+    },
+  );
 });
 
 test("defineCommand exposes autoloadEnv metadata", () => {

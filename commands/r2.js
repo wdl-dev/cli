@@ -7,9 +7,9 @@ import {
   UNLIMITED_CONTROL_BODY_BYTES,
 } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import { writeResult, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, writeResult, writeStatusLine } from "../lib/output.js";
 import { formatBucketList, formatObjectHead, formatObjectList } from "../lib/r2-format.js";
 
 const R2_OPTIONS = [
@@ -65,7 +65,7 @@ async function runR2({ values, positionals, context: baseContext }) {
     `${context.nsUrl("r2", "buckets", bucket, "objects")}/${encodeR2KeyPath(objectKey)}`;
 
   if (group === "buckets" && action === "list") {
-    if (bucket) throw new CliError(`r2 buckets list received unexpected argument: ${bucket}`);
+    if (bucket) throw unexpectedArgument("r2 buckets list", bucket);
     const { headers } = context.resolveControl();
     const url = withQuery(context.nsUrl("r2", "buckets"), {
       cursor: values.cursor,
@@ -80,7 +80,7 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "list") {
     if (!bucket) throw new CliError("r2 objects list requires <bucket>");
-    if (key) throw new CliError(`r2 objects list received unexpected argument: ${key}`);
+    if (key) throw unexpectedArgument("r2 objects list", key);
     const { headers } = context.resolveControl();
     const url = withQuery(context.nsUrl("r2", "buckets", bucket, "objects"), {
       prefix: values.prefix,
@@ -97,7 +97,7 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "get") {
     if (!bucket) throw new CliError("r2 objects get requires <bucket> <key>");
-    if (extraArg) throw new CliError(`r2 objects get received unexpected argument: ${extraArg}`);
+    if (extraArg) throw unexpectedArgument("r2 objects get", extraArg);
     const objectKey = requireR2ObjectKey(key);
     if (!values.out && isInteractiveStdout(stdoutStream)) {
       throw new CliError("r2 objects get refuses to write raw object bytes to an interactive terminal; pass --out <path>");
@@ -122,7 +122,7 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "head") {
     if (!bucket) throw new CliError("r2 objects head requires <bucket> <key>");
-    if (extraArg) throw new CliError(`r2 objects head received unexpected argument: ${extraArg}`);
+    if (extraArg) throw unexpectedArgument("r2 objects head", extraArg);
     const objectKey = requireR2ObjectKey(key);
     const { headers } = context.resolveControl();
     const res = await context.fetchStream(objectUrl(objectKey), {
@@ -141,7 +141,7 @@ async function runR2({ values, positionals, context: baseContext }) {
 
   if (group === "objects" && action === "delete") {
     if (!bucket) throw new CliError("r2 objects delete requires <bucket> <key>");
-    if (extraArg) throw new CliError(`r2 objects delete received unexpected argument: ${extraArg}`);
+    if (extraArg) throw unexpectedArgument("r2 objects delete", extraArg);
     const objectKey = requireR2ObjectKey(key);
     const { headers } = context.resolveControl();
     await confirmAction({
@@ -163,7 +163,7 @@ async function runR2({ values, positionals, context: baseContext }) {
     return;
   }
 
-  throw new CliError(`unknown r2 command: ${group} ${action}\n${usageText()}`);
+  throw new CliError(`unknown r2 command: ${escapeTerminalText(group)} ${escapeTerminalText(action)}\n${usageText()}`);
 }
 
 /**

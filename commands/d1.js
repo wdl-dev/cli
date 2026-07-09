@@ -16,9 +16,9 @@ import {
 } from "../lib/d1-format.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, isMain, isPathInside, optionHelp } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, isMain, isPathInside, optionHelp, unexpectedArgument } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import { writeResult } from "../lib/output.js";
+import { escapeTerminalText, writeResult } from "../lib/output.js";
 
 const D1_EXECUTE_MODES = ["all", "raw", "run", "exec"];
 
@@ -75,13 +75,13 @@ async function runD1({ values, positionals, context }) {
     if (!action || !databaseRef) {
       throw new CliError("d1 migrations requires <list|status|apply> <databaseName|databaseId>");
     }
-    if (extraArg) throw new CliError(`d1 migrations ${action} received unexpected argument: ${extraArg}`);
+    if (extraArg) throw unexpectedArgument(`d1 migrations ${action}`, extraArg);
     await runMigrationsCommand({ action, databaseRef, context });
     return;
   }
 
   if (subcommand === "list") {
-    if (firstArg) throw new CliError(`d1 list received unexpected argument: ${firstArg}`);
+    if (firstArg) throw unexpectedArgument("d1 list", firstArg);
     const { headers } = context.resolveControl();
     const body = /** @type {Parameters<typeof formatD1List>[0]} */ (
       await context.fetchJson(context.nsUrl("d1", "databases"), { headers }, "list d1 databases")
@@ -93,7 +93,7 @@ async function runD1({ values, positionals, context }) {
   if (subcommand === "create") {
     const databaseName = firstArg;
     if (!databaseName) throw new CliError("d1 create requires <databaseName>");
-    if (positionals[2]) throw new CliError(`d1 create received unexpected argument: ${positionals[2]}`);
+    if (positionals[2]) throw unexpectedArgument("d1 create", positionals[2]);
     const { headers } = context.resolveControl();
     const body = /** @type {{ namespace?: string, databaseId?: string, databaseName?: string }} */ (
       await context.fetchJson(context.nsUrl("d1", "databases"), {
@@ -113,7 +113,7 @@ async function runD1({ values, positionals, context }) {
   if (subcommand === "delete") {
     const databaseRef = firstArg;
     if (!databaseRef) throw new CliError("d1 delete requires <databaseName|databaseId>");
-    if (positionals[2]) throw new CliError(`d1 delete received unexpected argument: ${positionals[2]}`);
+    if (positionals[2]) throw unexpectedArgument("d1 delete", positionals[2]);
     const { headers } = context.resolveControl();
     await confirmAction({
       yes: values.yes === true,
@@ -137,7 +137,7 @@ async function runD1({ values, positionals, context }) {
   if (subcommand === "execute") {
     const databaseRef = firstArg;
     if (!databaseRef) throw new CliError("d1 execute requires <databaseName|databaseId>");
-    if (positionals[2]) throw new CliError(`d1 execute received unexpected argument: ${positionals[2]}`);
+    if (positionals[2]) throw unexpectedArgument("d1 execute", positionals[2]);
     const sql = readSql(values, context.cwd);
     const mode = values.mode || "all";
     if (!D1_EXECUTE_MODES.includes(mode)) {
@@ -176,7 +176,7 @@ async function runD1({ values, positionals, context }) {
     return;
   }
 
-  throw new CliError(`unknown d1 subcommand: ${subcommand}\n${usageText()}`);
+  throw new CliError(`unknown d1 subcommand: ${escapeTerminalText(subcommand)}\n${usageText()}`);
 }
 
 /** @param {{ action: string, databaseRef: string, context: import("../lib/command.js").CommandContext }} arg */
@@ -184,7 +184,7 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
   const { env, stdout, cwd, warn } = context;
   const values = /** @type {D1Flags} */ (context.values);
   if (!["list", "status", "apply"].includes(action)) {
-    throw new CliError(`unknown d1 migrations subcommand: ${action}`);
+    throw new CliError(`unknown d1 migrations subcommand: ${escapeTerminalText(action)}`);
   }
   const { headers } = context.resolveControl();
   const migrationsBase = context.nsUrl("d1", "databases", databaseRef, "migrations");
@@ -244,7 +244,7 @@ function loadLocalMigrations({ values, env, cwd, databaseRef, warn }) {
   const { dir, display } = resolveMigrationsDir({ values, env, cwd, databaseRef, warn });
   const migrations = readMigrationFiles(dir);
   if (migrations.length === 0) {
-    throw new CliError(`no .sql migration files found in ${display}`);
+    throw new CliError(`no .sql migration files found in ${escapeTerminalText(display)}`);
   }
   return migrations;
 }
@@ -300,7 +300,7 @@ function resolveMigrationsDir({ values, env, cwd, databaseRef, warn }) {
   const byName = [];
   for (const [idx, entry] of entries.entries()) {
     if (entry.migrations_dir != null && (typeof entry.migrations_dir !== "string" || !entry.migrations_dir.trim())) {
-      throw new CliError(`${configRel}: [[d1_databases]] ${entry.binding || idx}: migrations_dir must be a string`);
+      throw new CliError(`${escapeTerminalText(configRel)}: [[d1_databases]] ${escapeTerminalText(entry.binding || idx)}: migrations_dir must be a string`);
     }
     if (entry.database_id === databaseRef) {
       byId.push(entry);
@@ -313,11 +313,11 @@ function resolveMigrationsDir({ values, env, cwd, databaseRef, warn }) {
   const matches = byId.length > 0 ? byId : byName;
 
   if (matches.length > 1) {
-    throw new CliError(`${configRel}: multiple [[d1_databases]] entries match ${JSON.stringify(databaseRef)}`);
+    throw new CliError(`${escapeTerminalText(configRel)}: multiple [[d1_databases]] entries match ${escapeTerminalText(JSON.stringify(databaseRef))}`);
   }
   if (matches.length === 0) {
     throw new CliError(
-      `${configRel}: no matching [[d1_databases]] entry for ${JSON.stringify(databaseRef)}; ` +
+      `${escapeTerminalText(configRel)}: no matching [[d1_databases]] entry for ${escapeTerminalText(JSON.stringify(databaseRef))}; ` +
       "use a configured database_name/database_id or pass --dir explicitly"
     );
   }
@@ -360,7 +360,8 @@ function resolveConfiguredMigrationsDir({ configDir, migrationsDir, configRel, b
   const resolved = existsSync(candidate) ? realpathSync(candidate) : candidate;
   if (!isPathInside(root, resolved)) {
     throw new CliError(
-      `${configRel}: [[d1_databases]] ${binding}: migrations_dir must stay inside the project`
+      `${escapeTerminalText(configRel)}: [[d1_databases]] ${escapeTerminalText(binding)}: ` +
+      `migrations_dir must stay inside the project (got ${escapeTerminalText(JSON.stringify(migrationsDir))})`
     );
   }
   return resolved;

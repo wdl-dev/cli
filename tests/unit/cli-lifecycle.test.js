@@ -22,6 +22,17 @@ import { mockDeps, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
 
+const ESC = String.fromCharCode(27);
+
+/** @param {unknown} err */
+function assertEscapedBadArg(err) {
+  const message = /** @type {Error} */ (err).message;
+  assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach CLI errors");
+  assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+  assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
+  return true;
+}
+
 /**
  * The options bag the dispatcher passes to an injected `loadEnv`. Matches the
  * third parameter of `loadCliDotEnv`.
@@ -556,6 +567,33 @@ test("delete command rejects unexpected positional arguments", async () => {
   await assert.rejects(
     () => runDeleteCommand(["worker", "--ns", "demo", "--worker", "api", "extra"], deps),
     /delete worker received unexpected argument: extra/
+  );
+});
+
+test("commands escape terminal controls in unexpected positional errors", async () => {
+  const bad = `bad${ESC}[2J\nFORGED\rBAD`;
+  const deps = {
+    env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
+    controlFetch: async () => {
+      throw new Error("controlFetch should not be called");
+    },
+  };
+
+  await assert.rejects(
+    () => runDeleteCommand(["version", "--ns", "demo", "api", "v1", bad], deps),
+    assertEscapedBadArg,
+  );
+  await assert.rejects(
+    () => runSecretCommand(["list", "--ns", "demo", "--scope", "ns", bad], deps),
+    assertEscapedBadArg,
+  );
+  await assert.rejects(
+    () => runR2Command(["buckets", "list", bad, "--ns", "demo"], deps),
+    assertEscapedBadArg,
+  );
+  await assert.rejects(
+    () => runWorkflowsCommand(["list", "--ns", "demo", bad], deps),
+    assertEscapedBadArg,
   );
 });
 
@@ -1575,8 +1613,17 @@ test("wdl dispatcher skips dotenv for top-level help and unknown commands", asyn
       () => wdlMain(["bogus"], { loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("bogus"))) }),
       /exit:1/
     );
+    await assert.rejects(
+      () => wdlMain([`bad${ESC}[2J\nFORGED\rBAD`], { loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("bad"))) }),
+      /exit:1/
+    );
     assert.deepEqual(calls, []);
     assert.ok(errors.some((line) => line.includes("unknown command: bogus")));
+    const escaped = errors.find((line) => line.includes("unknown command: bad"));
+    assert.ok(escaped);
+    assert.doesNotMatch(escaped, new RegExp(ESC), "raw ESC must not reach unknown-command errors");
+    assert.doesNotMatch(escaped, /\nFORGED|\rBAD/, "raw line controls must not forge unknown-command errors");
+    assert.match(escaped, /bad\\u001b\[2J\\nFORGED\\rBAD/);
   } finally {
     process.exit = oldExit;
     console.error = oldError;
@@ -1597,7 +1644,7 @@ test("wdl dispatcher prints parseArgs errors without a Node stack", async () => 
 
   try {
     await assert.rejects(
-      () => wdlMain(["tail", "--dsf"], { loadEnv: null }),
+      () => wdlMain(["tail", `--dsf${ESC}[2J\nFORGED\rBAD`], { loadEnv: null }),
       /exit:1/
     );
   } finally {
@@ -1606,7 +1653,9 @@ test("wdl dispatcher prints parseArgs errors without a Node stack", async () => 
   }
 
   assert.equal(errors.length, 1);
-  assert.match(errors[0], /error: Unknown option '--dsf'/);
+  assert.match(errors[0], /error: Unknown option '--dsf\\u001b\[2J\\nFORGED\\rBAD'/);
+  assert.doesNotMatch(errors[0], new RegExp(ESC), "raw ESC must not reach parseArgs errors");
+  assert.doesNotMatch(errors[0], /\nFORGED|\rBAD/, "raw line controls must not forge parseArgs errors");
   assert.doesNotMatch(errors[0], /TypeError|parse_args|Node\.js/);
 });
 

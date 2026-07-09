@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runD1Command } from "../../commands/d1.js";
@@ -9,6 +9,20 @@ import { mockDeps as sharedMockDeps, response } from "./helpers.js";
 
 /** @typedef {import("../../lib/control-fetch.js").ControlFetchInit} ControlFetchInit */
 /** @typedef {import("./helpers.js").ControlCall} RecordedCall */
+
+const ESC = String.fromCharCode(27);
+
+/**
+ * @param {unknown} err
+ * @param {RegExp} expected
+ */
+function assertEscapedD1Error(err, expected) {
+  const message = /** @type {Error} */ (err).message;
+  assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+  assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+  assert.match(message, expected);
+  return true;
+}
 
 // Request bodies in these tests are always JSON strings; narrow the broader
 // `body` union before parsing.
@@ -359,7 +373,7 @@ test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform
     mkdirSync(migrations);
     const target = path.join(dir, "target.sql");
     writeFileSync(target, "create table t (id integer);");
-    symlinkSync(target, path.join(migrations, "001_link.sql"));
+    symlinkSync(target, path.join(migrations, `001_link${ESC}[2J\nFORGED\rBAD.sql`));
 
     await assert.rejects(
       () => runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
@@ -369,9 +383,41 @@ test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform
           throw new Error("controlFetch should not be called");
         },
       }),
-      /001_link\.sql is a symlink/
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+        assert.match(message, /001_link\\u001b\[2J\\nFORGED\\rBAD\.sql is a symlink/);
+        return true;
+      }
     );
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("d1 migrations apply escapes terminal controls in unreadable migration file errors", { skip: process.platform === "win32" }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-unreadable-"));
+  const badName = `001_bad${ESC}[2J\nFORGED\rBAD.sql`;
+  const badPath = path.join(dir, "migrations", badName);
+  try {
+    const migrations = path.join(dir, "migrations");
+    mkdirSync(migrations);
+    writeFileSync(badPath, "create table t (id integer);");
+    chmodSync(badPath, 0o000);
+
+    await assert.rejects(
+      () => runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      (err) => assertEscapedD1Error(err, /cannot read migration file 001_bad\\u001b\[2J\\nFORGED\\rBAD\.sql:/)
+    );
+  } finally {
+    try { chmodSync(badPath, 0o600); } catch {}
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -419,6 +465,35 @@ test("d1 migrations_dir from wrangler config cannot escape the project", async (
   }
 });
 
+test("d1 migrations_dir errors escape terminal controls from config fields", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-config-escape-"));
+  const badMigrationsDir = `../outside${ESC}[2J\nFORGED\rBAD`;
+  try {
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      d1_databases: [{
+        binding: "DB",
+        database_name: "main",
+        migrations_dir: badMigrationsDir,
+      }],
+    }));
+
+    await assert.rejects(
+      () => runD1Command(["migrations", "apply", "main", "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      (err) => assertEscapedD1Error(err, /migrations_dir must stay inside the project \(got "\.\.\/outside\\u001b\[2J\\nFORGED\\rBAD"\)/)
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("d1 migrations warns when multiple Wrangler configs exist", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-config-shadow-"));
   try {
@@ -457,6 +532,83 @@ test("d1 migrations warns when multiple Wrangler configs exist", async () => {
     });
 
     assert.ok(warnings.some((line) => /using wrangler\.json and ignoring wrangler\.toml/.test(line)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("d1 migrations --dir display errors escape terminal controls", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-dir-display-"));
+  const badDir = `empty${ESC}[2J\nFORGED\rBAD`;
+  try {
+    mkdirSync(path.join(dir, badDir));
+    await assert.rejects(
+      () => runD1Command(["migrations", "apply", "main", "--dir", badDir, "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      (err) => assertEscapedD1Error(err, /no \.sql migration files found in empty\\u001b\[2J\\nFORGED\\rBAD/)
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("d1 migration config matching errors escape terminal controls", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-match-escape-"));
+  const badRef = `main${ESC}[2J\nFORGED\rBAD`;
+  try {
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      d1_databases: [{
+        binding: "DB",
+        database_name: "other",
+        migrations_dir: "migrations",
+      }],
+    }));
+
+    await assert.rejects(
+      () => runD1Command(["migrations", "apply", badRef, "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      (err) => assertEscapedD1Error(err, /no matching \[\[d1_databases\]\] entry for "main\\u001b\[2J\\nFORGED\\rBAD"/)
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("d1 migration multiple-match errors escape terminal controls", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-multi-match-escape-"));
+  const badRef = `main${ESC}[2J\nFORGED\rBAD`;
+  try {
+    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
+      name: "api",
+      main: "src/index.js",
+      d1_databases: [
+        { binding: "DB1", database_name: badRef, migrations_dir: "migrations" },
+        { binding: "DB2", database_name: badRef, migrations_dir: "migrations" },
+      ],
+    }));
+
+    await assert.rejects(
+      () => runD1Command(["migrations", "apply", badRef, "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      (err) => assertEscapedD1Error(err, /multiple \[\[d1_databases\]\] entries match "main\\u001b\[2J\\nFORGED\\rBAD"/)
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -593,6 +745,32 @@ test("d1 execute --file wraps missing file read errors", async () => {
   }
 });
 
+test("d1 execute --file escapes terminal controls in file read errors", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-file-missing-"));
+  const bad = `bad${ESC}[2J\nFORGED\rBAD.sql`;
+  try {
+    await assert.rejects(
+      () => runD1Command(["execute", "main", "--file", bad, "--control-url", "http://ctl.test"], {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        stdout: () => {},
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+        assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+        assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD\.sql/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("d1 commands reject unexpected positional arguments", async () => {
   const deps = {
     env: { WDL_NS: "demo" },
@@ -616,6 +794,47 @@ test("d1 commands reject unexpected positional arguments", async () => {
   await assert.rejects(
     () => runD1Command(["migrations", "bogus", "main", "--control-url", "http://ctl.test"], deps),
     /unknown d1 migrations subcommand: bogus/
+  );
+});
+
+test("d1 escapes terminal controls in unexpected positional errors", async () => {
+  const badAction = `apply${ESC}[2J\nFORGED\rBAD`;
+  const badArg = `bad${ESC}[2J\nFORGED\rBAD`;
+  const deps = {
+    env: { WDL_NS: "demo" },
+    stdout: () => {},
+    controlFetch: async () => {
+      throw new Error("controlFetch should not be called");
+    },
+  };
+  await assert.rejects(
+    () => runD1Command(["migrations", badAction, "main", badArg, "--control-url", "http://ctl.test"], deps),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.doesNotMatch(message, new RegExp(ESC), "raw ESC must not reach the error");
+      assert.doesNotMatch(message, /\nFORGED|\rBAD/, "raw line controls must not forge error lines");
+      assert.match(message, /d1 migrations apply\\u001b\[2J\\nFORGED\\rBAD received unexpected argument: bad\\u001b\[2J\\nFORGED\\rBAD/);
+      return true;
+    },
+  );
+});
+
+test("d1 escapes terminal controls in unknown subcommand errors", async () => {
+  const bad = `bogus${ESC}[2J\nFORGED\rBAD`;
+  const deps = {
+    env: { WDL_NS: "demo" },
+    stdout: () => {},
+    controlFetch: async () => {
+      throw new Error("controlFetch should not be called");
+    },
+  };
+  await assert.rejects(
+    () => runD1Command([bad, "--control-url", "http://ctl.test"], deps),
+    (err) => assertEscapedD1Error(err, /unknown d1 subcommand: bogus\\u001b\[2J\\nFORGED\\rBAD/)
+  );
+  await assert.rejects(
+    () => runD1Command(["migrations", bad, "main", "--control-url", "http://ctl.test"], deps),
+    (err) => assertEscapedD1Error(err, /unknown d1 migrations subcommand: bogus\\u001b\[2J\\nFORGED\\rBAD/)
   );
 });
 

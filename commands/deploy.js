@@ -4,7 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail } from "../lib/common.js";
+import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
 import { escapeTerminalText, formatKnownWarning, writeStatusLine } from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
@@ -248,7 +248,7 @@ async function runDeploy({ values, positionals, context: baseContext }) {
   if (!projectDir || !ns) {
     throw new CliError(usageText());
   }
-  if (extraArg) throw new CliError(`deploy received unexpected argument: ${extraArg}`);
+  if (extraArg) throw unexpectedArgument("deploy", extraArg);
 
   const { controlUrl, headers: authHeaders } = context.resolveControl();
   const selectedEnv = values.env || env.CLOUDFLARE_ENV || null;

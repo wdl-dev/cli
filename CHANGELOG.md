@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.4.1
+
 ### Fixed
 
 - `wdl deploy` no longer passes WDL-only `[[exports]]`,

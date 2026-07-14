@@ -465,6 +465,13 @@ test("parseDurableObjectsFromCfg: parses local DO bindings with new_classes or n
   );
   assert.throws(
     () => parseDurableObjectsFromCfg({
+      durable_objects: { bindings: [{ class_name: "Room", script_name: "other" }] },
+      migrations: [{ tag: "v1", new_classes: ["Room"] }],
+    }),
+    /\[\[durable_objects\.bindings\]\]\.name is required/
+  );
+  assert.throws(
+    () => parseDurableObjectsFromCfg({
       durable_objects: { bindings: [{ name: "ROOMS", class_name: "Room", script_name: "other" }] },
       migrations: [{ tag: "v1", new_classes: ["Room"] }],
     }),
@@ -706,7 +713,7 @@ test("wrangler binding parser diagnostics escape terminal controls", () => {
   );
   assertThrowsNoRawTerminalControls(
     () => parseWorkflowsFromCfg({ workflows: [{ name: bad, binding: "WF", class_name: "Flow", script_name: "other" }] }),
-    /script_name is not supported/,
+    /name must match/,
     "workflow diagnostics"
   );
   assertThrowsNoRawTerminalControls(
@@ -1748,6 +1755,10 @@ test("parseWorkflowsFromCfg: parses local workflow declarations", () => {
 
 test("parseWorkflowsFromCfg: rejects invalid names and unsupported script_name", () => {
   assert.throws(() => parseWorkflowsFromCfg({ workflows: {} }), /must be an array/);
+  assert.throws(
+    () => parseWorkflowsFromCfg({ workflows: [{ binding: "WF", class_name: "Flow", script_name: "other" }] }),
+    /name must match/
+  );
   assert.throws(
     () => parseWorkflowsFromCfg({ workflows: [{ name: "bad:name", binding: "WF", class_name: "Flow" }] }),
     /name must match/

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Changed
+
+- `wdl workers` now reports workflow-definition state (`unknown` when an older
+  control omits it), and `wdl delete worker --dry-run` reports workflow
+  definition presence.
+- Platform capability docs now cover the current compatibility-date, Durable
+  Object RPC, Workflows, R2 metadata, secret-key, D1 error, and JSRPC contracts.
+- The packaged deploy toolchain now pins Wrangler 4.112.0 and uses
+  jsonc-parser 3.3.1 and smol-toml 1.7.0. Unmapped Wrangler `addresses` and
+  `dependencies_instrumentation` fields now fail loudly instead of being
+  silently dropped.
+- `wdl deploy` disables Wrangler's update check and anonymous telemetry for its
+  dry-run subprocess; project build hooks retain their normal network access.
+
+### Fixed
+
+- `wdl deploy` now gives an actionable hint when control returns
+  `compatibility_flag_unsupported`.
+
 ## 1.4.1
 
 ### Fixed

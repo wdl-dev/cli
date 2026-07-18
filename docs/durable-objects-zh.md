@@ -44,6 +44,10 @@ export default {
 
 当前支持 `stub.fetch()`、JSON-structured `stub.method(...args)` RPC、native `ctx.storage`、同步 `ctx.storage.sql`、alarm、普通 WebSocket upgrade 以及 native WebSocket hibernation API surface。
 
+DO fetch 请求体上限是 1 MiB。RPC method name 必须符合 JavaScript identifier grammar，且最多 256 ASCII bytes。RPC arguments 最多 1 MiB，只接受 structural JSON：finite number、string、boolean、null、dense array 和 plain object。序列化不会调用 `toJSON()`；sparse array、循环结构、非 plain object 和其它非 JSON 值会在 dispatch 前被拒绝。
+
+Object name 和 id 必须是 well-formed Unicode；lone UTF-16 surrogate 会被拒绝。DO class name 使用 ASCII JavaScript class-name grammar，最多 468 bytes。
+
 使用 `ctx.storage.sql` 时，不要使用以 `_cf_` 开头的应用表名；workerd 对这个前缀做大小写不敏感保留。`ctx.storage.deleteAll()` 也会保留平台自有的 `_cf_*` 表。
 
 ## 端到端示例

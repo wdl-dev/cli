@@ -1616,6 +1616,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     "workers_dev",
   ]);
   for (const key of [
+    "addresses",
     "agent_memory",
     "ai",
     "artifacts",
@@ -1623,6 +1624,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     "cache",
     "cloudchamber",
     "compliance_region",
+    "dependencies_instrumentation",
     "hyperdrive",
     "first_party_worker",
     "flagship",
@@ -1678,6 +1680,20 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     /unsupported Wrangler field "vectorize"/
   );
 
+  for (const [key, value] of /** @type {Array<[string, unknown]>} */ ([
+    ["addresses", []],
+    ["dependencies_instrumentation", null],
+  ])) {
+    assert.throws(
+      () => validateUnsupportedWranglerConfig({
+        name: "demo",
+        main: "src/index.js",
+        [key]: value,
+      }, null, "wrangler.toml"),
+      new RegExp(`unsupported Wrangler field "${key}"`)
+    );
+  }
+
   assert.throws(
     () => validateUnsupportedWranglerConfig({
       name: "demo",
@@ -1714,8 +1730,10 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
  * @returns {unknown}
  */
 function unsupportedWranglerFixtureValue(key, objectShapeKeys, booleanShapeKeys) {
+  if (key === "dependencies_instrumentation") return { enabled: false };
   if (objectShapeKeys.has(key)) return { binding: "B" };
   if (booleanShapeKeys.has(key)) return true;
+  if (key === "addresses") return ["support@example.com"];
   if (key === "compliance_region") return "eu";
   if (key === "pages_build_output_dir") return "dist";
   return [{ binding: "B" }];
@@ -2160,7 +2178,7 @@ test("resolveWranglerCommand on win32 fails loudly when only a bare PATH .cmd sh
   }
 });
 
-test("wranglerChildEnv strips WDL control-plane environment", () => {
+test("wranglerChildEnv scrubs control env and disables Wrangler network extras", () => {
   assert.deepEqual(
     wranglerChildEnv({
       ADMIN_TOKEN: "secret",
@@ -2171,11 +2189,15 @@ test("wranglerChildEnv strips WDL control-plane environment", () => {
       // export does not leak the control endpoint into the bundler.
       ADMIN_URL: "https://legacy-admin.example",
       CLOUDFLARE_API_TOKEN: "real-cloudflare-token",
+      WRANGLER_HIDE_BANNER: "false",
+      WRANGLER_SEND_METRICS: "true",
       PATH: "/bin",
       KEEP_ME: "ok",
     }),
     {
       CLOUDFLARE_API_TOKEN: "dry-run-dummy",
+      WRANGLER_HIDE_BANNER: "true",
+      WRANGLER_SEND_METRICS: "false",
       PATH: "/bin",
       KEEP_ME: "ok",
     }
@@ -3447,6 +3469,49 @@ test("runDeployCommand explains control-rejected experimental compatibility flag
     assert.equal(fetchCalls.length, 1);
     const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
     assert.deepEqual(manifest.compatibilityFlags, ["experimental"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand explains control-rejected unsupported compatibility flags", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-unsupported-flag-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "api"',
+      'main = "src/index.js"',
+      'compatibility_flags = ["legacy_error_serialization"]',
+    ].join("\n"));
+
+    /** @type {RecordedFetch[]} */
+    const fetchCalls = [];
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+          fetchCalls.push({ url, init });
+          return response({
+            error: "compatibility_flag_unsupported",
+            message: "unsupported compatibility flag: legacy_error_serialization",
+          }, 400);
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /compatibility_flag_unsupported/);
+        assert.match(message, /remove the unsupported compatibility flag/);
+        return true;
+      }
+    );
+
+    assert.equal(fetchCalls.length, 1);
+    const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
+    assert.deepEqual(manifest.compatibilityFlags, ["legacy_error_serialization"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

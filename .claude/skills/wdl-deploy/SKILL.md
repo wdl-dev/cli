@@ -46,20 +46,29 @@ authoritative, and agent-facing references use the English set.
 
 New Wrangler configs should use `compatibility_date = "2026-06-17"` unless a
 project feature requires a newer target or the operator gives a different
-target. WDL follows Wrangler config priority (`wrangler.json`, then
-`wrangler.jsonc`, then `wrangler.toml`); both JSON filenames use Wrangler's
-JSONC syntax, including comments and trailing commas. The control plane is
-canonical for unsupported runtime shapes such as unsupported workerd
-experimental compatibility flags and WDL-reserved injected module names; the
-CLI still fails fast for cheap local cases such as Python Workers modules,
-unmapped top-level or selected-env Wrangler runtime/deploy keys (`[site]`,
-`workers_dev`, `pages_build_output_dir`, `observability`, `limits`,
+target. Control rejects explicit dates before `2026-04-01`, invalid or future
+dates, dates newer than the bundled workerd supports, upstream experimental
+enable flags, `legacy_error_serialization`, and
+`allow_irrevocable_stub_storage`. WDL follows Wrangler config priority
+(`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`). Both JSON
+filenames use Wrangler's JSONC syntax, including comments and trailing commas.
+The control plane is canonical for unsupported runtime shapes such as
+unsupported workerd compatibility flags and WDL-reserved injected module
+names. The CLI still fails fast for cheap local cases such as Python Workers
+modules, unmapped top-level or selected-env Wrangler runtime/deploy keys
+(`[site]`, `workers_dev`, `pages_build_output_dir`, `observability`, `limits`,
 `placement`, etc.), and ambiguous runtime `env` name collisions between
 `[vars]`, explicit bindings, and the implicit `ASSETS` binding.
 WDL-only `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`, and
 `[[services]].ns` are parsed by the CLI and removed from Wrangler's temporary
 bundle config; other fields retain their existing Wrangler passthrough
 behavior. Wrangler's object-shaped declarative `exports` config is unsupported.
+The dry-run child disables Wrangler's banner/update check and anonymous
+telemetry; project build hooks retain their normal network access.
+For `[[services]]` and `[[exports]]`, read `docs/deploy.md`: tenant JSRPC may
+delegate service or Durable Object class stubs as opaque capabilities, but the
+receiver cannot rewrite their host-authored caller properties. Keep delegated
+stubs in memory; long-term irrevocable stub storage is unsupported.
 
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
 overrides the TCP target the admin token connects to (Host header + TLS SNI

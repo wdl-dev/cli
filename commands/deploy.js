@@ -208,6 +208,9 @@ function deployErrorHint(text) {
   if (error === "experimental_compat_flag_unsupported") {
     return "; remove the unsupported workerd experimental compatibility flag.";
   }
+  if (error === "compatibility_flag_unsupported") {
+    return "; remove the unsupported compatibility flag.";
+  }
   if (isSecretEnvelopeErrorCode(error)) {
     return "; secret-envelope configuration or stored secret data needs operator repair before retrying.";
   }

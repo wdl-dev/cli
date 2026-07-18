@@ -32,6 +32,7 @@ package.
 | WDL environment override rules (preview / production) | `env-overrides.md`   |
 | Runtime secrets                                       | `secrets.md`         |
 | Storing control-plane tokens locally                  | `token.md`           |
+| Service bindings / JSRPC capability delegation        | `deploy.md`          |
 | Deploy / dry-run / list and delete workers            | `deploy.md`          |
 
 Open the relevant doc before editing `wrangler.json` / `wrangler.jsonc` /
@@ -40,15 +41,17 @@ read each matching doc and merge their wrangler config snippets.
 
 New Wrangler configs should use `compatibility_date = "2026-06-17"` unless a
 project feature requires a newer target or the operator gives a different
-target. WDL follows Wrangler config priority
+target. Control rejects explicit dates before `2026-04-01`, invalid or future
+dates, dates newer than the bundled workerd supports, upstream experimental
+enable flags, `legacy_error_serialization`, and
+`allow_irrevocable_stub_storage`. WDL follows Wrangler config priority
 (`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`). The control
 plane is canonical for unsupported runtime shapes such as unsupported workerd
-experimental compatibility flags and WDL-reserved injected module names; the
-CLI still fails fast for cheap local cases such as Python Workers modules,
-unmapped top-level or selected-env Wrangler runtime/deploy keys (`[site]`,
-`workers_dev`, `pages_build_output_dir`, etc.), and ambiguous runtime `env`
-name collisions between `[vars]`, explicit bindings, and the implicit `ASSETS`
-binding.
+compatibility flags and WDL-reserved injected module names. The CLI still fails
+fast for cheap local cases such as Python Workers modules, unmapped top-level or
+selected-env Wrangler runtime/deploy keys (`[site]`, `workers_dev`,
+`pages_build_output_dir`, etc.), and ambiguous runtime `env` name collisions
+between `[vars]`, explicit bindings, and the implicit `ASSETS` binding.
 
 ## Runnable end-to-end examples
 

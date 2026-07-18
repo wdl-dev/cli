@@ -50,6 +50,17 @@ Currently supported: `stub.fetch()`, JSON-structured `stub.method(...args)` RPC,
 native `ctx.storage`, synchronous `ctx.storage.sql`, alarms, ordinary WebSocket
 upgrade, and the native WebSocket hibernation API surface.
 
+DO fetch request bodies are capped at 1 MiB. RPC method names must use
+JavaScript identifier grammar and are capped at 256 ASCII bytes. RPC arguments
+are capped at 1 MiB and must be structural JSON: finite numbers, strings,
+booleans, null, dense arrays, and plain objects. Serialization does not call
+`toJSON()`; sparse arrays, circular structures, non-plain objects, and other
+non-JSON values are rejected before dispatch.
+
+Object names and ids must be well-formed Unicode; lone UTF-16 surrogates are
+rejected. DO class names use ASCII JavaScript class-name grammar and are capped
+at 468 bytes.
+
 For `ctx.storage.sql`, avoid application table names beginning with `_cf_`;
 workerd reserves that prefix case-insensitively. `ctx.storage.deleteAll()` also
 leaves platform-owned `_cf_*` tables alone.

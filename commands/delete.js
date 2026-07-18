@@ -96,7 +96,7 @@ function usageText() {
     description: "Delete retained versions or all worker-owned lifecycle state.",
     commands: [
       "version  Delete one retained non-active worker version.",
-      "worker   Delete a worker, its versions, secrets, routes, and queue consumers.",
+      "worker   Delete a worker, its versions, secrets, workflow definitions, routes, and queue consumers.",
     ],
     options: optionHelp(DELETE_OPTIONS),
   });

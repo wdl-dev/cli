@@ -12,6 +12,9 @@ wrangler, the CLI package's local wrangler, then `PATH`. By default there is no
 transient `npx --yes wrangler` fetch; that fallback is allowed only when
 `WDL_ALLOW_NPX_WRANGLER=1` is set.
 
+WDL disables Wrangler's banner/update check and anonymous telemetry for this
+dry-run subprocess. Project build hooks retain their normal network access.
+
 ## CLI invocation forms
 
 Pick one in this order:
@@ -76,6 +79,8 @@ run `wdl whoami`; for baseline local and remote diagnostics, run `wdl doctor`.
 When the control plane supports `/whoami`, `doctor` verifies the remote token,
 principal namespace, platform version, and CLI compatibility. Use
 `wdl doctor --strict` in CI when a failed check should make the job fail.
+The namespace URL may be `(unavailable)` when the operator has not configured a
+public platform domain; that does not mean authentication failed.
 
 For runtime secrets (distinct from `ADMIN_TOKEN`), see
 [secrets.md](./secrets.md).
@@ -162,6 +167,12 @@ When multiple Wrangler config files exist, the CLI follows Wrangler's priority:
 Both JSON filenames use Wrangler's JSONC syntax, including comments and
 trailing commas.
 
+New projects should keep the `2026-06-17` compatibility date unless a feature
+requires a newer one. Explicit dates before `2026-04-01`, invalid or future
+dates, and dates newer than the bundled workerd supports are rejected by
+control. Upstream experimental enable flags, `legacy_error_serialization`, and
+`allow_irrevocable_stub_storage` are unsupported.
+
 **Supported:** `name`, `main`, `compatibility_date` / `compatibility_flags`, `[vars]`,
 `[[kv_namespaces]]`, `[[d1_databases]]`, `[[durable_objects.bindings]]`,
 `[[workflows]]`, `[[r2_buckets]]`, `[assets] directory`, `[triggers] crons`,
@@ -175,16 +186,24 @@ extensions from the temporary config passed to the Wrangler bundler. Other
 fields retain their existing Wrangler passthrough behavior. Wrangler's
 object-shaped declarative `exports` configuration is not supported by WDL.
 
+### Service bindings and delegated capabilities
+
+Tenant JSRPC can serialize `Blob` values and pass service or Durable Object
+class stubs as opaque capability arguments. A receiver may call the delegated
+target but cannot rewrite the host-authored caller properties carried by the
+stub. Keep delegated stubs in memory; irrevocable persistence is unsupported.
+
 **Unsupported (deploy fails):** Analytics Engine. Durable Objects supports
 same-worker classes only; `script_name` and rename/delete migrations are not
 implemented yet. WDL Workflows supports only workflow classes defined in the
 current Worker — not full Cloudflare Workflows parity; `script_name`,
 cross-worker workflows, cross-worker callbacks, service-binding callbacks, and
 the Cloudflare source-AST visualizer are not supported. `route` / `routes` are
-supported only when the operator enables them. Python Workers modules, workerd
-experimental compatibility flags, and WDL-reserved injected module names are
-rejected during deploy: the CLI fails fast on local `.py` modules, and the
-control plane is canonical for workerd compatibility and bundle-shape policy.
+supported only when the operator enables them. Python Workers modules,
+unsupported workerd compatibility flags, and WDL-reserved injected module
+names are rejected during deploy: the CLI fails fast on local `.py` modules,
+and the control plane is canonical for workerd compatibility and bundle-shape
+policy.
 Top-level or selected-environment Wrangler runtime/deploy config fields and
 sections that WDL would otherwise ignore are also rejected by the CLI, including
 legacy `[site]` Workers Sites, `workers_dev`, `pages_build_output_dir`,
@@ -205,6 +224,11 @@ consumers.
 run it first (or do a read-only check), then add `--yes` only after confirming
 with the user. Do **not** add `--yes` on your own.
 
+`wdl workers` reports `workflow-defs=yes` or `workflow-defs=no`; `unknown`
+means an older control omitted the field, not that no definitions exist. Worker
+delete dry-runs report secret and workflow-definition presence even when a
+blocker makes `wouldDelete=no`.
+
 Deleting a worker does **not** delete R2 data — see [r2.md](./r2.md).
 
 ## Common errors
@@ -218,6 +242,7 @@ Deleting a worker does **not** delete R2 data — see [r2.md](./r2.md).
 | `[vars] <NAME>: only string/number/boolean values are supported` | Remove nested values; move sensitive strings to a secret.                                                            |
 | `binding name collision: <NAME>`                                 | `[vars]`, explicit bindings, or the implicit `ASSETS` binding reused a runtime env name. Rename one of them.        |
 | `experimental_compat_flag_unsupported`                           | Remove the experimental workerd compatibility flag.                                                                  |
+| `compatibility_flag_unsupported`                                 | Remove the unsupported compatibility flag named by control.                                                          |
 | `python_workers_unsupported`                                     | Python Workers are not supported by WDL; remove Python Worker modules. The CLI also fails fast on local `.py` modules. |
 | `worker_env_too_large`                                           | Reduce `[vars]`, secrets, or binding metadata; redeploy/delete any retained version named in the error.              |
 | `worker_code_too_large`                                          | Reduce generated Worker code size or split the worker.                                                               |

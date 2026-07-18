@@ -85,6 +85,8 @@ export default {
 
 `list({ include: ["httpMetadata", "customMetadata"] })` 会为列表里的对象额外发起 HEAD 来补齐 metadata，并带有并发上限。需要大范围扫描时，不要默认打开 metadata include；只在列表结果确实要展示或决策 metadata 时使用。
 
+当 `httpMetadata` 使用 `Headers` object 传入时，`Expires` header 必须是 canonical IMF-fixdate，例如 `Wed, 21 Oct 2015 07:28:00 GMT`。格式错误的值会在调用 host binding 前被拒绝。
+
 ### `put` 大小上限
 
 `put(stream, ...)` 会先把流缓冲下来再发一次 S3 PUT，**上限 25 MiB**。当前平台还不支持 multipart upload；超过上限会报错，不会自动分片上传。

@@ -42,7 +42,7 @@ async function printWorkersList(context, json) {
 function usageText() {
   return formatHelp({
     usage: ["wdl workers [options]"],
-    description: "List workers, active versions, retained versions, and secret-only entries.",
+    description: "List active and retained versions, secret-only entries, and workflow-definition-only entries.",
     options: optionHelp(WORKERS_OPTIONS),
   });
 }

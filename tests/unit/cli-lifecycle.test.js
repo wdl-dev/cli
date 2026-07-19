@@ -14,10 +14,16 @@ import { runWorkersCommand, formatWorkersList } from "../../commands/workers.js"
 import { runWorkflowsCommand } from "../../commands/workflows.js";
 import { main as wdlMain } from "../../bin/wdl.js";
 import { CliError, readJsonOrFail } from "../../lib/common.js";
+import { formatWorkerDelete } from "../../lib/delete-format.js";
 import {
   LONG_CONTROL_TIMEOUT_MS,
   UNLIMITED_CONTROL_BODY_BYTES,
 } from "../../lib/control-fetch.js";
+import {
+  formatInstanceList,
+  formatInstanceStatus,
+  formatWorkflowList,
+} from "../../lib/workflows-format.js";
 import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
@@ -74,29 +80,39 @@ function ttyStdinLine(value) {
   return stdin;
 }
 
-test("readJsonOrFail compacts structured control errors", async () => {
+test("readJsonOrFail compacts redacted D1 lifecycle errors", async () => {
   const errBody = {
     error: "d1_database_initialize_failed",
     namespace: "demo",
     databaseId: "d1_test",
-    message: "D1 backend is unavailable: internal error; reference = ref-1",
+    message: "Internal error",
     upstreamCode: "backend-unavailable",
     upstreamCategory: "internal",
     upstreamRetryable: true,
     upstreamStatus: 503,
-    detail: {
-      success: false,
-      error: "backend-unavailable",
-      message: "D1 backend is unavailable: internal error; reference = ref-1",
-      category: "internal",
-      retryable: true,
-    },
   };
 
   await assert.rejects(
     () => readJsonOrFail(response(errBody, 503), "create d1 database"),
     {
-      message: "create d1 database failed: 503 d1_database_initialize_failed: D1 backend is unavailable: internal error; reference = ref-1 namespace=demo databaseId=d1_test upstreamCode=backend-unavailable upstreamCategory=internal upstreamRetryable=true upstreamStatus=503",
+      message: "create d1 database failed: 503 d1_database_initialize_failed: Internal error namespace=demo databaseId=d1_test upstreamCode=backend-unavailable upstreamCategory=internal upstreamRetryable=true upstreamStatus=503",
+    }
+  );
+});
+
+test("readJsonOrFail omits nested details from compact control errors", async () => {
+  await assert.rejects(
+    () => readJsonOrFail(response({
+      error: "d1_database_initialize_failed",
+      message: "Internal error",
+      upstreamCode: "backend-unavailable",
+      detail: {
+        message: "unredacted upstream detail",
+        internalReference: "ref-1",
+      },
+    }, 503), "create d1 database"),
+    {
+      message: "create d1 database failed: 503 d1_database_initialize_failed: Internal error upstreamCode=backend-unavailable",
     }
   );
 });
@@ -262,7 +278,13 @@ test("workers command lists namespace worker state", async () => {
   const body = {
     namespace: "demo",
     workers: [
-      { name: "api", activeVersion: "v2", versions: ["v1", "v2"], hasSecrets: true },
+      {
+        name: "api",
+        activeVersion: "v2",
+        versions: ["v1", "v2"],
+        hasSecrets: true,
+        hasWorkflowDefs: true,
+      },
     ],
   };
   const { calls, lines, deps } = mockDeps(body);
@@ -272,7 +294,9 @@ test("workers command lists namespace worker state", async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/workers");
   assert.deepEqual(/** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (calls[0].init).headers, { "x-admin-token": "tok" });
-  assert.deepEqual(lines, ["api\tactive=v2\tversions=v1,v2\tsecrets=yes"]);
+  assert.deepEqual(lines, [
+    "api\tactive=v2\tversions=v1,v2\tsecrets=yes\tworkflow-defs=yes",
+  ]);
 });
 
 test("workers command does not double-slash paths when CONTROL_URL has a trailing slash", async () => {
@@ -305,35 +329,61 @@ test("workers command rejects unexpected positional arguments", async () => {
 });
 
 test("wdl workers escapes control sequences from the control plane but keeps tab columns", async () => {
+  const hostile = `${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`;
   /** @type {string[]} */
   const lines = [];
   await runWorkersCommand(["--ns", "demo", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
     stdout: (/** @type {string} */ line) => lines.push(line),
     controlFetch: async () => response({
-      workers: [{ name: "ev\u001bil", activeVersion: "v1", versions: ["v1"], hasSecrets: false }],
+      workers: [{
+        name: `worker-${hostile}`,
+        activeVersion: `v2-${hostile}`,
+        versions: [`v1-${hostile}`],
+        hasSecrets: false,
+      }],
     }),
   });
   const out = lines.join("\n");
-  assert.ok(!out.includes("\u001b"), "raw ESC must not reach the terminal");
-  assert.ok(out.includes("ev\\u001bil"), "worker name must be escaped");
-  assert.ok(out.includes("\t"), "tab column separators must be preserved");
+  assertNoRawTerminalControls(out, "workers output");
+  assert.match(out, /worker-\\u001b\[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b/);
+  assert.match(out, /active=v2-\\u001b\[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b/);
+  assert.match(out, /versions=v1-\\u001b\[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b/);
+  assert.equal(out.split("\t").length - 1, 4, "only formatter column separators may remain as raw tabs");
 });
 
-test("formatWorkersList handles empty and deploy-only entries", () => {
+test("formatWorkersList handles empty and workflow-definition-only entries", () => {
   assert.deepEqual(formatWorkersList({ workers: [] }), ["(no workers)"]);
-  // NOTE: lib/workers-format.js types `activeVersion` as `string | undefined`,
-  // but the control plane (and this test) sends `null` for an undeployed
-  // worker. `formatWorkersList` handles it (`w.activeVersion || "-"`); the
-  // typedef just omits `null`. Cast through the real param type so the test
-  // keeps exercising the null path without widening the lib type here.
   assert.deepEqual(
-    formatWorkersList(/** @type {Parameters<typeof formatWorkersList>[0]} */ (
-      /** @type {unknown} */ ({
-        workers: [{ name: "draft", activeVersion: null, versions: ["v1"], hasSecrets: false }],
-      })
-    )),
-    ["draft\tactive=-\tversions=v1\tsecrets=no"]
+    formatWorkersList({
+      workers: [
+        {
+          name: "draft",
+          activeVersion: null,
+          versions: [],
+          hasSecrets: false,
+          hasWorkflowDefs: true,
+        },
+        {
+          name: "legacy",
+          activeVersion: "v1",
+          versions: ["v1"],
+          hasSecrets: false,
+        },
+        {
+          name: "empty",
+          activeVersion: null,
+          versions: [],
+          hasSecrets: false,
+          hasWorkflowDefs: false,
+        },
+      ],
+    }),
+    [
+      "draft\tactive=-\tversions=-\tsecrets=no\tworkflow-defs=yes",
+      "legacy\tactive=v1\tversions=v1\tsecrets=no\tworkflow-defs=unknown",
+      "empty\tactive=-\tversions=-\tsecrets=no\tworkflow-defs=no",
+    ]
   );
 });
 
@@ -458,6 +508,7 @@ test("delete worker supports dry-run query and raw json output", async () => {
     affectedHosts: ["demo.workers.example"],
     queueConsumersRemoved: 1,
     hasWorkerSecrets: true,
+    hasWorkflowDefs: true,
   };
   const { calls, lines, deps } = mockDeps(body);
 
@@ -472,6 +523,37 @@ test("delete worker supports dry-run query and raw json output", async () => {
   assert.deepEqual(lines, [JSON.stringify(body, null, 2)]);
 });
 
+test("delete worker dry-run reports state presence without overstating deletion", () => {
+  const base = {
+    dryRun: true,
+    namespace: "demo",
+    name: "api",
+    activeDeleted: null,
+    versionsDeleted: [],
+  };
+  assert.deepEqual(
+    formatWorkerDelete({
+      ...base,
+      deleted: true,
+      hasWorkerSecrets: true,
+      hasWorkflowDefs: true,
+    }),
+    [
+      "DRY RUN demo/api wouldDelete=yes active=- versions=-",
+      "  worker secrets present",
+      "  workflow definitions present",
+    ]
+  );
+  assert.deepEqual(
+    formatWorkerDelete({ ...base, deleted: false, hasWorkflowDefs: false }),
+    ["DRY RUN demo/api wouldDelete=no active=- versions=-"]
+  );
+  assert.deepEqual(
+    formatWorkerDelete({ ...base, deleted: false }),
+    ["DRY RUN demo/api wouldDelete=no active=- versions=-"]
+  );
+});
+
 test("delete worker dry-run renders workflow blockers in human output", async () => {
   const hostile = `bad${ESC}[2J\nFORGED\rBAD`;
   const body = {
@@ -482,6 +564,8 @@ test("delete worker dry-run renders workflow blockers in human output", async ()
     activeDeleted: `v2-${hostile}`,
     versionsDeleted: [`v1-${hostile}`],
     affectedHosts: [`host-${hostile}.example`],
+    hasWorkerSecrets: true,
+    hasWorkflowDefs: true,
     blockers: [{
       version: `v1-${hostile}`,
       referrers: [{
@@ -511,6 +595,8 @@ test("delete worker dry-run renders workflow blockers in human output", async ()
   assert.ok(lines.some((line) => /workflow blocker/.test(line)));
   assert.match(joined, /DRY RUN demo-bad\\u001b\[2J\\nFORGED\\rBAD\/api-bad\\u001b\[2J\\nFORGED\\rBAD/);
   assert.match(joined, /affected hosts: host-bad\\u001b\[2J\\nFORGED\\rBAD\.example/);
+  assert.match(joined, /worker secrets present/);
+  assert.match(joined, /workflow definitions present/);
   assert.match(joined, /binding=binding-bad\\u001b\[2J\\nFORGED\\rBAD/);
   assert.match(joined, /workflow_instances_active-bad\\u001b\[2J\\nFORGED\\rBAD/);
   assert.match(joined, /wf-bad\\u001b\[2J\\nFORGED\\rBAD instance=inst-bad\\u001b\[2J\\nFORGED\\rBAD/);
@@ -591,6 +677,22 @@ test("delete command exposes only documented destructive subcommands", async () 
       controlFetch: async () => response({}),
     }),
     /unknown subcommand: rm/
+  );
+});
+
+test("delete worker help lists workflow definitions among deleted state", async () => {
+  /** @type {string[]} */
+  const lines = [];
+  await runDeleteCommand(["worker", "--help"], {
+    env: {},
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async () => {
+      throw new Error("controlFetch should not be called for help");
+    },
+  });
+  assert.match(
+    lines.join("\n"),
+    /Delete a worker, its versions, secrets, workflow definitions, routes, and queue consumers\./
   );
 });
 
@@ -1378,14 +1480,25 @@ test("workflows commands call encoded control endpoints", async () => {
       calls.push({ url, init });
       if (url.endsWith("/workflows")) {
         return response({
-          workflows: [{
-            worker: "api",
-            name: "orders",
-            binding: "ORDERS",
-            className: "OrderWorkflow",
-            activeVersion: "v2",
-            workflowKey: "wf_1234",
-          }],
+          workflows: [
+            {
+              worker: "api",
+              name: "orders",
+              binding: "ORDERS",
+              className: "OrderWorkflow",
+              activeVersion: "v2",
+              workflowKey: "wf_1234",
+            },
+            {
+              worker: "api",
+              name: "legacy",
+              binding: null,
+              className: "LegacyWorkflow",
+              activeVersion: "v2",
+              workflowKey: "wf_retired",
+              retired: true,
+            },
+          ],
         });
       }
       if (url.includes("/instances?")) {
@@ -1423,10 +1536,86 @@ test("workflows commands call encoded control endpoints", async () => {
   assert.equal(calls[6].url, "http://ctl.test/ns/demo%20space/workflows/api/orders/instances/order%2F1/terminate");
   assert.equal(calls[6].init.method, "POST");
   assert.deepEqual(calls[0].init.headers, { "x-admin-token": "tok" });
-  assert.ok(lines.includes("api/orders\tbinding=ORDERS\tclass=OrderWorkflow\tactive=v2\tkey=wf_1234"));
+  assert.ok(lines.includes("api/orders\tbinding=ORDERS\tclass=OrderWorkflow\tactive=v2\tkey=wf_1234\tretired=no"));
+  assert.ok(lines.includes("api/legacy\tbinding=-\tclass=LegacyWorkflow\tactive=v2\tkey=wf_retired\tretired=yes"));
   assert.ok(lines.includes("Next cursor: 1"));
   assert.ok(lines.includes("steps=1"));
   assert.equal(lines.at(-1), "OK demo space/api/orders/order/1 terminate status=paused");
+});
+
+test("workflow formatters escape control fields but preserve their own layout", () => {
+  const hostile = `${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`;
+  const lines = [
+    ...formatWorkflowList({
+      workflows: [{
+        worker: hostile,
+        name: hostile,
+        binding: hostile,
+        className: hostile,
+        activeVersion: hostile,
+        workflowKey: hostile,
+        retired: true,
+      }],
+    }),
+    ...formatInstanceList({
+      instances: [{ id: hostile, status: hostile }],
+      cursor: hostile,
+    }),
+    ...formatInstanceStatus({
+      id: hostile,
+      status: hostile,
+      output: { value: hostile },
+      error: { message: hostile },
+      steps: {
+        entries: [{ ordinal: 0, name: hostile, status: hostile }],
+      },
+    }),
+  ];
+  const out = lines.join("\n");
+
+  assertNoRawTerminalControls(out, "workflow formatter output");
+  assert.ok(out.includes("\\u001b[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b"));
+  assert.equal(
+    out.split("\t").length - 1,
+    7,
+    "only formatter-owned column separators may remain as raw tabs"
+  );
+});
+
+test("workflow lifecycle status lines escape control fields and preserve JSON", async () => {
+  const hostile = `${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`;
+  const body = { id: `id-${hostile}`, status: `status-${hostile}` };
+  const human = mockDeps(body);
+
+  await runWorkflowsCommand([
+    "pause",
+    "api",
+    "orders",
+    "instance",
+    "--ns",
+    "demo",
+    "--control-url",
+    "http://ctl.test",
+  ], human.deps);
+
+  assert.equal(human.lines.length, 1);
+  assertNoRawTerminalControls(human.lines[0], "workflow lifecycle status");
+  assert.ok(human.lines[0].includes("id-\\u001b[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b"));
+  assert.equal(human.lines[0].includes("\t"), false, "status lines must not preserve raw tabs");
+
+  const json = mockDeps(body);
+  await runWorkflowsCommand([
+    "pause",
+    "api",
+    "orders",
+    "instance",
+    "--ns",
+    "demo",
+    "--control-url",
+    "http://ctl.test",
+    "--json",
+  ], json.deps);
+  assert.deepEqual(JSON.parse(json.lines[0]), body);
 });
 
 test("workflows list accepts flags before the subcommand", async () => {

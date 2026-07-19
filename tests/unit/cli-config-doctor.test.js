@@ -238,6 +238,25 @@ test("whoami calls control introspection and prints platform compatibility", asy
   });
 });
 
+test("whoami reports an unavailable namespace URL when control omits it", async () => {
+  await withTempDir(async (cwd) => {
+    /** @type {string[]} */
+    const lines = [];
+    await runWhoamiCommand(["--ns", "acme", "--control-url", "http://ctl.test", "--token", "secret-token"], {
+      cwd,
+      env: {},
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async () => response({
+        ok: true,
+        principal: { kind: "ns", ns: "acme" },
+        urls: { control: "http://ctl.test" },
+      }),
+    });
+
+    assert.match(lines.join("\n"), /Namespace URL: \(unavailable\)/);
+  });
+});
+
 test("whoami text reports configured namespace mismatch", async () => {
   await withTempDir(async (cwd) => {
     /** @type {string[]} */

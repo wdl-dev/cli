@@ -1,7 +1,12 @@
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import { escapeTerminalText, writeResult } from "../lib/output.js";
+import {
+  escapeTerminalText,
+  writeJsonOr,
+  writeResult,
+  writeStatusLine,
+} from "../lib/output.js";
 import {
   formatInstanceList,
   formatInstanceStatus,
@@ -97,9 +102,11 @@ async function runWorkflows({ values, positionals, context }) {
       { method: "POST", headers },
       `${subcommand} workflow instance`,
     ));
-    writeResult(Boolean(values.json), body, () => [
-      `OK ${ns}/${worker}/${workflow}/${body.id || instanceId} ${subcommand} status=${body.status || "-"}`,
-    ], stdout);
+    if (writeJsonOr(Boolean(values.json), body, stdout)) return;
+    writeStatusLine(
+      stdout,
+      `OK ${ns}/${worker}/${workflow}/${body.id || instanceId} ${subcommand} status=${body.status || "-"}`
+    );
     return;
   }
 

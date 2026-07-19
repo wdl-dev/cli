@@ -33,9 +33,15 @@ if user code catches the thrown error.
 
 ## Programming limits
 
+- `createBatch()` accepts at most 100 entries per call.
+- A single workflow result is capped at 1 MiB, and one runtime-to-Workflows
+  backend JSON request is capped at 2 MiB.
 - Per-instance aggregate payload is capped at 16 MiB. Step/event writes over the
   cap fail the request; when the runtime writes an over-cap terminal result, it
   transitions the instance to failed in the same transaction.
+- Newly created completed, failed, and terminated instances are retained for 8
+  hours by default. Override success and error retention with
+  `create({ retention: { successRetention, errorRetention } })` when needed.
 - One step may record at most 1000 dependency edges. A single runtime dispatch
   turn may have at most 1000 in-flight workflow steps and start at most 1000
   fresh backend steps.
@@ -68,11 +74,18 @@ wdl workflows terminate <worker> <workflowName> <instanceId> --yes
 `--yes` only after independently confirming the namespace, worker, workflow, and
 instance id.
 
+`wdl workflows list` marks definitions absent from the active Worker version as
+`retired=yes`. Existing instances remain inspectable and may be terminated, but
+restart returns `workflow_not_exported` until an active version exports that
+workflow name again.
+
 Semantic size limits in the Workflows API return `request_too_large`; size
 limits hit during HTTP body parsing may return `request_body_too_large`. A
 Workflows 5xx means a platform or backend failure, and the response body stays a
 generic error summary; underlying diagnostics go to platform logs and are not
 stable CLI output.
+`workflow_metadata_contention` means the active workflow metadata changed while
+control was reading it; retry the command.
 
 ## End-to-end example
 

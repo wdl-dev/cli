@@ -158,6 +158,8 @@ gate; the command still prints the checks, then exits non-zero if any check
 fails. `doctor` can detect token validity, principal namespace, platform
 version, and CLI compatibility when the control plane exposes `/whoami`; deeper
 capability checks still require additional control endpoints.
+The namespace URL can be `(unavailable)` when the operator has not configured a
+public platform domain; authentication and other `/whoami` fields still work.
 
 ## Scaffolding a New Worker
 
@@ -221,6 +223,11 @@ APP_NAME = "hello"
 
 For new projects, use `compatibility_date = "2026-06-17"` unless a required
 feature or your operator gives you a newer target.
+Control rejects explicit dates before `2026-04-01`, invalid or future dates,
+and dates newer than the bundled workerd supports. Upstream experimental enable
+flags, `legacy_error_serialization`, and `allow_irrevocable_stub_storage` are
+unsupported. These checks are control-owned; the CLI does not mirror workerd's
+flag table.
 
 You can keep using `wrangler dev` for local development. To deploy to this
 platform, use `wdl deploy` instead. The deploy command runs
@@ -228,6 +235,11 @@ platform, use `wdl deploy` instead. The deploy command runs
 `WDL_WRANGLER_BIN`, the Worker project's local wrangler, the CLI package's local
 wrangler, then `PATH`. TypeScript, module resolution, esbuild bundling, and
 related build behavior still follow Wrangler.
+
+WDL hides Wrangler's banner (which skips the normal banner update check) and
+disables anonymous telemetry for this dry-run subprocess. Wrangler may still
+consult the configured npm registry when reporting an unknown configuration
+field. Project build hooks retain their normal network access.
 
 When several Wrangler config files exist, WDL follows Wrangler's priority:
 `wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`.
@@ -316,6 +328,10 @@ process is not consuming output fast enough.
 Do not send end-user Worker traffic to the control URL. The control URL is only
 for deployment and management commands.
 
+For local-development control hosts, deploy summaries reuse `CONTROL_URL`'s
+scheme and public port for the Worker URL. `CONTROL_CONNECT_HOST` remains only a
+control socket override and does not change the printed Worker origin.
+
 Custom domains and Wrangler `routes` are not generally available for tenant
 self-service yet. Use the default Worker URL unless your operator explicitly
 enables a custom host for your namespace:
@@ -334,13 +350,13 @@ for you.
 ## Supported Wrangler Configuration
 
 The control plane is the canonical validator for shapes that Wrangler can
-bundle but WDL cannot run, including unsupported workerd experimental
-compatibility flags and WDL-reserved injected module names. The CLI still
-fails fast for cheap local cases such as Python Worker modules and ambiguous
-runtime `env` name collisions between `[vars]`, explicit bindings, and the
-implicit `ASSETS` binding. Deploy and secret mutation also enforce the
-headroomed 1 MiB workerd `workerLoader` env budget; large `[vars]`, secrets,
-binding metadata, or retained versions can fail with `worker_env_too_large`.
+bundle but WDL cannot run, including unsupported workerd compatibility flags
+and WDL-reserved injected module names. The CLI still fails fast for cheap local
+cases such as Python Worker modules and ambiguous runtime `env` name collisions
+between `[vars]`, explicit bindings, and the implicit `ASSETS` binding. Deploy
+and secret mutation also enforce the headroomed 1 MiB workerd `workerLoader` env
+budget; large `[vars]`, secrets, binding metadata, or retained versions can fail
+with `worker_env_too_large`.
 
 | Configuration                                                                                                                                                                                                                                                                                                                                    | Support                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -501,6 +517,9 @@ also supported for Workers that need them; metadata hydration issues extra HEAD
 requests under a concurrency cap. `put(stream, ...)` currently buffers before
 sending a single S3 PUT and has a 25 MiB maximum. Multipart upload, SSE-C, and
 checksum selection are not supported.
+When `httpMetadata` is supplied as a `Headers` object, an `Expires` header must
+use canonical IMF-fixdate syntax, such as
+`Wed, 21 Oct 2015 07:28:00 GMT`.
 
 Use `wdl r2` commands to inspect or explicitly delete namespace R2 data:
 
@@ -600,6 +619,13 @@ call are rolled back.
 its request body is capped at 1 MiB. Split very large migration sets or SQL
 files into smaller batches before applying.
 
+Control-plane D1 lifecycle APIs redact 5xx failures forwarded from the D1
+runtime/backend to `Internal error` and retain only bounded machine classifiers
+(`upstreamCode`, `upstreamCategory`, `upstreamRetryable`, and
+`upstreamStatus`). Control-generated contention and collision 503 responses
+retain actionable messages. Outward 4xx SQL and migration failures can retain
+actionable diagnostics.
+
 See `examples/d1-demo` for a minimal visitor counter using D1 plus a
 forward-only migration.
 
@@ -649,6 +675,13 @@ Supported DO surface includes `stub.fetch()`, JSON-structured
 hibernation API surface. Cross-script bindings, renamed/deleted migrations, and
 platform-level WebSocket session/cursor recovery are not currently available.
 
+DO fetch request bodies are capped at 1 MiB. RPC method names must use
+JavaScript identifier grammar and are capped at 256 ASCII bytes. RPC arguments
+are capped at 1 MiB and must be structural JSON: finite values, dense arrays,
+and plain objects only; serialization does not call `toJSON()`. Object names and
+ids must be well-formed Unicode, and DO class names use ASCII JavaScript
+class-name grammar with a 468-byte cap.
+
 For `ctx.storage.sql`, avoid application table names starting with `_cf_`;
 workerd reserves that prefix case-insensitively. `ctx.storage.deleteAll()` also
 leaves platform-owned `_cf_*` tables alone.
@@ -679,6 +712,11 @@ wdl workflows restart api orders order-123 --yes
 wdl workflows terminate api orders order-123 --yes
 ```
 
+`wdl workflows list` marks definitions absent from the active Worker version as
+`retired=yes`. Existing instances remain inspectable and may be terminated, but
+restart returns `workflow_not_exported` until an active version exports that
+workflow name again.
+
 This is WDL Workflows support, not full Cloudflare Workflows parity.
 `script_name`, cross-worker workflows, cross-worker callbacks, service-binding
 callbacks, and Cloudflare source-AST visualizer are not supported. Same-worker
@@ -687,9 +725,15 @@ available.
 
 Important runtime limits and programming rules:
 
+- `createBatch()` accepts at most 100 entries per call. A single workflow result
+  is capped at 1 MiB. One runtime-to-Workflows backend JSON request is capped at
+  2 MiB.
 - Per-instance aggregate payload is capped at 16 MiB. Step/event writes over the
   cap fail the request; an over-cap runtime terminal result transitions the
   instance to failed in the same transaction.
+- Newly created completed, failed, and terminated instances are retained for 8
+  hours by default. Override success/error retention through the `retention`
+  option passed to `create()` when needed.
 - A permanently failed `step.do` makes the run terminal even if user code
   catches the thrown error.
 - One step may record at most 1000 dependency edges. One dispatch turn may have
@@ -749,9 +793,10 @@ Effect timing:
 - Namespace-level secret changes are shared by every Worker in the namespace,
   but they do not bump all Workers. They take effect on the next natural
   cold-load, such as a new deploy, runtime recycle, or isolate eviction.
-- Secret keys must use environment-variable grammar, for example `STRIPE_KEY`;
-  values are limited to 64 KiB and count toward the same workerLoader env budget
-  as `[vars]`.
+- Secret keys must match `[A-Za-z_][A-Za-z0-9_]*` and are capped at 128
+  characters; runtime-reserved names and reserved `Object.prototype` keys are
+  rejected. Values are limited to 64 KiB and count toward the same workerLoader
+  env budget as `[vars]`.
 
 ### Queues
 
@@ -955,6 +1000,12 @@ shorthand and is exposed through `.fetch(...)`; it is not a callable default RPC
 method. Put RPC methods on a named `WorkerEntrypoint` or on default object/class
 methods.
 
+Current tenant JSRPC can serialize `Blob` values and pass service or Durable
+Object class stubs as opaque capability arguments. The receiver may call the
+delegated target but cannot rewrite the host-authored caller properties carried
+by the stub. Keep delegated stubs in memory; long-term irrevocable stub storage
+is not a supported WDL surface.
+
 ### Platform Bindings
 
 If the platform provides a first-party shared capability, bind the
@@ -1096,8 +1147,11 @@ wdl delete worker hello
 
 `wdl delete worker` asks for confirmation by default. Use `--dry-run` first to
 preview the affected active version, retained versions, routes, worker secrets,
-queue consumers, and asset cleanup. In automation, pass `--yes` only after a
-separate safety check.
+workflow definitions, queue consumers, and asset cleanup. `wdl workers` reports
+`workflow-defs=yes` even for entries that have no deployed version. When an
+older control does not report this field, the CLI displays
+`workflow-defs=unknown`; that does not mean no definitions exist. In automation,
+pass `--yes` only after a separate safety check.
 
 Delete a D1 database after confirming:
 

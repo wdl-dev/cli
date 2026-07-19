@@ -1616,6 +1616,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     "workers_dev",
   ]);
   for (const key of [
+    "addresses",
     "agent_memory",
     "ai",
     "artifacts",
@@ -1623,6 +1624,7 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     "cache",
     "cloudchamber",
     "compliance_region",
+    "dependencies_instrumentation",
     "hyperdrive",
     "first_party_worker",
     "flagship",
@@ -1678,6 +1680,20 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     /unsupported Wrangler field "vectorize"/
   );
 
+  for (const [key, value] of /** @type {Array<[string, unknown]>} */ ([
+    ["addresses", []],
+    ["dependencies_instrumentation", null],
+  ])) {
+    assert.throws(
+      () => validateUnsupportedWranglerConfig({
+        name: "demo",
+        main: "src/index.js",
+        [key]: value,
+      }, null, "wrangler.toml"),
+      new RegExp(`unsupported Wrangler field "${key}"`)
+    );
+  }
+
   assert.throws(
     () => validateUnsupportedWranglerConfig({
       name: "demo",
@@ -1714,8 +1730,10 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
  * @returns {unknown}
  */
 function unsupportedWranglerFixtureValue(key, objectShapeKeys, booleanShapeKeys) {
+  if (key === "dependencies_instrumentation") return { enabled: false };
   if (objectShapeKeys.has(key)) return { binding: "B" };
   if (booleanShapeKeys.has(key)) return true;
+  if (key === "addresses") return ["support@example.com"];
   if (key === "compliance_region") return "eu";
   if (key === "pages_build_output_dir") return "dist";
   return [{ binding: "B" }];
@@ -2160,7 +2178,7 @@ test("resolveWranglerCommand on win32 fails loudly when only a bare PATH .cmd sh
   }
 });
 
-test("wranglerChildEnv strips WDL control-plane environment", () => {
+test("wranglerChildEnv scrubs control env, hides Wrangler's banner, and disables telemetry", () => {
   assert.deepEqual(
     wranglerChildEnv({
       ADMIN_TOKEN: "secret",
@@ -2171,11 +2189,15 @@ test("wranglerChildEnv strips WDL control-plane environment", () => {
       // export does not leak the control endpoint into the bundler.
       ADMIN_URL: "https://legacy-admin.example",
       CLOUDFLARE_API_TOKEN: "real-cloudflare-token",
+      WRANGLER_HIDE_BANNER: "false",
+      WRANGLER_SEND_METRICS: "true",
       PATH: "/bin",
       KEEP_ME: "ok",
     }),
     {
       CLOUDFLARE_API_TOKEN: "dry-run-dummy",
+      WRANGLER_HIDE_BANNER: "true",
+      WRANGLER_SEND_METRICS: "false",
       PATH: "/bin",
       KEEP_ME: "ok",
     }
@@ -2593,7 +2615,7 @@ test("runDeployCommand rejects non-object vars before bundling", async () => {
   }
 });
 
-test("runDeployCommand prints a direct http URL for a local deploy", async () => {
+test("runDeployCommand preserves the local control scheme and port in the Worker URL", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-localurl-"));
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -2604,9 +2626,9 @@ test("runDeployCommand prints a direct http URL for a local deploy", async () =>
     const lines = [];
     let fetchCount = 0;
     await runDeployCommand(
-      [dir, "--ns", "demo", "--control-url", "http://localhost:8080"],
+      [dir, "--ns", "demo", "--control-url", "https://localhost:8443"],
       {
-        env: { ADMIN_TOKEN: "tok" },
+        env: { ADMIN_TOKEN: "tok", CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
         stdout: (/** @type {string} */ line) => lines.push(/** @type {string} */ line),
         stderr: () => {},
         execFile: (/** @type {string} */ _cmd, /** @type {readonly string[]} */ args) => {
@@ -2624,7 +2646,7 @@ test("runDeployCommand prints a direct http URL for a local deploy", async () =>
       }
     );
 
-    assert.ok(lines.includes("  http://demo.workers.local:8080/api/"), "local deploy prints a direct http URL with the gateway port");
+    assert.ok(lines.includes("  https://demo.workers.local:8443/api/"));
     assert.equal(lines.some((line) => line.includes("curl -H")), false, "no curl hint");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2672,7 +2694,7 @@ test("runDeployCommand detects local control by hostname only", async () => {
   }
 });
 
-test("runDeployCommand treats a .test control host as local (http URL, not https)", async () => {
+test("runDeployCommand uses the default port from a local control URL", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-test-host-"));
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -2704,8 +2726,8 @@ test("runDeployCommand treats a .test control host as local (http URL, not https
     );
 
     assert.ok(
-      lines.includes("  http://demo.workers.local:8080/api/"),
-      "a .test control host prints the local http URL"
+      lines.includes("  http://demo.workers.local/api/"),
+      "a .test control host without an explicit port uses the http default"
     );
     assert.equal(lines.some((line) => line.startsWith("  https://")), false, "no production https URL for a local deploy");
   } finally {
@@ -3447,6 +3469,49 @@ test("runDeployCommand explains control-rejected experimental compatibility flag
     assert.equal(fetchCalls.length, 1);
     const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
     assert.deepEqual(manifest.compatibilityFlags, ["experimental"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand explains control-rejected unsupported compatibility flags", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-unsupported-flag-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "api"',
+      'main = "src/index.js"',
+      'compatibility_flags = ["legacy_error_serialization"]',
+    ].join("\n"));
+
+    /** @type {RecordedFetch[]} */
+    const fetchCalls = [];
+    await assert.rejects(
+      () => runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+          fetchCalls.push({ url, init });
+          return response({
+            error: "compatibility_flag_unsupported",
+            message: "unsupported compatibility flag: legacy_error_serialization",
+          }, 400);
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /compatibility_flag_unsupported/);
+        assert.match(message, /remove the unsupported compatibility flag/);
+        return true;
+      }
+    );
+
+    assert.equal(fetchCalls.length, 1);
+    const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
+    assert.deepEqual(manifest.compatibilityFlags, ["legacy_error_serialization"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

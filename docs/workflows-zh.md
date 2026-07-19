@@ -44,6 +44,8 @@ wdl workflows terminate <worker> <workflowName> <instanceId> --yes
 
 `restart` 和 `terminate` 是破坏性实例生命周期操作；只有在已经独立确认 namespace、worker、workflow 和 instance id 后才传 `--yes`。
 
+`wdl workflows list` 会把 active Worker version 不再导出的定义标为 `retired=yes`。既有实例仍可查看和 terminate，但 restart 会返回 `workflow_not_exported`；需要先部署一个重新导出该 workflow name 的 active version。
+
 Workflows API 的语义大小限制会返回 `request_too_large`；HTTP body 解析阶段的大小限制可能返回 `request_body_too_large`。Workflows 5xx 表示平台或 backend 故障，响应体会保持通用错误摘要；底层诊断进入平台日志，不作为稳定 CLI 输出。`workflow_metadata_contention` 表示 control 读取期间 active workflow metadata 发生变化，重试命令即可。
 
 ## 端到端示例

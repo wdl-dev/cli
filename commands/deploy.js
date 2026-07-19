@@ -304,8 +304,14 @@ async function runDeploy({ values, positionals, context: baseContext }) {
   const controlHost = new URL(controlUrl).hostname;
   const isLocal = isLocalDevHost(controlHost);
   if (isLocal) {
-    const host = `${ns}.${platformDomain || "workers.local"}`;
-    writeStatusLine(stdout, `  http://${host}:8080/${workerName}/`);
+    const workerUrl = new URL(controlUrl);
+    workerUrl.username = "";
+    workerUrl.password = "";
+    workerUrl.hostname = `${ns}.${platformDomain || "workers.local"}`;
+    workerUrl.pathname = `/${workerName}/`;
+    workerUrl.search = "";
+    workerUrl.hash = "";
+    writeStatusLine(stdout, `  ${workerUrl.href}`);
   } else if (platformDomain) {
     writeStatusLine(stdout, `  https://${ns}.${platformDomain}/${workerName}/`);
   }

@@ -222,6 +222,8 @@ cron / queue delivery 会在 `wdl tail` 里显示 start/finish 事件，包含 w
 
 不要把用户访问 Worker 的流量打到 control URL。control URL 只用于部署和管理命令。
 
+对于本地开发 control host，deploy 摘要会复用 `CONTROL_URL` 的 scheme 和对外端口生成 Worker URL。`CONTROL_CONNECT_HOST` 仍只覆盖 control socket 的连接目标，不会改变输出的 Worker origin。
+
 自定义域名和 Wrangler `routes` 目前还不是 tenant self-service 的 GA 能力。除非管理方明确为你的 namespace 开通自定义 host，否则使用默认 Worker URL：
 
 ```text
@@ -481,6 +483,8 @@ wdl workflows resume api orders order-123
 wdl workflows restart api orders order-123 --yes
 wdl workflows terminate api orders order-123 --yes
 ```
+
+`wdl workflows list` 会把 active Worker version 不再导出的定义标为 `retired=yes`。既有实例仍可查看和 terminate，但 restart 会返回 `workflow_not_exported`；需要先部署一个重新导出该 workflow name 的 active version。
 
 这是 WDL Workflows 支持，不是完整 Cloudflare Workflows parity。 `script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 不支持。same-worker DO progress callback 和 runtime-observed parallel/DAG `step.do` execution 可用。
 

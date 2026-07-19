@@ -5,8 +5,11 @@
 ### Changed
 
 - `wdl workers` now reports workflow-definition state (`unknown` when an older
-  control omits it), and `wdl delete worker --dry-run` reports workflow
-  definition presence.
+  control omits it), `wdl workflows list` marks retired definitions, and
+  `wdl delete worker --dry-run` reports worker-secret and workflow-definition
+  presence without overstating blocked deletion.
+- Local deploy output now derives the Worker URL scheme and port from
+  `CONTROL_URL` instead of assuming `http://...:8080`.
 - Platform capability docs now cover the current compatibility-date, Durable
   Object RPC, Workflows, R2 metadata, secret-key, D1 error, and JSRPC contracts.
 - The packaged deploy toolchain now pins Wrangler 4.112.0 and uses

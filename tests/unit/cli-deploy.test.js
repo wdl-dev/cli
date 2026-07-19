@@ -2615,7 +2615,7 @@ test("runDeployCommand rejects non-object vars before bundling", async () => {
   }
 });
 
-test("runDeployCommand prints a direct http URL for a local deploy", async () => {
+test("runDeployCommand preserves the local control scheme and port in the Worker URL", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-localurl-"));
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -2626,9 +2626,9 @@ test("runDeployCommand prints a direct http URL for a local deploy", async () =>
     const lines = [];
     let fetchCount = 0;
     await runDeployCommand(
-      [dir, "--ns", "demo", "--control-url", "http://localhost:8080"],
+      [dir, "--ns", "demo", "--control-url", "https://localhost:8443"],
       {
-        env: { ADMIN_TOKEN: "tok" },
+        env: { ADMIN_TOKEN: "tok", CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
         stdout: (/** @type {string} */ line) => lines.push(/** @type {string} */ line),
         stderr: () => {},
         execFile: (/** @type {string} */ _cmd, /** @type {readonly string[]} */ args) => {
@@ -2646,7 +2646,7 @@ test("runDeployCommand prints a direct http URL for a local deploy", async () =>
       }
     );
 
-    assert.ok(lines.includes("  http://demo.workers.local:8080/api/"), "local deploy prints a direct http URL with the gateway port");
+    assert.ok(lines.includes("  https://demo.workers.local:8443/api/"));
     assert.equal(lines.some((line) => line.includes("curl -H")), false, "no curl hint");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2694,7 +2694,7 @@ test("runDeployCommand detects local control by hostname only", async () => {
   }
 });
 
-test("runDeployCommand treats a .test control host as local (http URL, not https)", async () => {
+test("runDeployCommand uses the default port from a local control URL", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-test-host-"));
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -2726,8 +2726,8 @@ test("runDeployCommand treats a .test control host as local (http URL, not https
     );
 
     assert.ok(
-      lines.includes("  http://demo.workers.local:8080/api/"),
-      "a .test control host prints the local http URL"
+      lines.includes("  http://demo.workers.local/api/"),
+      "a .test control host without an explicit port uses the http default"
     );
     assert.equal(lines.some((line) => line.startsWith("  https://")), false, "no production https URL for a local deploy");
   } finally {

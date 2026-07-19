@@ -52,6 +52,8 @@ https://<namespace>.<platform-domain>/<worker-name>/<path>
 
 Worker 看到的路径是**剥掉 `/<worker-name>` 之后的路径**。除非运维方明确启用，租户没有自定义路由能力；首次配置不要加 `route` / `routes`。
 
+对于本地开发 control host，deploy 摘要会复用 `CONTROL_URL` 的 scheme 和对外端口生成 Worker URL。`CONTROL_CONNECT_HOST` 只改变 control socket 的连接目标，不会改变输出的 Worker origin。
+
 ## 核心命令
 
 | 目标 | 命令 |

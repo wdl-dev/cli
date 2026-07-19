@@ -1475,14 +1475,25 @@ test("workflows commands call encoded control endpoints", async () => {
       calls.push({ url, init });
       if (url.endsWith("/workflows")) {
         return response({
-          workflows: [{
-            worker: "api",
-            name: "orders",
-            binding: "ORDERS",
-            className: "OrderWorkflow",
-            activeVersion: "v2",
-            workflowKey: "wf_1234",
-          }],
+          workflows: [
+            {
+              worker: "api",
+              name: "orders",
+              binding: "ORDERS",
+              className: "OrderWorkflow",
+              activeVersion: "v2",
+              workflowKey: "wf_1234",
+            },
+            {
+              worker: "api",
+              name: "legacy",
+              binding: null,
+              className: "LegacyWorkflow",
+              activeVersion: "v2",
+              workflowKey: "wf_retired",
+              retired: true,
+            },
+          ],
         });
       }
       if (url.includes("/instances?")) {
@@ -1520,7 +1531,8 @@ test("workflows commands call encoded control endpoints", async () => {
   assert.equal(calls[6].url, "http://ctl.test/ns/demo%20space/workflows/api/orders/instances/order%2F1/terminate");
   assert.equal(calls[6].init.method, "POST");
   assert.deepEqual(calls[0].init.headers, { "x-admin-token": "tok" });
-  assert.ok(lines.includes("api/orders\tbinding=ORDERS\tclass=OrderWorkflow\tactive=v2\tkey=wf_1234"));
+  assert.ok(lines.includes("api/orders\tbinding=ORDERS\tclass=OrderWorkflow\tactive=v2\tkey=wf_1234\tretired=no"));
+  assert.ok(lines.includes("api/legacy\tbinding=-\tclass=LegacyWorkflow\tactive=v2\tkey=wf_retired\tretired=yes"));
   assert.ok(lines.includes("Next cursor: 1"));
   assert.ok(lines.includes("steps=1"));
   assert.equal(lines.at(-1), "OK demo space/api/orders/order/1 terminate status=paused");

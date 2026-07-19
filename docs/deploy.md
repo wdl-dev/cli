@@ -95,6 +95,10 @@ The Worker sees the path **with the `/<worker-name>` prefix stripped**. Tenants
 have no custom routing capability unless the operator explicitly enables it; do
 not add `route` / `routes` in a first-time setup.
 
+For local-development control hosts, the deploy summary reuses `CONTROL_URL`'s
+scheme and public port when constructing the Worker URL. `CONTROL_CONNECT_HOST`
+changes only the control socket target and never the printed Worker origin.
+
 ## Core commands
 
 | Goal                       | Command                                                   |

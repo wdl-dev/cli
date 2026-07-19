@@ -75,7 +75,8 @@ overrides the TCP target the admin token connects to (Host header + TLS SNI
 still track `CONTROL_URL`), and a stale value in a CI or production shell could
 route the token to an unintended host. A URL-form override uses its scheme only
 to choose the default TCP port; transport still follows `CONTROL_URL`. GUIDE
-covers the details.
+covers the details. Local deploy output also derives the public Worker scheme
+and port from `CONTROL_URL`, never `CONTROL_CONNECT_HOST`.
 
 `wdl deploy` runs the project's Wrangler dry-run and build hooks as the user, so
 they can read the on-disk token store (`~/.config/wdl/credentials`); only deploy

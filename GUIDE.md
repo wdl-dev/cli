@@ -326,6 +326,10 @@ process is not consuming output fast enough.
 Do not send end-user Worker traffic to the control URL. The control URL is only
 for deployment and management commands.
 
+For local-development control hosts, deploy summaries reuse `CONTROL_URL`'s
+scheme and public port for the Worker URL. `CONTROL_CONNECT_HOST` remains only a
+control socket override and does not change the printed Worker origin.
+
 Custom domains and Wrangler `routes` are not generally available for tenant
 self-service yet. Use the default Worker URL unless your operator explicitly
 enables a custom host for your namespace:
@@ -703,6 +707,11 @@ wdl workflows resume api orders order-123
 wdl workflows restart api orders order-123 --yes
 wdl workflows terminate api orders order-123 --yes
 ```
+
+`wdl workflows list` marks definitions absent from the active Worker version as
+`retired=yes`. Existing instances remain inspectable and may be terminated, but
+restart returns `workflow_not_exported` until an active version exports that
+workflow name again.
 
 This is WDL Workflows support, not full Cloudflare Workflows parity.
 `script_name`, cross-worker workflows, cross-worker callbacks, service-binding

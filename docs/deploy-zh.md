@@ -6,7 +6,7 @@
 
 wrangler 解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。默认不会临时 `npx --yes wrangler` 拉包；只有设置 `WDL_ALLOW_NPX_WRANGLER=1` 时才允许这个 fallback。
 
-WDL 会关闭这个 dry-run 子进程的 Wrangler banner、更新检查和匿名遥测；项目 build hook 仍保留正常的网络访问能力。
+WDL 会隐藏这个 dry-run 子进程的 Wrangler banner（因此跳过常规 banner 更新检查）并关闭匿名遥测。Wrangler 在报告未知配置字段时仍可能访问已配置的 npm registry；项目 build hook 仍保留正常的网络访问能力。
 
 ## CLI 调用形式
 

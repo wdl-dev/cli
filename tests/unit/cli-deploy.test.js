@@ -2178,7 +2178,7 @@ test("resolveWranglerCommand on win32 fails loudly when only a bare PATH .cmd sh
   }
 });
 
-test("wranglerChildEnv scrubs control env and disables Wrangler network extras", () => {
+test("wranglerChildEnv scrubs control env, hides Wrangler's banner, and disables telemetry", () => {
   assert.deepEqual(
     wranglerChildEnv({
       ADMIN_TOKEN: "secret",

@@ -236,8 +236,10 @@ platform, use `wdl deploy` instead. The deploy command runs
 wrangler, then `PATH`. TypeScript, module resolution, esbuild bundling, and
 related build behavior still follow Wrangler.
 
-WDL disables Wrangler's banner/update check and anonymous telemetry for this
-dry-run subprocess. Project build hooks retain their normal network access.
+WDL hides Wrangler's banner (which skips the normal banner update check) and
+disables anonymous telemetry for this dry-run subprocess. Wrangler may still
+consult the configured npm registry when reporting an unknown configuration
+field. Project build hooks retain their normal network access.
 
 When several Wrangler config files exist, WDL follows Wrangler's priority:
 `wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`.
@@ -617,10 +619,12 @@ call are rolled back.
 its request body is capped at 1 MiB. Split very large migration sets or SQL
 files into smaller batches before applying.
 
-Control-plane D1 lifecycle APIs redact outward 5xx errors to `Internal error`
-and retain only bounded machine classifiers (`upstreamCode`,
-`upstreamCategory`, `upstreamRetryable`, and `upstreamStatus`). Outward 4xx SQL
-and migration failures can retain actionable diagnostics.
+Control-plane D1 lifecycle APIs redact 5xx failures forwarded from the D1
+runtime/backend to `Internal error` and retain only bounded machine classifiers
+(`upstreamCode`, `upstreamCategory`, `upstreamRetryable`, and
+`upstreamStatus`). Control-generated contention and collision 503 responses
+retain actionable messages. Outward 4xx SQL and migration failures can retain
+actionable diagnostics.
 
 See `examples/d1-demo` for a minimal visitor counter using D1 plus a
 forward-only migration.

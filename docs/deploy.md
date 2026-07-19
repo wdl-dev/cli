@@ -12,8 +12,10 @@ wrangler, the CLI package's local wrangler, then `PATH`. By default there is no
 transient `npx --yes wrangler` fetch; that fallback is allowed only when
 `WDL_ALLOW_NPX_WRANGLER=1` is set.
 
-WDL disables Wrangler's banner/update check and anonymous telemetry for this
-dry-run subprocess. Project build hooks retain their normal network access.
+WDL hides Wrangler's banner (which skips the normal banner update check) and
+disables anonymous telemetry for this dry-run subprocess. Wrangler may still
+consult the configured npm registry when reporting an unknown configuration
+field. Project build hooks retain their normal network access.
 
 ## CLI invocation forms
 

@@ -63,8 +63,10 @@ WDL-only `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`, and
 `[[services]].ns` are parsed by the CLI and removed from Wrangler's temporary
 bundle config; other fields retain their existing Wrangler passthrough
 behavior. Wrangler's object-shaped declarative `exports` config is unsupported.
-The dry-run child disables Wrangler's banner/update check and anonymous
-telemetry; project build hooks retain their normal network access.
+The dry-run child hides Wrangler's banner (and its normal update check) and
+disables anonymous telemetry. Wrangler may still consult the configured npm
+registry when reporting an unknown configuration field; project build hooks
+retain their normal network access.
 For `[[services]]` and `[[exports]]`, read `docs/deploy.md`: tenant JSRPC may
 delegate service or Durable Object class stubs as opaque capabilities, but the
 receiver cannot rewrite their host-authored caller properties. Keep delegated

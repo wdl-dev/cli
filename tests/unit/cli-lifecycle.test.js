@@ -19,6 +19,11 @@ import {
   LONG_CONTROL_TIMEOUT_MS,
   UNLIMITED_CONTROL_BODY_BYTES,
 } from "../../lib/control-fetch.js";
+import {
+  formatInstanceList,
+  formatInstanceStatus,
+  formatWorkflowList,
+} from "../../lib/workflows-format.js";
 import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
@@ -1536,6 +1541,81 @@ test("workflows commands call encoded control endpoints", async () => {
   assert.ok(lines.includes("Next cursor: 1"));
   assert.ok(lines.includes("steps=1"));
   assert.equal(lines.at(-1), "OK demo space/api/orders/order/1 terminate status=paused");
+});
+
+test("workflow formatters escape control fields but preserve their own layout", () => {
+  const hostile = `${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`;
+  const lines = [
+    ...formatWorkflowList({
+      workflows: [{
+        worker: hostile,
+        name: hostile,
+        binding: hostile,
+        className: hostile,
+        activeVersion: hostile,
+        workflowKey: hostile,
+        retired: true,
+      }],
+    }),
+    ...formatInstanceList({
+      instances: [{ id: hostile, status: hostile }],
+      cursor: hostile,
+    }),
+    ...formatInstanceStatus({
+      id: hostile,
+      status: hostile,
+      output: { value: hostile },
+      error: { message: hostile },
+      steps: {
+        entries: [{ ordinal: 0, name: hostile, status: hostile }],
+      },
+    }),
+  ];
+  const out = lines.join("\n");
+
+  assertNoRawTerminalControls(out, "workflow formatter output");
+  assert.ok(out.includes("\\u001b[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b"));
+  assert.equal(
+    out.split("\t").length - 1,
+    7,
+    "only formatter-owned column separators may remain as raw tabs"
+  );
+});
+
+test("workflow lifecycle status lines escape control fields and preserve JSON", async () => {
+  const hostile = `${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`;
+  const body = { id: `id-${hostile}`, status: `status-${hostile}` };
+  const human = mockDeps(body);
+
+  await runWorkflowsCommand([
+    "pause",
+    "api",
+    "orders",
+    "instance",
+    "--ns",
+    "demo",
+    "--control-url",
+    "http://ctl.test",
+  ], human.deps);
+
+  assert.equal(human.lines.length, 1);
+  assertNoRawTerminalControls(human.lines[0], "workflow lifecycle status");
+  assert.ok(human.lines[0].includes("id-\\u001b[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b"));
+  assert.equal(human.lines[0].includes("\t"), false, "status lines must not preserve raw tabs");
+
+  const json = mockDeps(body);
+  await runWorkflowsCommand([
+    "pause",
+    "api",
+    "orders",
+    "instance",
+    "--ns",
+    "demo",
+    "--control-url",
+    "http://ctl.test",
+    "--json",
+  ], json.deps);
+  assert.deepEqual(JSON.parse(json.lines[0]), body);
 });
 
 test("workflows list accepts flags before the subcommand", async () => {

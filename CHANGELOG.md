@@ -16,8 +16,10 @@
   jsonc-parser 3.3.1 and smol-toml 1.7.0. Unmapped Wrangler `addresses` and
   `dependencies_instrumentation` fields now fail loudly instead of being
   silently dropped.
-- `wdl deploy` disables Wrangler's update check and anonymous telemetry for its
-  dry-run subprocess; project build hooks retain their normal network access.
+- `wdl deploy` hides Wrangler's banner (and its normal update check) and
+  disables anonymous telemetry for its dry-run subprocess. Wrangler can still
+  consult the configured npm registry when explaining unknown config fields;
+  project build hooks retain their normal network access.
 
 ### Fixed
 

@@ -2,8 +2,57 @@
 // runner only globs cli-*.test.js).
 
 import assert from "node:assert/strict";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 export const ESC = String.fromCharCode(27);
+
+export const POSIX_ONLY = { skip: process.platform === "win32" ? "POSIX-only filesystem behavior" : false };
+
+// The uid does not decide this — the effective uid, CAP_DAC_OVERRIDE, and
+// mode-ignoring mounts do. Ask tmpdir() what it actually does.
+function modeBitsBlockReads() {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-mode-probe-"));
+  try {
+    // Mirror the fixtures rather than creating at mode 000; the two paths can
+    // diverge on filesystems that only partly honor mode bits.
+    const probe = path.join(dir, "probe");
+    writeFileSync(probe, "x");
+    chmodSync(probe, 0o000);
+    try {
+      readFileSync(probe);
+    } catch (err) {
+      const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+      return code === "EACCES" || code === "EPERM";
+    }
+    return false;
+  } catch {
+    // A filesystem that refuses the setup cannot host the fixture either.
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export const MODE_BITS_ENFORCED_ONLY = {
+  skip: POSIX_ONLY.skip || (modeBitsBlockReads() ? false : "chmod 000 does not block reads here"),
+};
+
+// A fixture that is silently readable leaves its test asserting nothing.
+/** @param {string} filePath */
+export function assertUnreadable(filePath) {
+  let code;
+  try {
+    readFileSync(filePath);
+  } catch (err) {
+    code = /** @type {NodeJS.ErrnoException} */ (err).code;
+  }
+  assert.ok(
+    code === "EACCES" || code === "EPERM",
+    `${filePath} must be unreadable, got ${code ?? "a successful read"}`
+  );
+}
 
 /**
  * A recorded control-plane call: the URL and the init passed to controlFetch.

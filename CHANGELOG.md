@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Security
+
+- Bump the bundled `wrangler` to 4.114.0, which vendors a patched sharp
+  (0.35.2) and clears a high-severity libvips advisory (GHSA-f88m-g3jw-g9cj)
+  reachable only through the miniflare dev server, which the CLI never runs.
+
 ## 1.5.0
 
 ### Changed

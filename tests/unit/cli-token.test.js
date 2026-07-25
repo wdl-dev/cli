@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
-import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
+import { ESC, POSIX_ONLY, assertNoRawTerminalControls, response } from "./helpers.js";
 
 /**
  * @template T
@@ -294,7 +294,7 @@ test("token set warns before sending the token to a plain-http non-local host", 
   });
 });
 
-test("writeTokenStore replaces a symlink instead of following it", { skip: process.platform === "win32" }, async () => {
+test("writeTokenStore replaces a symlink instead of following it", POSIX_ONLY, async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
     mkdirSync(path.dirname(p), { recursive: true });

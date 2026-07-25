@@ -39,7 +39,7 @@ import {
 } from "../../lib/wrangler-pack.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { checkWranglerVersion, formatWranglerFailure } from "../../lib/wrangler/command.js";
-import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
+import { ESC, MODE_BITS_ENFORCED_ONLY, assertNoRawTerminalControls, assertUnreadable, response } from "./helpers.js";
 
 /**
  * @param {() => unknown} fn
@@ -1018,13 +1018,14 @@ test("collectAssets escapes terminal controls in asset diagnostics", () => {
   }
 });
 
-test("collectAssets wraps native filesystem errors with escaped asset paths", { skip: process.platform === "win32" }, () => {
+test("collectAssets wraps native filesystem errors with escaped asset paths", MODE_BITS_ENFORCED_ONLY, () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-assets-fs-escape-"));
   const bad = `blocked${ESC}[2J\nFORGED\rBAD.txt`;
   const file = path.join(dir, bad);
   try {
     writeFileSync(file, "secret");
     chmodSync(file, 0);
+    assertUnreadable(file);
     assert.throws(
       () => collectAssets(dir),
       (err) => {

@@ -12,7 +12,7 @@ import {
   updateTokenStore,
   writeTokenStore,
 } from "../../lib/token-store.js";
-import { ESC, assertNoRawTerminalControls } from "./helpers.js";
+import { ESC, MODE_BITS_ENFORCED_ONLY, POSIX_ONLY, assertNoRawTerminalControls, assertUnreadable } from "./helpers.js";
 
 /**
  * @template T
@@ -37,7 +37,6 @@ function writeLockOwner(lockDir, owner) {
 }
 
 const TOKEN_STORE_MODULE_URL = new URL("../../lib/token-store.js", import.meta.url).href;
-const POSIX_ONLY = { skip: process.platform === "win32" ? "POSIX-only filesystem behavior" : false };
 
 test("tokenStoreDir honors XDG_CONFIG_HOME, then falls back to ~/.config", () => {
   assert.equal(
@@ -265,7 +264,7 @@ test("updateTokenStore takeover clears stale temp files inside the lock", () => 
   });
 });
 
-test("updateTokenStore creates a usable lock under a restrictive umask", POSIX_ONLY, () => {
+test("updateTokenStore creates a usable lock under a restrictive umask", MODE_BITS_ENFORCED_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const oldUmask = process.umask(0o777);
@@ -325,13 +324,14 @@ test("updateTokenStore recovers an old lock whose owner pid appears alive", () =
   });
 });
 
-test("updateTokenStore recovers a stale lock with an unreadable owner file", POSIX_ONLY, () => {
+test("updateTokenStore recovers a stale lock with an unreadable owner file", MODE_BITS_ENFORCED_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
     mkdirSync(lockDir, { recursive: true });
     writeLockOwner(lockDir, "0:dead-test-owner");
     chmodSync(path.join(lockDir, "owner"), 0o000);
+    assertUnreadable(path.join(lockDir, "owner"));
     const staleTime = new Date(Date.now() - 10_000);
     utimesSync(lockDir, staleTime, staleTime);
 
@@ -346,7 +346,7 @@ test("updateTokenStore recovers a stale lock with an unreadable owner file", POS
   });
 });
 
-test("updateTokenStore recovers a stale lock with an unreadable release marker", POSIX_ONLY, () => {
+test("updateTokenStore recovers a stale lock with an unreadable release marker", MODE_BITS_ENFORCED_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -356,6 +356,7 @@ test("updateTokenStore recovers a stale lock with an unreadable release marker",
     const releasedPath = path.join(lockDir, "released");
     writeFileSync(releasedPath, owner, { mode: 0o600 });
     chmodSync(releasedPath, 0o000);
+    assertUnreadable(releasedPath);
     const staleTime = new Date(Date.now() - 10_000);
     utimesSync(lockDir, staleTime, staleTime);
 
@@ -451,7 +452,7 @@ test("updateTokenStore does not spin on a fresh dangling-symlink lock", POSIX_ON
   });
 });
 
-test("updateTokenStore recovers a stale lock with an unreadable directory", POSIX_ONLY, () => {
+test("updateTokenStore recovers a stale lock with an unreadable directory", MODE_BITS_ENFORCED_ONLY, () => {
   withTempDir((dir) => {
     const p = path.join(dir, "wdl", "credentials");
     const lockDir = `${p}.lock`;
@@ -459,20 +460,29 @@ test("updateTokenStore recovers a stale lock with an unreadable directory", POSI
     writeLockOwner(lockDir, "0:unreadable-dir-owner");
     const staleTime = new Date(Date.now() - 10_000);
     utimesSync(lockDir, staleTime, staleTime);
-    chmodSync(lockDir, 0o000);
+    try {
+      chmodSync(lockDir, 0o000);
+      assertUnreadable(path.join(lockDir, "owner"));
 
-    updateTokenStore(p, (store) => {
-      store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
-    }, { lockTimeoutMs: 0, staleLockMs: 1 });
+      updateTokenStore(p, (store) => {
+        store.namespaces.acme = { ADMIN_TOKEN: "tok-acme" };
+      }, { lockTimeoutMs: 0, staleLockMs: 1 });
 
-    assert.deepEqual(readTokenStore(p), {
-      defaultNs: null,
-      namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
-    });
-    assert.deepEqual(
-      readdirSync(path.dirname(p)).filter((name) => name.startsWith(`${path.basename(p)}.lock.recovered-`)),
-      []
-    );
+      assert.deepEqual(readTokenStore(p), {
+        defaultNs: null,
+        namespaces: { acme: { ADMIN_TOKEN: "tok-acme" } },
+      });
+      assert.deepEqual(
+        readdirSync(path.dirname(p)).filter((name) => name.startsWith(`${path.basename(p)}.lock.recovered-`)),
+        []
+      );
+    } finally {
+      // withTempDir's rmSync cannot recurse into a 0o000 directory, so an
+      // assertion failure above would surface as EACCES instead.
+      for (const name of readdirSync(path.dirname(p))) {
+        if (name.startsWith(`${path.basename(p)}.lock`)) chmodSync(path.join(path.dirname(p), name), 0o700);
+      }
+    }
   });
 });
 

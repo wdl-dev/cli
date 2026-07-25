@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runD1Command, serializeMigrationStatusRequest } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
-import { ESC, assertNoRawTerminalControls, mockDeps as sharedMockDeps, response } from "./helpers.js";
+import { ESC, MODE_BITS_ENFORCED_ONLY, POSIX_ONLY, assertNoRawTerminalControls, assertUnreadable, mockDeps as sharedMockDeps, response } from "./helpers.js";
 
 /** @typedef {import("../../lib/control-fetch.js").ControlFetchInit} ControlFetchInit */
 /** @typedef {import("./helpers.js").ControlCall} RecordedCall */
@@ -374,7 +374,7 @@ test("d1 migrations status surfaces control request body size errors", async () 
   }
 });
 
-test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform === "win32" }, async () => {
+test("d1 migrations apply rejects symlinked SQL files", POSIX_ONLY, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-symlink-"));
   try {
     const migrations = path.join(dir, "migrations");
@@ -403,7 +403,7 @@ test("d1 migrations apply rejects symlinked SQL files", { skip: process.platform
   }
 });
 
-test("d1 migrations apply escapes terminal controls in unreadable migration file errors", { skip: process.platform === "win32" }, async () => {
+test("d1 migrations apply escapes terminal controls in unreadable migration file errors", MODE_BITS_ENFORCED_ONLY, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-unreadable-"));
   const badName = `001_bad${ESC}[2J\nFORGED\rBAD.sql`;
   const badPath = path.join(dir, "migrations", badName);
@@ -412,6 +412,7 @@ test("d1 migrations apply escapes terminal controls in unreadable migration file
     mkdirSync(migrations);
     writeFileSync(badPath, "create table t (id integer);");
     chmodSync(badPath, 0o000);
+    assertUnreadable(badPath);
 
     await assert.rejects(
       () => runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {

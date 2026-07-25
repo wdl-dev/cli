@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.5.1
+
 ### Security
 
 - Bump the bundled `wrangler` to 4.114.0, which vendors a patched sharp

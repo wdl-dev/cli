@@ -52,10 +52,14 @@ function usageText() {
  *   controlUrl: string,
  *   authHeaders: Record<string, string>,
  * }} arg
- * @returns {Promise<{ version: unknown, platformDomain: unknown }>}
+ * @returns {Promise<{ version: unknown, platformDomain: unknown, workersDev: unknown, urls: unknown }>}
  */
 export async function postArtifactToControl({ context, ns, workerName, manifest, controlUrl, authHeaders }) {
   const { stdout, stderr } = context;
+  const workersDevOptOutRequested =
+    manifest !== null &&
+    typeof manifest === "object" &&
+    /** @type {{ workersDev?: unknown }} */ (manifest).workersDev === false;
   const jsonHeaders = {
     "content-type": "application/json",
     ...authHeaders,
@@ -65,7 +69,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   writeStatusLine(stdout, `[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
   // `version` comes from the control response; keep the raw value for the
   // promote request body — display sites escape via writeStatusLine.
-  const { version, warnings } = /** @type {{ version: unknown, warnings?: DeployWarning[] }} */ (
+  const { version, warnings, workersDev: deployedWorkersDev } = /** @type {{ version: unknown, warnings?: DeployWarning[], workersDev?: unknown }} */ (
     await fetchDeployJson({
       context,
       url: context.nsUrl("worker", workerName, "deploy"),
@@ -82,12 +86,18 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     })
   );
   renderDeployWarnings(warnings, { ns, workerName, stderr });
+  if (workersDevOptOutRequested && deployedWorkersDev !== false) {
+    throw new CliError(
+      "control did not confirm workers_dev = false; the uploaded version was retained but NOT promoted. " +
+      "Upgrade control and re-run `wdl deploy`."
+    );
+  }
 
   writeStatusLine(stdout, `[3/3] promoting ${version}`);
-  /** @type {{ platformDomain?: unknown }} */
+  /** @type {{ platformDomain?: unknown, workersDev?: unknown, urls?: unknown }} */
   let promoteBody;
   try {
-    promoteBody = /** @type {{ platformDomain?: unknown }} */ (
+    promoteBody = /** @type {{ platformDomain?: unknown, workersDev?: unknown, urls?: unknown }} */ (
       await context.fetchJson(
         context.nsUrl("worker", workerName, "promote"),
         {
@@ -105,7 +115,67 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     );
     throw err;
   }
-  return { version, platformDomain: promoteBody.platformDomain };
+  if (workersDevOptOutRequested && promoteBody.workersDev !== false) {
+    throw new CliError(
+      "control promoted the worker without preserving workers_dev = false; " +
+      "the platform-domain URL may still be active."
+    );
+  }
+  return {
+    version,
+    platformDomain: promoteBody.platformDomain,
+    workersDev: promoteBody.workersDev,
+    urls: promoteBody.urls,
+  };
+}
+
+/**
+ * @param {unknown} raw
+ * @param {boolean} includePlatform
+ */
+function promotedWorkerUrls(raw, includePlatform) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const urls = /** @type {{ platform?: unknown, routes?: unknown }} */ (raw);
+  const out = [];
+  if (includePlatform && typeof urls.platform === "string") out.push(urls.platform);
+  if (Array.isArray(urls.routes)) {
+    for (const routeUrl of urls.routes) {
+      if (typeof routeUrl === "string") out.push(routeUrl);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * @param {string} rawUrl
+ * @param {URL} controlUrl
+ * @param {boolean} isLocal
+ */
+function displayWorkerUrl(rawUrl, controlUrl, isLocal) {
+  /** @type {URL} */
+  let workerUrl;
+  try {
+    workerUrl = new URL(rawUrl);
+  } catch {
+    throw new CliError(`control returned an invalid Worker URL: ${escapeTerminalText(rawUrl)}`);
+  }
+  if (workerUrl.protocol !== "http:" && workerUrl.protocol !== "https:") {
+    throw new CliError(`control returned an invalid Worker URL: ${escapeTerminalText(rawUrl)}`);
+  }
+  // Rebuild only the origin: URL.href would normalize dot segments and change
+  // the operator's original route pattern.
+  const authorityStart = rawUrl.indexOf("://") + 3;
+  const suffixOffset = rawUrl.slice(authorityStart).search(/[/?#]/);
+  const authorityEnd =
+    suffixOffset === -1 ? rawUrl.length : authorityStart + suffixOffset;
+  if (rawUrl.slice(0, authorityEnd) !== `${workerUrl.protocol}//${workerUrl.host}`) {
+    throw new CliError(`control returned an invalid Worker URL: ${escapeTerminalText(rawUrl)}`);
+  }
+  const suffix =
+    suffixOffset === -1 ? "" : rawUrl.slice(authorityEnd);
+  const protocol = isLocal ? controlUrl.protocol : workerUrl.protocol;
+  const port = isLocal ? controlUrl.port : workerUrl.port;
+  return `${protocol}//${workerUrl.hostname}${port ? `:${port}` : ""}${suffix}`;
 }
 
 /**
@@ -290,7 +360,7 @@ async function runDeploy({ values, positionals, context: baseContext }) {
   });
   const { workerName, manifest } = await packWranglerProject(packOptions);
 
-  const { version, platformDomain } = await postArtifactToControl({
+  const { version, platformDomain, workersDev, urls } = await postArtifactToControl({
     context,
     ns,
     workerName,
@@ -301,10 +371,15 @@ async function runDeploy({ values, positionals, context: baseContext }) {
 
   stdout("");
   writeStatusLine(stdout, `✓ ${ns}/${workerName}@${version} live`);
-  const controlHost = new URL(controlUrl).hostname;
-  const isLocal = isLocalDevHost(controlHost);
-  if (isLocal) {
-    const workerUrl = new URL(controlUrl);
+  const parsedControlUrl = new URL(controlUrl);
+  const isLocal = isLocalDevHost(parsedControlUrl.hostname);
+  const reportedUrls = promotedWorkerUrls(urls, workersDev !== false);
+  if (reportedUrls.length > 0) {
+    for (const workerUrl of reportedUrls) {
+      writeStatusLine(stdout, `  ${displayWorkerUrl(workerUrl, parsedControlUrl, isLocal)}`);
+    }
+  } else if (workersDev !== false && isLocal) {
+    const workerUrl = new URL(parsedControlUrl);
     workerUrl.username = "";
     workerUrl.password = "";
     workerUrl.hostname = `${ns}.${platformDomain || "workers.local"}`;
@@ -312,7 +387,7 @@ async function runDeploy({ values, positionals, context: baseContext }) {
     workerUrl.search = "";
     workerUrl.hash = "";
     writeStatusLine(stdout, `  ${workerUrl.href}`);
-  } else if (platformDomain) {
+  } else if (workersDev !== false && platformDomain) {
     writeStatusLine(stdout, `  https://${ns}.${platformDomain}/${workerName}/`);
   }
 }

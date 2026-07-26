@@ -8,15 +8,17 @@
 
 ## 与 Cloudflare Workers 的关系
 
+**WDL 与 Cloudflare, Inc. 没有关联、背书或赞助关系。Cloudflare、Cloudflare Workers、Wrangler 和 workerd 是 Cloudflare, Inc. 的商标或注册商标。**
+
 - 你写的就是标准 module worker（`export default { fetch }`），配普通的 `wrangler.json` / `wrangler.jsonc` / `wrangler.toml`，pin 在 `wrangler@^4`。
 - `wdl deploy` 只用 `wrangler deploy --dry-run` 做**本地打包**——不会向 Cloudflare 发送任何东西。在 WDL 平台上不要用 `wrangler deploy` 发布，真实发布走 `wdl deploy`。
-- Worker 通过平台域名上带路径前缀的 URL 提供服务：
+- Worker 默认通过平台域名上带路径前缀的 URL 提供服务：
 
   ```text
   https://<namespace>.<platform-domain>/<worker-name>/<path>
   ```
 
-  Worker 看到的路径已剥掉 `/<worker-name>` 前缀。
+  Worker 看到的路径已剥掉 `/<worker-name>` 前缀。配置了 custom route 的 Worker 可以显式设置 `workers_dev = false`，关闭这个 URL，同时保持 route pattern active。
 
 - 差异分三类——**更强**（单区架构带来强一致 KV 和读己之写的 D1，外加 platform bindings 这类 WDL 新增能力）、**语义差异**、**未实现**——逐能力面的对照见[兼容矩阵](https://github.com/wdl-dev/cli/blob/main/GUIDE-zh.md#兼容性总结)。
 
@@ -133,7 +135,7 @@ Worker/项目目录名：[如果已知就填，例如 hello-counter；不知道�
 4. 立刻打开并阅读新目录里的 `AGENTS.md`，再根据我的功能打开 `node_modules/@wdl-dev/cli/docs/` 下相关文档和示例。注意：session 中新生成的 `AGENTS.md` 不会自动加载，必须显式读取。
 5. 根据功能修改 `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` 和 `src/`。需要第三方 API 鉴权 secret 时用 `wdl secret put --worker <worker-name> <KEY>` 写入，不要把 token 放进源码、Wrangler config 或 `.env`。
 6. 先跑 `npm run dry-run` 修复本地 bundle 问题，再跑 `npm run deploy` 部署。
-7. 部署成功后给我 Worker URL（形态 `https://<namespace>.<platform-domain>/<worker-name>/`）、本次改了哪些文件，以及我该如何验证。
+7. 部署成功后给我 CLI 输出的 Worker URL（启用时的平台 URL，以及所有 active route-pattern URL hint）、本次改了哪些文件，以及我该如何验证。
 ```
 
 </details>

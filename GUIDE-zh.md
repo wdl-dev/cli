@@ -232,6 +232,10 @@ https://<namespace>.<platform-domain>/<worker-name>/
 
 如果管理方已明确为你的 namespace 开通自定义 routing，会同时给出允许使用的 host 和 route pattern。普通 tenant 示例和首次部署不要配置 `route` / `routes`。如果 custom-host promote 因 host 已被占用而失败，请联系管理方；同一个 namespace 内的多个 Worker 仍可以在已开通的形态下按路径拆分流量。
 
+至少有一条 route pattern 的 Worker 可以设置 `workers_dev = false`，在保持 pattern route active 的同时关闭默认 WDL platform-domain URL。WDL 要求显式 opt out；仅声明 `route` / `routes` 不会关闭 platform URL。Deploy 摘要会输出每条 active route-pattern URL hint，并在 prefix pattern 上保留尾部 `*`，而且只在 platform-domain URL 启用时输出它。
+
+Cloudflare 用 `workers_dev` 控制 Worker 的 `*.workers.dev` route；版本化 preview URL 由独立的 `preview_urls` 控制，后者默认跟随 `workers_dev`。WDL 则把 `workers_dev` 映射到 namespace 的普通服务路径 `<ns>.<platform-domain>/<worker>/`，所以迁移 `wrangler.toml` 时要重新确认。WDL 还要求至少有一条 route pattern 才能显式 opt out，不会仅因声明了 route 就自动关闭该路径。WDL 不支持 `preview_urls`，CLI 会拒绝该字段。
+
 ## 支持的 wrangler 配置
 
 Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canonical validator 拒绝，包括不支持的 workerd compatibility flags 和 WDL 保留注入模块名。CLI 仍会对低成本的本地问题 fail-fast，例如 Python Workers modules，以及 `[vars]`、显式 bindings、隐式 `ASSETS` binding 之间的 runtime `env` 名称冲突。Deploy 和 secret mutation 还会校验留有 headroom 的 workerd 1 MiB `workerLoader` env budget；过大的 `[vars]`、secrets、binding metadata 或 retained versions 可能触发 `worker_env_too_large`。
@@ -244,6 +248,7 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | `[[d1_databases]]` | 支持 binding；先用 `wdl d1` 创建/管理数据库，再用 `database_id`（如果存在则优先）或 `database_name`（namespace 内唯一 alias）引用 |
 | `[assets] directory = "..."` | 支持；静态文件部署到平台资产服务，Worker 使用 `env.ASSETS.url(path)` 获取 URL |
 | `route` / `routes` | tenant self-service 暂未 GA；只有管理方明确为你的 namespace 开通自定义 host 时才使用 |
+| `workers_dev` | 可选 boolean，仅用于至少有一条 `route` / `routes` pattern 的 Worker；`false` 关闭默认 WDL platform-domain URL，省略或设为 `true` 时保持启用 |
 | `[triggers] crons` | 支持；Cloudflare 兼容写法，按 UTC 执行 |
 | `[[triggers.schedules]]` | 平台扩展；每条 cron 可单独指定 `timezone`，不属于 Cloudflare 标准配置 |
 | `[[queues.producers]]` / `[[queues.consumers]]` | 支持生产和消费；`delivery_delay` 和 `retry_delay` 生效，`max_concurrency` 会被拒绝 |
@@ -254,7 +259,7 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | Durable Objects | 支持本 worker 内 class，要求 class 列在 `[[migrations]].new_classes` 或 `[[migrations]].new_sqlite_classes`；两种写法在 WDL 都映射到 SQLite-backed DO storage。`script_name`、rename/delete migration 暂未实现。`stub.fetch()`、JSON-structured `stub.method(...args)` DO RPC、同步 `ctx.storage.sql`、alarm shim、普通 WebSocket upgrade 和 native WebSocket hibernation API surface 可用；平台级 session/cursor 恢复仍由应用自己处理 |
 | `[[workflows]]` | 支持当前 Worker 内定义的 workflow class。可用 `WorkflowEntrypoint`、`env.<BINDING>.create()`、`createBatch()`、`get()`、`status()`、`pause()`/`resume()`/`restart()`/`terminate()`、`sendEvent()`、`step.do()`/`sleep()`/`sleepUntil()`/`waitForEvent()`、retry、`NonRetryableError`、same-worker DO progress callback 和 runtime-observed parallel/DAG step。这是 WDL Workflows 支持，不是完整 Cloudflare Workflows parity。Instance payload、单 turn step fan-out 和并行 step 顺序都有上限；已启动的 step 必须 await。不支持 `script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer |
 | Analytics Engine | 暂不支持，部署时会拒绝 |
-| 其他未映射的 Wrangler 绑定/配置/策略段（例如 `ai`、`vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`workers_dev`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
+| 其他未映射的 Wrangler 绑定/配置/策略段（例如 `ai`、`vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
 
 WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]` 和 `[[services]].ns`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
 

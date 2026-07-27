@@ -97,9 +97,22 @@ The Worker sees the path **with the `/<worker-name>` prefix stripped**. Tenants
 have no custom routing capability unless the operator explicitly enables it; do
 not add `route` / `routes` in a first-time setup.
 
+When an operator has enabled custom routing, a Worker with at least one route
+pattern may set `workers_dev = false`. Its custom routes remain active, but the
+platform-domain URL above returns 404. The deploy summary prints each active
+route-pattern URL hint, preserving the trailing `*` on prefix patterns, and
+prints the platform-domain URL only while it is enabled. WDL does not infer this
+opt-out merely because `route` / `routes` is present.
+
+Cloudflare uses `workers_dev` for a Worker's `*.workers.dev` route; versioned
+preview URLs are controlled separately by `preview_urls`, which defaults to the
+`workers_dev` setting. WDL maps the flag to the ordinary platform-domain serving
+path above, so review it when porting a `wrangler.toml`. WDL does not support
+`preview_urls`; the CLI rejects that field.
+
 For local-development control hosts, the deploy summary reuses `CONTROL_URL`'s
-scheme and public port when constructing the Worker URL. `CONTROL_CONNECT_HOST`
-changes only the control socket target and never the printed Worker origin.
+scheme and public port for every printed Worker URL. `CONTROL_CONNECT_HOST`
+changes only the control socket target and never a printed Worker origin.
 
 ## Core commands
 
@@ -184,7 +197,8 @@ control. Upstream experimental enable flags, `legacy_error_serialization`, and
 `[[workflows]]`, `[[r2_buckets]]`, `[assets] directory`, `[triggers] crons`,
 `[[triggers.schedules]]` (with timezone, a platform extension),
 `[[queues.producers]]` / `[[queues.consumers]]`, `[[services]]`,
-`[[platform_bindings]]`, `[[exports]]`, `[env.<name>]`.
+`[[platform_bindings]]`, `[[exports]]`, `route` / `routes`, `workers_dev`,
+`[env.<name>]`.
 
 WDL parses `[[exports]]`, `[[platform_bindings]]`,
 `[[triggers.schedules]]`, and `[[services]].ns` itself and removes these private
@@ -212,9 +226,9 @@ and the control plane is canonical for workerd compatibility and bundle-shape
 policy.
 Top-level or selected-environment Wrangler runtime/deploy config fields and
 sections that WDL would otherwise ignore are also rejected by the CLI, including
-legacy `[site]` Workers Sites, `workers_dev`, `pages_build_output_dir`,
-`observability`, `limits`, `placement`, and other unsupported binding/config
-fields or sections named in the error.
+legacy `[site]` Workers Sites, `pages_build_output_dir`, `observability`,
+`limits`, `placement`, and other unsupported binding/config fields or sections
+named in the error.
 `assets.run_worker_first` is silently ignored.
 
 Cron triggers and queue consumers are runtime dispatch features; declare them

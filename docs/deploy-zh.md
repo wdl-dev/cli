@@ -52,7 +52,11 @@ https://<namespace>.<platform-domain>/<worker-name>/<path>
 
 Worker 看到的路径是**剥掉 `/<worker-name>` 之后的路径**。除非运维方明确启用，租户没有自定义路由能力；首次配置不要加 `route` / `routes`。
 
-对于本地开发 control host，deploy 摘要会复用 `CONTROL_URL` 的 scheme 和对外端口生成 Worker URL。`CONTROL_CONNECT_HOST` 只改变 control socket 的连接目标，不会改变输出的 Worker origin。
+运维方启用自定义路由后，至少有一条 route pattern 的 Worker 可以设置 `workers_dev = false`。Custom routes 会继续生效，但上面的 platform-domain URL 会返回 404。Deploy 摘要会输出每条 active route-pattern URL hint，并在 prefix pattern 上保留尾部 `*`，而且只在 platform-domain URL 启用时输出它。WDL 不会仅因配置了 `route` / `routes` 就推断为 opt-out。
+
+Cloudflare 用 `workers_dev` 控制 Worker 的 `*.workers.dev` route；版本化 preview URL 由独立的 `preview_urls` 控制，后者默认跟随 `workers_dev`。WDL 则把该开关映射到上面的普通 platform-domain 服务路径，所以迁移 `wrangler.toml` 时要重新确认。WDL 不支持 `preview_urls`，CLI 会拒绝该字段。
+
+对于本地开发 control host，deploy 摘要会为每个输出的 Worker URL 复用 `CONTROL_URL` 的 scheme 和对外端口。`CONTROL_CONNECT_HOST` 只改变 control socket 的连接目标，不会改变输出的 Worker origin。
 
 ## 核心命令
 
@@ -103,7 +107,7 @@ wdl deploy . --env production
 
 新项目应继续使用 `2026-06-17` compatibility date，除非具体功能需要更新日期。Control 会拒绝早于 `2026-04-01` 的显式日期、无效或未来日期，以及超出 bundled workerd 支持范围的日期。上游 experimental enable flags、`legacy_error_serialization` 和 `allow_irrevocable_stub_storage` 不受支持。
 
-**支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`[env.<name>]`。
+**支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[env.<name>]`。
 
 WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]` 和 `[[services]].ns`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
 
@@ -111,7 +115,7 @@ WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedu
 
 Tenant JSRPC 可以序列化 `Blob` value，并把 service 或 Durable Object class stub 作为 opaque capability argument 传递。接收方可以调用被委托的目标，但不能改写 stub 携带的 host-authored caller properties。Delegated stub 只应留在内存中；WDL 不支持长期 irrevocable stub storage。
 
-**不支持（部署失败）：** Analytics Engine。Durable Objects 仅支持同 worker class；`script_name`、rename/delete migration 暂未实现。WDL Workflows 仅支持当前 Worker 内定义的 workflow class，不是完整 Cloudflare Workflows parity；`script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 暂不支持。`route` / `routes` 仅在运维方启用时支持。Python Workers modules、不支持的 workerd compatibility flags 和 WDL 保留注入模块名会在部署时被拒绝：CLI 会对本地 `.py` module fail-fast，workerd compatibility 与 bundle-shape policy 由 control plane canonical 判断。WDL 会忽略、且无法映射进 manifest 的顶层或所选 env Wrangler runtime/deploy 配置字段和 section 也会由 CLI 直接拒绝，包括 legacy `[site]` Workers Sites、`workers_dev`、`pages_build_output_dir`、`observability`、`limits`、`placement`，以及错误信息点名的其它 unsupported binding/config field 或 section。`assets.run_worker_first` 会被静默忽略。
+**不支持（部署失败）：** Analytics Engine。Durable Objects 仅支持同 worker class；`script_name`、rename/delete migration 暂未实现。WDL Workflows 仅支持当前 Worker 内定义的 workflow class，不是完整 Cloudflare Workflows parity；`script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 暂不支持。`route` / `routes` 仅在运维方启用时支持。Python Workers modules、不支持的 workerd compatibility flags 和 WDL 保留注入模块名会在部署时被拒绝：CLI 会对本地 `.py` module fail-fast，workerd compatibility 与 bundle-shape policy 由 control plane canonical 判断。WDL 会忽略、且无法映射进 manifest 的顶层或所选 env Wrangler runtime/deploy 配置字段和 section 也会由 CLI 直接拒绝，包括 legacy `[site]` Workers Sites、`pages_build_output_dir`、`observability`、`limits`、`placement`，以及错误信息点名的其它 unsupported binding/config field 或 section。`assets.run_worker_first` 会被静默忽略。
 
 Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在可路由的 tenant Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是 public/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 

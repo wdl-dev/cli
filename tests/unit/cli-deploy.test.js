@@ -29,6 +29,7 @@ import {
   parseR2BucketsFromCfg,
   parseServicesFromCfg,
   parseTriggers,
+  parseWorkersDev,
   parseWorkflowsFromCfg,
   parseWranglerMajorVersion,
   resolveAssetsDir,
@@ -552,6 +553,23 @@ test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays"
       assertNoRawTerminalControls(message, "route errors");
       return true;
     }
+  );
+});
+
+test("parseWorkersDev requires an explicit boolean and a route for opt-out", () => {
+  assert.equal(parseWorkersDev({}, [], "wrangler.toml"), true);
+  assert.equal(parseWorkersDev({ workers_dev: true }, [], "wrangler.toml"), true);
+  assert.equal(
+    parseWorkersDev({ workers_dev: false }, ["app.example/*"], "wrangler.toml"),
+    false
+  );
+  assert.throws(
+    () => parseWorkersDev({ workers_dev: "false" }, ["app.example/*"], "wrangler.toml"),
+    /"workers_dev" must be a boolean/
+  );
+  assert.throws(
+    () => parseWorkersDev({ workers_dev: false }, [], "wrangler.toml"),
+    /requires at least one route pattern/
   );
 });
 
@@ -1354,6 +1372,8 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
     services: [{ binding: "AUTH", service: "auth" }],
     queues: { producers: [{ binding: "Q", queue: "top-q" }] },
     assets: { directory: "./top-public" },
+    route: "api.example/*",
+    workers_dev: false,
     env: {
       prod: {
         vars: { ENV: "prod" },
@@ -1368,6 +1388,8 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
   assert.deepEqual(cfg.queues, { consumers: [{ queue: "jobs" }] });
   assert.equal(cfg.services, undefined);
   assert.deepEqual(cfg.assets, { directory: "./top-public" });
+  assert.equal(cfg.route, "api.example/*");
+  assert.equal(cfg.workers_dev, false);
 });
 
 test("resolveWranglerConfig: selected environment can override inherited assets", () => {
@@ -1383,6 +1405,21 @@ test("resolveWranglerConfig: selected environment can override inherited assets"
   }, "prod", "wrangler.jsonc");
 
   assert.deepEqual(cfg.assets, { directory: "./prod-public" });
+});
+
+test("resolveWranglerConfig: selected environment can override inherited workers_dev", () => {
+  const { cfg } = resolveWranglerConfig({
+    name: "demo",
+    main: "src/index.js",
+    workers_dev: true,
+    env: {
+      prod: {
+        workers_dev: false,
+      },
+    },
+  }, "prod", "wrangler.jsonc");
+
+  assert.equal(cfg.workers_dev, false);
 });
 
 test("resolveWranglerConfig: selected environment can override durable object migrations", () => {
@@ -1614,7 +1651,6 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     "legacy_env",
     "preview_urls",
     "upload_source_maps",
-    "workers_dev",
   ]);
   for (const key of [
     "addresses",
@@ -1651,7 +1687,6 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
     "vpc_services",
     "websearch",
     "worker_loaders",
-    "workers_dev",
   ]) {
     assert.throws(
       () => validateUnsupportedWranglerConfig({
@@ -1662,15 +1697,6 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
       new RegExp(`unsupported Wrangler field "${key}"`)
     );
   }
-
-  assert.throws(
-    () => validateUnsupportedWranglerConfig({
-      name: "demo",
-      main: "src/index.js",
-      workers_dev: false,
-    }, null, "wrangler.toml"),
-    /unsupported Wrangler field "workers_dev"/
-  );
 
   assert.throws(
     () => validateUnsupportedWranglerConfig({
@@ -2642,13 +2668,287 @@ test("runDeployCommand preserves the local control scheme and port in the Worker
           fetchCount += 1;
           return fetchCount === 1
             ? response({ version: "v1", warnings: [] })
-            : response({ platformDomain: "workers.local" });
+            : response({
+                platformDomain: "workers.local",
+                workersDev: true,
+                urls: {
+                  platform: "https://demo.workers.local/api/",
+                  routes: [],
+                },
+              });
         },
       }
     );
 
     assert.ok(lines.includes("  https://demo.workers.local:8443/api/"));
     assert.equal(lines.some((line) => line.includes("curl -H")), false, "no curl hint");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand preserves canonical URL authorities and route-pattern suffixes", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-route-urls-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "api"',
+      'main = "src/index.js"',
+      'routes = ["api.example/apiv1/*", "api.example/mcp", "127.0.0.1/ip"]',
+    ].join("\n"));
+
+    /** @type {string[]} */
+    const lines = [];
+    let fetchCount = 0;
+    await runDeployCommand(
+      [dir, "--ns", "demo", "--control-url", "https://control.example"],
+      {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: (/** @type {string} */ line) => lines.push(/** @type {string} */ line),
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => {
+          fetchCount += 1;
+          return fetchCount === 1
+            ? response({ version: "v1", warnings: [], workersDev: true })
+            : response({
+                platformDomain: "workers.example",
+                workersDev: true,
+                urls: {
+                  routes: [
+                    "https://api.example/apiv1/*",
+                    "https://api.example/mcp",
+                    "https://127.0.0.1/ip",
+                  ],
+                },
+              });
+        },
+      }
+    );
+
+    assert.ok(lines.includes("  https://demo.workers.example/api/"));
+    assert.ok(lines.includes("  https://api.example/apiv1/*"));
+    assert.ok(lines.includes("  https://api.example/mcp"));
+    assert.ok(lines.includes("  https://127.0.0.1/ip"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand omits non-canonical URL hints without failing a promoted deploy", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-route-url-authority-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "api"',
+      'main = "src/index.js"',
+      'route = "app.example/hello/*"',
+    ].join("\n"));
+
+    const invalidRouteUrls = [
+      "HTTPS://API.EXAMPLE:443/apiv1/*",
+      "https://bücher.example/mcp",
+      "https://app.example\\evil/hello/*",
+      "https://user@app.example/hello/*",
+      "https://app.example\t/hello/*",
+      "https://127.1/hello/*",
+      "https://2130706433/hello/*",
+      "https://0x7f.0.0.1/hello/*",
+      "https://①②⑦.⓪.⓪.①/hello/*",
+    ];
+    const invalidPlatformUrl = "HTTPS://DEMO.WORKERS.EXAMPLE:443/api/";
+    /** @type {string[]} */
+    const lines = [];
+    /** @type {string[]} */
+    const warnings = [];
+    let fetchCount = 0;
+    await runDeployCommand(
+      [dir, "--ns", "demo", "--control-url", "https://control.example"],
+      {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: (/** @type {string} */ line) => lines.push(line),
+        stderr: (/** @type {string} */ line) => warnings.push(line),
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => {
+          fetchCount += 1;
+          return fetchCount === 1
+            ? response({ version: "v1", warnings: [], workersDev: true })
+            : response({
+                platformDomain: "workers.example",
+                workersDev: true,
+                urls: {
+                  platform: invalidPlatformUrl,
+                  routes: [
+                    "https://valid.example/ok/*",
+                    ...invalidRouteUrls,
+                    "https://valid.example/after/*",
+                  ],
+                },
+              });
+        },
+      }
+    );
+
+    assert.equal(fetchCount, 2);
+    assert.ok(lines.includes("✓ demo/api@v1 live"));
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith("  http")),
+      [
+        "  https://demo.workers.example/api/",
+        "  https://valid.example/ok/*",
+        "  https://valid.example/after/*",
+      ]
+    );
+    assert.equal(warnings.length, invalidRouteUrls.length + 1);
+    for (const warning of warnings) {
+      assert.match(warning, /warning: deployment succeeded, but control returned an invalid Worker URL hint/);
+      assertNoRawTerminalControls(warning, "invalid Worker URL warning");
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand sends workers_dev opt-out and prints only route-pattern URL hints", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-workers-dev-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "api"',
+      'main = "src/index.js"',
+      'workers_dev = false',
+      'route = "app.example/a/../b/*"',
+    ].join("\n"));
+
+    for (const { label, controlUrl, platformDomain } of [
+      { label: "remote", controlUrl: "https://control.example", platformDomain: "workers.example" },
+      { label: "local", controlUrl: "http://localhost:8443", platformDomain: "workers.local" },
+    ]) {
+      /** @type {string[]} */
+      const lines = [];
+      /** @type {RecordedFetch[]} */
+      const fetchCalls = [];
+      await runDeployCommand(
+        [dir, "--ns", "demo", "--control-url", controlUrl],
+        {
+          env: { ADMIN_TOKEN: "tok" },
+          stdout: (/** @type {string} */ line) => lines.push(/** @type {string} */ line),
+          stderr: () => {},
+          execFile: fakeWranglerExecFile,
+          controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+            fetchCalls.push({ url, init });
+            return fetchCalls.length === 1
+              ? response({ version: "v1", warnings: [], workersDev: false })
+              : response({
+                  platformDomain,
+                  workersDev: false,
+                  urls: { routes: ["https://app.example/a/../b/*"] },
+                });
+          },
+        }
+      );
+
+      const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
+      assert.deepEqual(manifest.routes, ["app.example/a/../b/*"]);
+      assert.equal(manifest.workersDev, false);
+      assert.ok(lines.includes("✓ demo/api@v1 live"));
+      assert.equal(
+        lines.some((line) => line.includes(platformDomain)),
+        false,
+        `${label} platform URL`
+      );
+      assert.ok(lines.includes(
+        label === "local"
+          ? "  http://app.example:8443/a/../b/*"
+          : "  https://app.example/a/../b/*"
+      ));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand does not promote when control omits the workers_dev opt-out acknowledgement", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-workers-dev-skew-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "api"',
+      'main = "src/index.js"',
+      'workers_dev = false',
+      'route = "app.example/*"',
+    ].join("\n"));
+
+    /** @type {RecordedFetch[]} */
+    const fetchCalls = [];
+    await assert.rejects(
+      runDeployCommand(
+        [dir, "--ns", "demo", "--control-url", "https://control.example"],
+        {
+          env: { ADMIN_TOKEN: "tok" },
+          stdout: () => {},
+          stderr: () => {},
+          execFile: fakeWranglerExecFile,
+          controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+            fetchCalls.push({ url, init });
+            return response({ version: "v1", warnings: [] });
+          },
+        }
+      ),
+      /control did not confirm workers_dev = false.*NOT promoted/
+    );
+    assert.equal(fetchCalls.length, 1);
+    assert.match(fetchCalls[0].url, /\/deploy$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand fails when promote does not preserve the workers_dev opt-out", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-workers-dev-promote-skew-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), [
+      'name = "api"',
+      'main = "src/index.js"',
+      'workers_dev = false',
+      'route = "app.example/*"',
+    ].join("\n"));
+
+    /** @type {RecordedFetch[]} */
+    const fetchCalls = [];
+    await assert.rejects(
+      runDeployCommand(
+        [dir, "--ns", "demo", "--control-url", "https://control.example"],
+        {
+          env: { ADMIN_TOKEN: "tok" },
+          stdout: () => {},
+          stderr: () => {},
+          execFile: fakeWranglerExecFile,
+          controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+            fetchCalls.push({ url, init });
+            return fetchCalls.length === 1
+              ? response({ version: "v1", warnings: [], workersDev: false })
+              : response({
+                  platformDomain: "workers.example",
+                  workersDev: true,
+                  urls: {
+                    platform: "https://demo.workers.example/api/",
+                    routes: ["https://app.example/*"],
+                  },
+                });
+          },
+        }
+      ),
+      /control promoted the worker without preserving workers_dev = false/
+    );
+    assert.equal(fetchCalls.length, 2);
+    assert.match(fetchCalls[1].url, /\/promote$/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -56,9 +56,16 @@ The control plane is canonical for unsupported runtime shapes such as
 unsupported workerd compatibility flags and WDL-reserved injected module
 names. The CLI still fails fast for cheap local cases such as Python Workers
 modules, unmapped top-level or selected-env Wrangler runtime/deploy keys
-(`[site]`, `workers_dev`, `pages_build_output_dir`, `observability`, `limits`,
+(`[site]`, `pages_build_output_dir`, `observability`, `limits`,
 `placement`, etc.), and ambiguous runtime `env` name collisions between
 `[vars]`, explicit bindings, and the implicit `ASSETS` binding.
+For an operator-enabled routed Worker, explicit `workers_dev = false` keeps its
+pattern routes active while disabling the default platform-domain URL; it
+requires at least one `route` / `routes` pattern and is not inferred.
+The deploy summary prints every active route-pattern URL hint, preserving the
+trailing `*` on prefix patterns, and includes the platform-domain URL only while
+it is enabled. Cloudflare's separate `preview_urls` field is unsupported and
+rejected by the CLI.
 WDL-only `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`, and
 `[[services]].ns` are parsed by the CLI and removed from Wrangler's temporary
 bundle config; other fields retain their existing Wrangler passthrough

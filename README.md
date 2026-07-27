@@ -15,18 +15,24 @@ Workflows, secrets, and live logs — inside your own namespace.
 
 ## How it relates to Cloudflare Workers
 
+**WDL is not affiliated with, endorsed by, or sponsored by Cloudflare, Inc.
+Cloudflare, Cloudflare Workers, Wrangler, and workerd are trademarks or
+registered trademarks of Cloudflare, Inc.**
+
 - You write standard module workers (`export default { fetch }`) with a normal
   `wrangler.json` / `wrangler.jsonc` / `wrangler.toml`, pinned to `wrangler@^4`.
 - `wdl deploy` runs `wrangler deploy --dry-run` **for local bundling only** —
   nothing is ever sent to Cloudflare. Do not use `wrangler deploy` against a WDL
   platform; releases go through `wdl deploy`.
-- Workers serve from a path-prefixed URL on the platform domain:
+- Workers serve from a path-prefixed URL on the platform domain by default:
 
   ```text
   https://<namespace>.<platform-domain>/<worker-name>/<path>
   ```
 
-  The worker sees the path with the `/<worker-name>` prefix stripped.
+  The worker sees the path with the `/<worker-name>` prefix stripped. A routed
+  Worker can explicitly set `workers_dev = false` to disable this URL while
+  keeping its custom route patterns active.
 
 - Differences come in three kinds — **stronger** (the single-region architecture
   gives strongly consistent KV and read-your-writes D1, and WDL adds
@@ -171,7 +177,7 @@ Steps:
 4. Immediately open and read `AGENTS.md` in the new directory, then open the relevant docs and examples under `node_modules/@wdl-dev/cli/docs/` for my feature. Note: a freshly generated `AGENTS.md` is not loaded automatically mid-session — read it explicitly.
 5. Edit `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` and `src/` for the feature. Push third-party API secrets with `wdl secret put --worker <worker-name> <KEY>`; never put tokens in source, Wrangler config, or `.env`.
 6. Run `npm run dry-run` first and fix local bundle issues, then deploy with `npm run deploy`.
-7. After a successful deploy, give me the Worker URL (shape `https://<namespace>.<platform-domain>/<worker-name>/`), the files you changed, and how I should verify.
+7. After a successful deploy, give me the Worker URL(s) printed by the CLI (the platform URL when enabled, plus any active route-pattern URL hints), the files you changed, and how I should verify.
 ```
 
 </details>

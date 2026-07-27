@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
-import { escapeTerminalText, formatKnownWarning, shellArgForDisplay, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, formatDiagnosticValue, formatKnownWarning, shellArgForDisplay, writeStatusLine } from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
@@ -52,10 +52,14 @@ function usageText() {
  *   controlUrl: string,
  *   authHeaders: Record<string, string>,
  * }} arg
- * @returns {Promise<{ version: unknown, platformDomain: unknown }>}
+ * @returns {Promise<{ version: unknown, platformDomain: unknown, workersDev: unknown, urls: unknown }>}
  */
 export async function postArtifactToControl({ context, ns, workerName, manifest, controlUrl, authHeaders }) {
   const { stdout, stderr } = context;
+  const workersDevOptOutRequested =
+    manifest !== null &&
+    typeof manifest === "object" &&
+    /** @type {{ workersDev?: unknown }} */ (manifest).workersDev === false;
   const jsonHeaders = {
     "content-type": "application/json",
     ...authHeaders,
@@ -65,7 +69,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   writeStatusLine(stdout, `[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
   // `version` comes from the control response; keep the raw value for the
   // promote request body — display sites escape via writeStatusLine.
-  const { version, warnings } = /** @type {{ version: unknown, warnings?: DeployWarning[] }} */ (
+  const { version, warnings, workersDev: deployedWorkersDev } = /** @type {{ version: unknown, warnings?: DeployWarning[], workersDev?: unknown }} */ (
     await fetchDeployJson({
       context,
       url: context.nsUrl("worker", workerName, "deploy"),
@@ -82,12 +86,18 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     })
   );
   renderDeployWarnings(warnings, { ns, workerName, stderr });
+  if (workersDevOptOutRequested && deployedWorkersDev !== false) {
+    throw new CliError(
+      "control did not confirm workers_dev = false; the uploaded version was retained but NOT promoted. " +
+      "Upgrade control and re-run `wdl deploy`."
+    );
+  }
 
   writeStatusLine(stdout, `[3/3] promoting ${version}`);
-  /** @type {{ platformDomain?: unknown }} */
+  /** @type {{ platformDomain?: unknown, workersDev?: unknown, urls?: unknown }} */
   let promoteBody;
   try {
-    promoteBody = /** @type {{ platformDomain?: unknown }} */ (
+    promoteBody = /** @type {{ platformDomain?: unknown, workersDev?: unknown, urls?: unknown }} */ (
       await context.fetchJson(
         context.nsUrl("worker", workerName, "promote"),
         {
@@ -105,7 +115,75 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     );
     throw err;
   }
-  return { version, platformDomain: promoteBody.platformDomain };
+  if (workersDevOptOutRequested && promoteBody.workersDev !== false) {
+    throw new CliError(
+      "control promoted the worker without preserving workers_dev = false; " +
+      "the platform-domain URL may still be active."
+    );
+  }
+  return {
+    version,
+    platformDomain: promoteBody.platformDomain,
+    workersDev: promoteBody.workersDev,
+    urls: promoteBody.urls,
+  };
+}
+
+/**
+ * @param {unknown} raw
+ * @param {boolean} includePlatform
+ * @returns {{ platform: string | null, routes: string[] }}
+ */
+function promotedWorkerUrlHints(raw, includePlatform) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return { platform: null, routes: [] };
+  }
+  const urls = /** @type {{ platform?: unknown, routes?: unknown }} */ (raw);
+  const platform =
+    includePlatform && typeof urls.platform === "string" ? urls.platform : null;
+  const seen = new Set(platform === null ? [] : [platform]);
+  const routes = [];
+  if (Array.isArray(urls.routes)) {
+    for (const routeUrl of urls.routes) {
+      if (typeof routeUrl !== "string" || seen.has(routeUrl)) continue;
+      seen.add(routeUrl);
+      routes.push(routeUrl);
+    }
+  }
+  return { platform, routes };
+}
+
+/**
+ * @param {string} rawUrl
+ * @param {URL} controlUrl
+ * @param {boolean} isLocal
+ * @returns {string | null}
+ */
+function displayWorkerUrl(rawUrl, controlUrl, isLocal) {
+  /** @type {URL} */
+  let workerUrl;
+  try {
+    workerUrl = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (workerUrl.protocol !== "http:" && workerUrl.protocol !== "https:") {
+    return null;
+  }
+  const authorityStart = rawUrl.indexOf("://") + 3;
+  const suffixOffset = rawUrl.slice(authorityStart).search(/[/?#]/);
+  const authorityEnd =
+    suffixOffset === -1 ? rawUrl.length : authorityStart + suffixOffset;
+  if (rawUrl.slice(0, authorityEnd) !== `${workerUrl.protocol}//${workerUrl.host}`) {
+    return null;
+  }
+  // Normalize only the origin. URL.href would also normalize dot segments and
+  // change the operator's original route pattern.
+  const suffix =
+    suffixOffset === -1 ? "" : rawUrl.slice(authorityEnd);
+  const protocol = isLocal ? controlUrl.protocol : workerUrl.protocol;
+  const port = isLocal ? controlUrl.port : workerUrl.port;
+  return `${protocol}//${workerUrl.hostname}${port ? `:${port}` : ""}${suffix}`;
 }
 
 /**
@@ -290,7 +368,7 @@ async function runDeploy({ values, positionals, context: baseContext }) {
   });
   const { workerName, manifest } = await packWranglerProject(packOptions);
 
-  const { version, platformDomain } = await postArtifactToControl({
+  const { version, platformDomain, workersDev, urls } = await postArtifactToControl({
     context,
     ns,
     workerName,
@@ -299,12 +377,30 @@ async function runDeploy({ values, positionals, context: baseContext }) {
     authHeaders,
   });
 
+  const parsedControlUrl = new URL(controlUrl);
+  const isLocal = isLocalDevHost(parsedControlUrl.hostname);
+  const reportedUrlHints = promotedWorkerUrlHints(urls, workersDev !== false);
+  const invalidUrlHints = [];
+  const displayedPlatformUrl =
+    reportedUrlHints.platform === null
+      ? null
+      : displayWorkerUrl(reportedUrlHints.platform, parsedControlUrl, isLocal);
+  if (reportedUrlHints.platform !== null && displayedPlatformUrl === null) {
+    invalidUrlHints.push(reportedUrlHints.platform);
+  }
+  const displayedRouteUrls = [];
+  for (const workerUrl of reportedUrlHints.routes) {
+    const displayedUrl = displayWorkerUrl(workerUrl, parsedControlUrl, isLocal);
+    if (displayedUrl === null) invalidUrlHints.push(workerUrl);
+    else displayedRouteUrls.push(displayedUrl);
+  }
+
   stdout("");
   writeStatusLine(stdout, `✓ ${ns}/${workerName}@${version} live`);
-  const controlHost = new URL(controlUrl).hostname;
-  const isLocal = isLocalDevHost(controlHost);
-  if (isLocal) {
-    const workerUrl = new URL(controlUrl);
+  if (displayedPlatformUrl !== null) {
+    writeStatusLine(stdout, `  ${displayedPlatformUrl}`);
+  } else if (workersDev !== false && isLocal) {
+    const workerUrl = new URL(parsedControlUrl);
     workerUrl.username = "";
     workerUrl.password = "";
     workerUrl.hostname = `${ns}.${platformDomain || "workers.local"}`;
@@ -312,8 +408,16 @@ async function runDeploy({ values, positionals, context: baseContext }) {
     workerUrl.search = "";
     workerUrl.hash = "";
     writeStatusLine(stdout, `  ${workerUrl.href}`);
-  } else if (platformDomain) {
+  } else if (workersDev !== false && platformDomain) {
     writeStatusLine(stdout, `  https://${ns}.${platformDomain}/${workerName}/`);
+  }
+  for (const workerUrl of displayedRouteUrls) writeStatusLine(stdout, `  ${workerUrl}`);
+  for (const workerUrl of invalidUrlHints) {
+    writeStatusLine(
+      stderr,
+      "warning: deployment succeeded, but control returned an invalid Worker URL hint; " +
+        `omitted from output: ${formatDiagnosticValue(workerUrl)}`
+    );
   }
 }
 

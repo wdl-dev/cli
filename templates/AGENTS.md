@@ -49,9 +49,16 @@ enable flags, `legacy_error_serialization`, and
 plane is canonical for unsupported runtime shapes such as unsupported workerd
 compatibility flags and WDL-reserved injected module names. The CLI still fails
 fast for cheap local cases such as Python Workers modules, unmapped top-level or
-selected-env Wrangler runtime/deploy keys (`[site]`, `workers_dev`,
-`pages_build_output_dir`, etc.), and ambiguous runtime `env` name collisions
+selected-env Wrangler runtime/deploy keys (`[site]`, `pages_build_output_dir`,
+etc.), and ambiguous runtime `env` name collisions
 between `[vars]`, explicit bindings, and the implicit `ASSETS` binding.
+For an operator-enabled routed Worker, explicit `workers_dev = false` keeps its
+pattern routes active while disabling the default platform-domain URL; it
+requires at least one `route` / `routes` pattern and is not inferred.
+The deploy summary prints every active route-pattern URL hint, preserving the
+trailing `*` on prefix patterns, and includes the platform-domain URL only while
+it is enabled. Cloudflare's separate `preview_urls` field is unsupported and
+rejected by the CLI.
 
 ## Runnable end-to-end examples
 

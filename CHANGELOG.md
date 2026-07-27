@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.6.1
+
+### Changed
+
+- Pin Prettier and enforce repository formatting in CI and release validation.
+
 ## 1.6.0
 
 ### Added

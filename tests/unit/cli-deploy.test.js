@@ -2687,7 +2687,7 @@ test("runDeployCommand preserves the local control scheme and port in the Worker
   }
 });
 
-test("runDeployCommand preserves prefix and exact route-pattern URL hints", async () => {
+test("runDeployCommand preserves canonical URL authorities and route-pattern suffixes", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-route-urls-"));
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -2695,7 +2695,7 @@ test("runDeployCommand preserves prefix and exact route-pattern URL hints", asyn
     writeFileSync(path.join(dir, "wrangler.toml"), [
       'name = "api"',
       'main = "src/index.js"',
-      'routes = ["api.example/apiv1/*", "api.example/mcp"]',
+      'routes = ["api.example/apiv1/*", "api.example/mcp", "127.0.0.1/ip"]',
     ].join("\n"));
 
     /** @type {string[]} */
@@ -2716,10 +2716,10 @@ test("runDeployCommand preserves prefix and exact route-pattern URL hints", asyn
                 platformDomain: "workers.example",
                 workersDev: true,
                 urls: {
-                  platform: "https://demo.workers.example/api/",
                   routes: [
                     "https://api.example/apiv1/*",
                     "https://api.example/mcp",
+                    "https://127.0.0.1/ip",
                   ],
                 },
               });
@@ -2730,12 +2730,13 @@ test("runDeployCommand preserves prefix and exact route-pattern URL hints", asyn
     assert.ok(lines.includes("  https://demo.workers.example/api/"));
     assert.ok(lines.includes("  https://api.example/apiv1/*"));
     assert.ok(lines.includes("  https://api.example/mcp"));
+    assert.ok(lines.includes("  https://127.0.0.1/ip"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("runDeployCommand rejects ambiguous control-reported Worker URL authorities", async () => {
+test("runDeployCommand omits non-canonical URL hints without failing a promoted deploy", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-route-url-authority-"));
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -2746,33 +2747,65 @@ test("runDeployCommand rejects ambiguous control-reported Worker URL authorities
       'route = "app.example/hello/*"',
     ].join("\n"));
 
+    const invalidRouteUrls = [
+      "HTTPS://API.EXAMPLE:443/apiv1/*",
+      "https://bücher.example/mcp",
+      "https://app.example\\evil/hello/*",
+      "https://user@app.example/hello/*",
+      "https://app.example\t/hello/*",
+      "https://127.1/hello/*",
+      "https://2130706433/hello/*",
+      "https://0x7f.0.0.1/hello/*",
+      "https://①②⑦.⓪.⓪.①/hello/*",
+    ];
+    const invalidPlatformUrl = "HTTPS://DEMO.WORKERS.EXAMPLE:443/api/";
+    /** @type {string[]} */
+    const lines = [];
+    /** @type {string[]} */
+    const warnings = [];
     let fetchCount = 0;
-    await assert.rejects(
-      runDeployCommand(
-        [dir, "--ns", "demo", "--control-url", "https://control.example"],
-        {
-          env: { ADMIN_TOKEN: "tok" },
-          stdout: () => {},
-          stderr: () => {},
-          execFile: fakeWranglerExecFile,
-          controlFetch: async () => {
-            fetchCount += 1;
-            return fetchCount === 1
-              ? response({ version: "v1", warnings: [], workersDev: true })
-              : response({
-                  platformDomain: "workers.example",
-                  workersDev: true,
-                  urls: {
-                    platform: "https://demo.workers.example/api/",
-                    routes: ["https://app.example\\evil/hello/*"],
-                  },
-                });
-          },
-        }
-      ),
-      /control returned an invalid Worker URL/
+    await runDeployCommand(
+      [dir, "--ns", "demo", "--control-url", "https://control.example"],
+      {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: (/** @type {string} */ line) => lines.push(line),
+        stderr: (/** @type {string} */ line) => warnings.push(line),
+        execFile: fakeWranglerExecFile,
+        controlFetch: async () => {
+          fetchCount += 1;
+          return fetchCount === 1
+            ? response({ version: "v1", warnings: [], workersDev: true })
+            : response({
+                platformDomain: "workers.example",
+                workersDev: true,
+                urls: {
+                  platform: invalidPlatformUrl,
+                  routes: [
+                    "https://valid.example/ok/*",
+                    ...invalidRouteUrls,
+                    "https://valid.example/after/*",
+                  ],
+                },
+              });
+        },
+      }
     );
+
     assert.equal(fetchCount, 2);
+    assert.ok(lines.includes("✓ demo/api@v1 live"));
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith("  http")),
+      [
+        "  https://demo.workers.example/api/",
+        "  https://valid.example/ok/*",
+        "  https://valid.example/after/*",
+      ]
+    );
+    assert.equal(warnings.length, invalidRouteUrls.length + 1);
+    for (const warning of warnings) {
+      assert.match(warning, /warning: deployment succeeded, but control returned an invalid Worker URL hint/);
+      assertNoRawTerminalControls(warning, "invalid Worker URL warning");
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

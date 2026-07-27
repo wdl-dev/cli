@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
-import { escapeTerminalText, formatKnownWarning, shellArgForDisplay, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, formatDiagnosticValue, formatKnownWarning, shellArgForDisplay, writeStatusLine } from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
@@ -132,24 +132,32 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
 /**
  * @param {unknown} raw
  * @param {boolean} includePlatform
+ * @returns {{ platform: string | null, routes: string[] }}
  */
-function promotedWorkerUrls(raw, includePlatform) {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return [];
+function promotedWorkerUrlHints(raw, includePlatform) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return { platform: null, routes: [] };
+  }
   const urls = /** @type {{ platform?: unknown, routes?: unknown }} */ (raw);
-  const out = [];
-  if (includePlatform && typeof urls.platform === "string") out.push(urls.platform);
+  const platform =
+    includePlatform && typeof urls.platform === "string" ? urls.platform : null;
+  const seen = new Set(platform === null ? [] : [platform]);
+  const routes = [];
   if (Array.isArray(urls.routes)) {
     for (const routeUrl of urls.routes) {
-      if (typeof routeUrl === "string") out.push(routeUrl);
+      if (typeof routeUrl !== "string" || seen.has(routeUrl)) continue;
+      seen.add(routeUrl);
+      routes.push(routeUrl);
     }
   }
-  return [...new Set(out)];
+  return { platform, routes };
 }
 
 /**
  * @param {string} rawUrl
  * @param {URL} controlUrl
  * @param {boolean} isLocal
+ * @returns {string | null}
  */
 function displayWorkerUrl(rawUrl, controlUrl, isLocal) {
   /** @type {URL} */
@@ -157,20 +165,20 @@ function displayWorkerUrl(rawUrl, controlUrl, isLocal) {
   try {
     workerUrl = new URL(rawUrl);
   } catch {
-    throw new CliError(`control returned an invalid Worker URL: ${escapeTerminalText(rawUrl)}`);
+    return null;
   }
   if (workerUrl.protocol !== "http:" && workerUrl.protocol !== "https:") {
-    throw new CliError(`control returned an invalid Worker URL: ${escapeTerminalText(rawUrl)}`);
+    return null;
   }
-  // Rebuild only the origin: URL.href would normalize dot segments and change
-  // the operator's original route pattern.
   const authorityStart = rawUrl.indexOf("://") + 3;
   const suffixOffset = rawUrl.slice(authorityStart).search(/[/?#]/);
   const authorityEnd =
     suffixOffset === -1 ? rawUrl.length : authorityStart + suffixOffset;
   if (rawUrl.slice(0, authorityEnd) !== `${workerUrl.protocol}//${workerUrl.host}`) {
-    throw new CliError(`control returned an invalid Worker URL: ${escapeTerminalText(rawUrl)}`);
+    return null;
   }
+  // Normalize only the origin. URL.href would also normalize dot segments and
+  // change the operator's original route pattern.
   const suffix =
     suffixOffset === -1 ? "" : rawUrl.slice(authorityEnd);
   const protocol = isLocal ? controlUrl.protocol : workerUrl.protocol;
@@ -369,15 +377,28 @@ async function runDeploy({ values, positionals, context: baseContext }) {
     authHeaders,
   });
 
-  stdout("");
-  writeStatusLine(stdout, `✓ ${ns}/${workerName}@${version} live`);
   const parsedControlUrl = new URL(controlUrl);
   const isLocal = isLocalDevHost(parsedControlUrl.hostname);
-  const reportedUrls = promotedWorkerUrls(urls, workersDev !== false);
-  if (reportedUrls.length > 0) {
-    for (const workerUrl of reportedUrls) {
-      writeStatusLine(stdout, `  ${displayWorkerUrl(workerUrl, parsedControlUrl, isLocal)}`);
-    }
+  const reportedUrlHints = promotedWorkerUrlHints(urls, workersDev !== false);
+  const invalidUrlHints = [];
+  const displayedPlatformUrl =
+    reportedUrlHints.platform === null
+      ? null
+      : displayWorkerUrl(reportedUrlHints.platform, parsedControlUrl, isLocal);
+  if (reportedUrlHints.platform !== null && displayedPlatformUrl === null) {
+    invalidUrlHints.push(reportedUrlHints.platform);
+  }
+  const displayedRouteUrls = [];
+  for (const workerUrl of reportedUrlHints.routes) {
+    const displayedUrl = displayWorkerUrl(workerUrl, parsedControlUrl, isLocal);
+    if (displayedUrl === null) invalidUrlHints.push(workerUrl);
+    else displayedRouteUrls.push(displayedUrl);
+  }
+
+  stdout("");
+  writeStatusLine(stdout, `✓ ${ns}/${workerName}@${version} live`);
+  if (displayedPlatformUrl !== null) {
+    writeStatusLine(stdout, `  ${displayedPlatformUrl}`);
   } else if (workersDev !== false && isLocal) {
     const workerUrl = new URL(parsedControlUrl);
     workerUrl.username = "";
@@ -389,6 +410,14 @@ async function runDeploy({ values, positionals, context: baseContext }) {
     writeStatusLine(stdout, `  ${workerUrl.href}`);
   } else if (workersDev !== false && platformDomain) {
     writeStatusLine(stdout, `  https://${ns}.${platformDomain}/${workerName}/`);
+  }
+  for (const workerUrl of displayedRouteUrls) writeStatusLine(stdout, `  ${workerUrl}`);
+  for (const workerUrl of invalidUrlHints) {
+    writeStatusLine(
+      stderr,
+      "warning: deployment succeeded, but control returned an invalid Worker URL hint; " +
+        `omitted from output: ${formatDiagnosticValue(workerUrl)}`
+    );
   }
 }
 

@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+## 1.6.0
+
 ### Added
 
-- Routed Workers can set `workers_dev = false` to keep custom route patterns
-  active while disabling their platform-domain URL. Deploy summaries print the
-  active platform URL and route-pattern URL hints, omitting the disabled URL.
+- Routed Workers with at least one custom route can set `workers_dev = false`
+  to disable their platform-domain URL. Deploy summaries print the active
+  platform URL and route-pattern URL hints, omitting the disabled URL.
 
 ## 1.5.1
 

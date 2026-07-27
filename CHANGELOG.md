@@ -6,17 +6,17 @@
 
 ### Added
 
-- Routed Workers with at least one custom route can set `workers_dev = false`
-  to disable their platform-domain URL. Deploy summaries print the active
-  platform URL and route-pattern URL hints, omitting the disabled URL.
+- Routed Workers with at least one custom route can set `workers_dev = false` to
+  disable their platform-domain URL. Deploy summaries print the active platform
+  URL and route-pattern URL hints, omitting the disabled URL.
 
 ## 1.5.1
 
 ### Security
 
-- Bump the bundled `wrangler` to 4.114.0, which vendors a patched sharp
-  (0.35.2) and clears a high-severity libvips advisory (GHSA-f88m-g3jw-g9cj)
-  reachable only through the miniflare dev server, which the CLI never runs.
+- Bump the bundled `wrangler` to 4.114.0, which vendors a patched sharp (0.35.2)
+  and clears a high-severity libvips advisory (GHSA-f88m-g3jw-g9cj) reachable
+  only through the miniflare dev server, which the CLI never runs.
 
 ## 1.5.0
 
@@ -41,11 +41,10 @@
 
 ### Fixed
 
-- `wdl deploy` no longer passes WDL-only `[[exports]]`,
-  `[[platform_bindings]]`, `[[triggers.schedules]]`, or `[[services]].ns` to
-  Wrangler's temporary bundle config. This avoids the `exports` schema
-  collision in Wrangler 4.107+ while preserving the fields in the WDL deploy
-  manifest.
+- `wdl deploy` no longer passes WDL-only `[[exports]]`, `[[platform_bindings]]`,
+  `[[triggers.schedules]]`, or `[[services]].ns` to Wrangler's temporary bundle
+  config. This avoids the `exports` schema collision in Wrangler 4.107+ while
+  preserving the fields in the WDL deploy manifest.
 
 ## 1.4.0
 
@@ -54,8 +53,8 @@
 - `wdl deploy` now selects `wrangler.json`, then `wrangler.jsonc`, then
   `wrangler.toml`, parses both JSON filenames as JSONC, and resolves Wrangler
   from explicit/project/package/`PATH` sources (`npx` remains opt-in). It
-  rejects Python modules, unmapped runtime fields, and binding collisions
-  before upload; runtime/workerd bundle policy remains canonical in control.
+  rejects Python modules, unmapped runtime fields, and binding collisions before
+  upload; runtime/workerd bundle policy remains canonical in control.
 - New projects use `compatibility_date = "2026-06-17"` unless a feature requires
   newer behavior.
 - Control requests now identify the CLI version, cap buffered JSON responses at
@@ -73,17 +72,17 @@
 
 ### Fixed
 
-- Control connection failures, invalid 2xx JSON, unreadable project `.env` or
-  D1 input files, and unexpected arguments now use escaped CLI diagnostics
-  instead of raw Node errors or silently ignored input.
+- Control connection failures, invalid 2xx JSON, unreadable project `.env` or D1
+  input files, and unexpected arguments now use escaped CLI diagnostics instead
+  of raw Node errors or silently ignored input.
 - Deploy failures now retain control warnings and actionable secret,
   environment-budget, and caller-secret guidance.
 - D1 migrations reject symlinked SQL files, invalid `.assetsignore` patterns
   identify the offending rule, and project `.env` parsing tolerates unrelated
   dotenv extensions.
-- Secret mutation failures explain environment-budget, contention, and
-  envelope errors, including when no mutation was written; token list safely
-  renders stored labels and endpoints.
+- Secret mutation failures explain environment-budget, contention, and envelope
+  errors, including when no mutation was written; token list safely renders
+  stored labels and endpoints.
 
 ### Security
 
@@ -103,14 +102,14 @@
 
 ### Changed
 
-- `wdl d1 execute` now requires exactly one SQL source (`--sql` or `--file`)
-  and rejects empty SQL locally before contacting control. Even `--sql ""`
-  conflicts with `--file`.
+- `wdl d1 execute` now requires exactly one SQL source (`--sql` or `--file`) and
+  rejects empty SQL locally before contacting control. Even `--sql ""` conflicts
+  with `--file`.
 - `wdl deploy` now rejects more malformed Wrangler config locally instead of
   silently dropping invalid input: non-array `kv_namespaces`, malformed KV
   entries, present-but-non-table `[assets]`, and several validated fields that
-  previously reached the manifest with loose types. Wrangler local-dev KV
-  fields `preview_id` and `remote` remain allowed but are ignored by deploy.
+  previously reached the manifest with loose types. Wrangler local-dev KV fields
+  `preview_id` and `remote` remain allowed but are ignored by deploy.
 
 ## 1.2.2
 
@@ -120,8 +119,8 @@
   world-writable store directory: a 0600 file there can still be deleted,
   replaced, or symlink-swapped by another user, so the write fails with a
   `chmod 700` hint instead. POSIX only.
-- `wdl r2 object head --json` parses custom metadata without prototype
-  pollution — an `x-amz-meta-__proto__` header stays an own key, and an empty
+- `wdl r2 object head --json` parses custom metadata without prototype pollution
+  — an `x-amz-meta-__proto__` header stays an own key, and an empty
   `x-amz-meta-` header is dropped.
 
 ### Changed
@@ -140,8 +139,8 @@
   dropped.
 - A local deploy prints a direct `http://<ns>.<domain>:8080/<worker>/` URL
   instead of a `curl -H 'Host: ...'` hint, and a control plane reached via a
-  `.test` / `.local` host is recognized as local (previously only
-  localhost / 127.0.0.1).
+  `.test` / `.local` host is recognized as local (previously only localhost /
+  127.0.0.1).
 - KV docs (GUIDE and `docs/kv.md`) describe the 512-byte key / list-prefix cap
   the platform now enforces; they previously said it was not checked. Documented
   that `wdl d1 execute --mode exec` takes no `--params`.
@@ -182,9 +181,9 @@
   values already were. A malicious or compromised control plane could put
   terminal control bytes (ESC / OSC / C1) in a JSON error property name and have
   them written unescaped to stderr (OSC 52 clipboard writes, display spoofing).
-- Control-plane responses now abort the connection when the body exceeds the
-  10 MiB cap, instead of rejecting the result while continuing to read the
-  stream — the cap bounds resource use, not just the returned value.
+- Control-plane responses now abort the connection when the body exceeds the 10
+  MiB cap, instead of rejecting the result while continuing to read the stream —
+  the cap bounds resource use, not just the returned value.
 - The trusted-publishing release job pins the npm CLI to an exact reviewed
   version instead of installing `npm@latest`, so a compromised npm release can't
   run in the job that holds the npm OIDC token and publish a tampered,
@@ -225,8 +224,8 @@
 
 ### Changed
 
-- `wdl init`'s `--ns` is now optional. With `--ns`, the scaffolded `npm run
-  deploy` keeps `wdl deploy . --ns <ns>`; without it the script is
+- `wdl init`'s `--ns` is now optional. With `--ns`, the scaffolded
+  `npm run deploy` keeps `wdl deploy . --ns <ns>`; without it the script is
   `wdl deploy .` and the namespace is resolved at deploy time (`--ns` / `WDL_NS`
   / project `.env` / a `wdl token` default). `init` also no longer autoloads
   control credentials, so a corrupt token store cannot block scaffolding.
@@ -244,9 +243,9 @@
 - `wdl secret put` no longer echoes the typed secret on a TTY: input is read in
   raw mode (hidden), and fails closed — it errors rather than echo if the
   terminal cannot hide input.
-- `.env` values containing literal backslash escape sequences (e.g. a token
-  with a backslash followed by `n`) now round-trip correctly instead of being
-  decoded as control characters.
+- `.env` values containing literal backslash escape sequences (e.g. a token with
+  a backslash followed by `n`) now round-trip correctly instead of being decoded
+  as control characters.
 
 ### Security
 

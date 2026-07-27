@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isTokenStoreDisabled, loadCliControlEnv, loadCliDotEnv, protectedEnvKeys, resolveControlContext, resolveControlUrl, resolveNamespace, warnIfInsecureControlUrl } from "../../lib/credentials.js";
+import {
+  isTokenStoreDisabled,
+  loadCliControlEnv,
+  loadCliDotEnv,
+  protectedEnvKeys,
+  resolveControlContext,
+  resolveControlUrl,
+  resolveNamespace,
+  warnIfInsecureControlUrl,
+} from "../../lib/credentials.js";
 import { ESC, assertNoRawTerminalControls } from "./helpers.js";
 
 test("isTokenStoreDisabled honors the flag and WDL_TOKEN_STORE=off", () => {
@@ -20,14 +29,8 @@ function emptyEnv() {
 }
 
 test("resolveControlUrl strips trailing slashes from flags and env", () => {
-  assert.equal(
-    resolveControlUrl({ "control-url": "http://ctl.test///" }, {}),
-    "http://ctl.test"
-  );
-  assert.equal(
-    resolveControlUrl({}, { CONTROL_URL: "http://ctl.test/" }),
-    "http://ctl.test"
-  );
+  assert.equal(resolveControlUrl({ "control-url": "http://ctl.test///" }, {}), "http://ctl.test");
+  assert.equal(resolveControlUrl({}, { CONTROL_URL: "http://ctl.test/" }), "http://ctl.test");
 });
 
 test("resolveControlUrl requires a configured endpoint", () => {
@@ -47,62 +50,33 @@ test("resolveControlUrl escapes invalid endpoint diagnostics", () => {
 });
 
 test("resolveControlUrl accepts bare control hosts as https URLs", () => {
-  assert.equal(
-    resolveControlUrl({ "control-url": "ctl.example" }, {}),
-    "https://ctl.example"
-  );
-  assert.equal(
-    resolveControlUrl({}, { CONTROL_URL: "ctl.uat.example/" }),
-    "https://ctl.uat.example"
-  );
+  assert.equal(resolveControlUrl({ "control-url": "ctl.example" }, {}), "https://ctl.example");
+  assert.equal(resolveControlUrl({}, { CONTROL_URL: "ctl.uat.example/" }), "https://ctl.uat.example");
 });
 
 test("resolveControlUrl keeps bare local dev control URLs on http", () => {
-  assert.equal(
-    resolveControlUrl({}, { CONTROL_URL: "ctl.test:8080" }),
-    "http://ctl.test:8080"
-  );
-  assert.equal(
-    resolveControlUrl({ "control-url": "localhost:8080/" }, {}),
-    "http://localhost:8080"
-  );
-  assert.equal(
-    resolveControlUrl({ "control-url": "[::1]" }, {}),
-    "http://[::1]"
-  );
-  assert.equal(
-    resolveControlUrl({ "control-url": "[::1]:8080/" }, {}),
-    "http://[::1]:8080"
-  );
-  assert.equal(
-    resolveControlUrl({ "control-url": "ctl.test" }, {}),
-    "http://ctl.test"
-  );
+  assert.equal(resolveControlUrl({}, { CONTROL_URL: "ctl.test:8080" }), "http://ctl.test:8080");
+  assert.equal(resolveControlUrl({ "control-url": "localhost:8080/" }, {}), "http://localhost:8080");
+  assert.equal(resolveControlUrl({ "control-url": "[::1]" }, {}), "http://[::1]");
+  assert.equal(resolveControlUrl({ "control-url": "[::1]:8080/" }, {}), "http://[::1]:8080");
+  assert.equal(resolveControlUrl({ "control-url": "ctl.test" }, {}), "http://ctl.test");
 });
 
 test("resolveControlContext centralizes admin token and headers", () => {
-  assert.deepEqual(
-    resolveControlContext({ "control-url": "http://ctl.example/" }, { ADMIN_TOKEN: "tok" }),
-    {
-      controlUrl: "http://ctl.example",
-      token: "tok",
-      headers: { "x-admin-token": "tok" },
-    }
-  );
-  assert.throws(
-    () => resolveControlContext({}, {}),
-    /Missing admin token/
-  );
+  assert.deepEqual(resolveControlContext({ "control-url": "http://ctl.example/" }, { ADMIN_TOKEN: "tok" }), {
+    controlUrl: "http://ctl.example",
+    token: "tok",
+    headers: { "x-admin-token": "tok" },
+  });
+  assert.throws(() => resolveControlContext({}, {}), /Missing admin token/);
 });
 
 test("warnIfInsecureControlUrl escapes control endpoint text before warning", () => {
   /** @type {string[]} */
   const warnings = [];
-  warnIfInsecureControlUrl(
-    "http://localhost/\u001b[31m",
-    (line) => warnings.push(line),
-    { CONTROL_CONNECT_HOST: "evil.example\nsecond" },
-  );
+  warnIfInsecureControlUrl("http://localhost/\u001b[31m", (line) => warnings.push(line), {
+    CONTROL_CONNECT_HOST: "evil.example\nsecond",
+  });
 
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /http:\/\/localhost\/\\u001b\[31m/);
@@ -115,11 +89,9 @@ test("warnIfInsecureControlUrl treats local CONTROL_CONNECT_HOST host:port overr
   for (const connectHost of ["localhost:18080", "dev.local:18080", "[::1]:18080", "http://localhost:18080"]) {
     /** @type {string[]} */
     const warnings = [];
-    warnIfInsecureControlUrl(
-      "http://admin.test:8080",
-      (line) => warnings.push(line),
-      { CONTROL_CONNECT_HOST: connectHost },
-    );
+    warnIfInsecureControlUrl("http://admin.test:8080", (line) => warnings.push(line), {
+      CONTROL_CONNECT_HOST: connectHost,
+    });
     assert.deepEqual(warnings, []);
   }
 });
@@ -142,7 +114,7 @@ test("loadCliDotEnv loads an explicit .env without overriding explicit env", () 
         "CONTROL_URL=https://ctl.example/",
         "export WDL_NS=demo",
         "CONTROL_CONNECT_HOST='localhost'",
-        "CLOUDFLARE_ENV=\"staging\" # ignored: not a WDL platform variable",
+        'CLOUDFLARE_ENV="staging" # ignored: not a WDL platform variable',
         "IGNORED_VALUE=ignored",
         "",
       ].join("\n")
@@ -150,11 +122,7 @@ test("loadCliDotEnv loads an explicit .env without overriding explicit env", () 
 
     /** @type {NodeJS.ProcessEnv} */
     const env = { ADMIN_TOKEN: "from-shell" };
-    assert.deepEqual(loadCliDotEnv(env, file), [
-      "CONTROL_URL",
-      "WDL_NS",
-      "CONTROL_CONNECT_HOST",
-    ]);
+    assert.deepEqual(loadCliDotEnv(env, file), ["CONTROL_URL", "WDL_NS", "CONTROL_CONNECT_HOST"]);
     assert.equal(env.ADMIN_TOKEN, "from-shell");
     assert.equal(env.CONTROL_URL, "https://ctl.example/");
     assert.equal(env.WDL_NS, "demo");
@@ -187,17 +155,11 @@ test("loadCliDotEnv rejects malformed quoted values", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-"));
   const file = path.join(dir, ".env");
   try {
-    writeFileSync(file, "CONTROL_URL=\"https://ctl.example\" trailing\n");
-    assert.throws(
-      () => loadCliDotEnv(emptyEnv(), file),
-      /Invalid \.env value: unexpected text after quoted value/
-    );
+    writeFileSync(file, 'CONTROL_URL="https://ctl.example" trailing\n');
+    assert.throws(() => loadCliDotEnv(emptyEnv(), file), /Invalid \.env value: unexpected text after quoted value/);
 
-    writeFileSync(file, "CONTROL_URL=\"https://ctl.example\n");
-    assert.throws(
-      () => loadCliDotEnv(emptyEnv(), file),
-      /Invalid \.env value: missing closing quote/
-    );
+    writeFileSync(file, 'CONTROL_URL="https://ctl.example\n');
+    assert.throws(() => loadCliDotEnv(emptyEnv(), file), /Invalid \.env value: missing closing quote/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -226,13 +188,16 @@ test("loadCliDotEnv ignores non-WDL dotenv lines it cannot parse", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-"));
   const file = path.join(dir, ".env");
   try {
-    writeFileSync(file, [
-      "ADMIN_TOKEN=tok",
-      "PRIVATE_KEY=\"-----BEGIN PRIVATE KEY-----",
-      "not a KEY=value continuation",
-      "-----END PRIVATE KEY-----\"",
-      "CONTROL_URL=https://ctl.example",
-    ].join("\n"));
+    writeFileSync(
+      file,
+      [
+        "ADMIN_TOKEN=tok",
+        'PRIVATE_KEY="-----BEGIN PRIVATE KEY-----',
+        "not a KEY=value continuation",
+        '-----END PRIVATE KEY-----"',
+        "CONTROL_URL=https://ctl.example",
+      ].join("\n")
+    );
 
     const env = emptyEnv();
     assert.deepEqual(loadCliDotEnv(env, file), ["ADMIN_TOKEN", "CONTROL_URL"]);
@@ -266,11 +231,7 @@ test("loadCliDotEnv overlays the resolved namespace section over base", () => {
 
     const env = emptyEnv();
     const protectedKeys = new Set(Object.keys(env));
-    assert.deepEqual(loadCliDotEnv(env, file, { protectedKeys }), [
-      "ADMIN_TOKEN",
-      "CONTROL_URL",
-      "WDL_NS",
-    ]);
+    assert.deepEqual(loadCliDotEnv(env, file, { protectedKeys }), ["ADMIN_TOKEN", "CONTROL_URL", "WDL_NS"]);
     const ns = resolveNamespace({}, env);
     assert.equal(ns, "demo");
     assert.deepEqual(loadCliDotEnv(env, file, { resolvedNs: ns, loadBase: false, protectedKeys }), [
@@ -290,15 +251,7 @@ test("loadCliDotEnv supports section-only files", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-"));
   const file = path.join(dir, ".env");
   try {
-    writeFileSync(
-      file,
-      [
-        "[demo]",
-        "ADMIN_TOKEN=demo-token",
-        "CONTROL_URL=https://ctl.demo.example",
-        "",
-      ].join("\n")
-    );
+    writeFileSync(file, ["[demo]", "ADMIN_TOKEN=demo-token", "CONTROL_URL=https://ctl.demo.example", ""].join("\n"));
 
     const env = emptyEnv();
     /** @type {Set<string>} */
@@ -336,11 +289,14 @@ test("loadCliDotEnv switches adjacent sections without blank lines", () => {
     /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
-    assert.deepEqual(loadCliDotEnv(env, file, {
-      resolvedNs: resolveNamespace({}, env),
-      loadBase: false,
-      protectedKeys,
-    }), ["ADMIN_TOKEN", "CONTROL_URL"]);
+    assert.deepEqual(
+      loadCliDotEnv(env, file, {
+        resolvedNs: resolveNamespace({}, env),
+        loadBase: false,
+        protectedKeys,
+      }),
+      ["ADMIN_TOKEN", "CONTROL_URL"]
+    );
     assert.equal(env.ADMIN_TOKEN, "prod-token");
     assert.equal(env.CONTROL_URL, "https://ctl.prod.example");
   } finally {
@@ -386,11 +342,14 @@ test("loadCliDotEnv keeps shell env above base and namespace sections", () => {
     };
     const protectedKeys = new Set(Object.keys(env));
     assert.deepEqual(loadCliDotEnv(env, file, { protectedKeys }), []);
-    assert.deepEqual(loadCliDotEnv(env, file, {
-      resolvedNs: resolveNamespace({}, env),
-      loadBase: false,
-      protectedKeys,
-    }), []);
+    assert.deepEqual(
+      loadCliDotEnv(env, file, {
+        resolvedNs: resolveNamespace({}, env),
+        loadBase: false,
+        protectedKeys,
+      }),
+      []
+    );
 
     assert.equal(env.ADMIN_TOKEN, "shell-token");
     assert.equal(env.CONTROL_URL, "https://ctl.shell.example");
@@ -406,13 +365,7 @@ test("loadCliDotEnv loads only base when namespace is unresolved or missing", ()
   try {
     writeFileSync(
       file,
-      [
-        "CONTROL_URL=https://ctl.base.example",
-        "",
-        "[demo]",
-        "ADMIN_TOKEN=demo-token",
-        "",
-      ].join("\n")
+      ["CONTROL_URL=https://ctl.base.example", "", "[demo]", "ADMIN_TOKEN=demo-token", ""].join("\n")
     );
 
     const env = emptyEnv();
@@ -420,11 +373,14 @@ test("loadCliDotEnv loads only base when namespace is unresolved or missing", ()
     assert.equal(env.CONTROL_URL, "https://ctl.base.example");
     assert.equal(env.ADMIN_TOKEN, undefined);
 
-    assert.deepEqual(loadCliDotEnv(env, file, {
-      resolvedNs: "prod",
-      loadBase: false,
-      protectedKeys: new Set(),
-    }), []);
+    assert.deepEqual(
+      loadCliDotEnv(env, file, {
+        resolvedNs: "prod",
+        loadBase: false,
+        protectedKeys: new Set(),
+      }),
+      []
+    );
     assert.equal(env.ADMIN_TOKEN, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -435,22 +391,17 @@ test("loadCliDotEnv accepts opaque operator reserved namespace sections", () => 
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-"));
   const file = path.join(dir, ".env");
   try {
-    writeFileSync(
-      file,
-      [
-        "WDL_NS=__reserved__",
-        "",
-        "[__reserved__]",
-        "ADMIN_TOKEN=reserved-token",
-        "",
-      ].join("\n")
-    );
+    writeFileSync(file, ["WDL_NS=__reserved__", "", "[__reserved__]", "ADMIN_TOKEN=reserved-token", ""].join("\n"));
 
     const env = emptyEnv();
     /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
-    loadCliDotEnv(env, file, { resolvedNs: resolveNamespace({}, env), loadBase: false, protectedKeys });
+    loadCliDotEnv(env, file, {
+      resolvedNs: resolveNamespace({}, env),
+      loadBase: false,
+      protectedKeys,
+    });
     assert.equal(env.ADMIN_TOKEN, "reserved-token");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -463,10 +414,7 @@ test("loadCliDotEnv rejects invalid section names", () => {
   try {
     for (const name of ["Demo", "my ns", "", "admin"]) {
       writeFileSync(file, `[${name}]\nADMIN_TOKEN=tok\n`);
-      assert.throws(
-        () => loadCliDotEnv(emptyEnv(), file),
-        /Invalid \.env line 1: invalid section name/
-      );
+      assert.throws(() => loadCliDotEnv(emptyEnv(), file), /Invalid \.env line 1: invalid section name/);
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -477,17 +425,7 @@ test("loadCliDotEnv ignores WDL_NS in selected section with a warning", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-"));
   const file = path.join(dir, ".env");
   try {
-    writeFileSync(
-      file,
-      [
-        "WDL_NS=demo",
-        "",
-        "[demo]",
-        "WDL_NS=prod",
-        "ADMIN_TOKEN=demo-token",
-        "",
-      ].join("\n")
-    );
+    writeFileSync(file, ["WDL_NS=demo", "", "[demo]", "WDL_NS=prod", "ADMIN_TOKEN=demo-token", ""].join("\n"));
 
     /** @type {string[]} */
     const warnings = [];
@@ -495,12 +433,15 @@ test("loadCliDotEnv ignores WDL_NS in selected section with a warning", () => {
     /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
-    assert.deepEqual(loadCliDotEnv(env, file, {
-      resolvedNs: "demo",
-      loadBase: false,
-      protectedKeys,
-      warn: (message) => warnings.push(message),
-    }), ["ADMIN_TOKEN"]);
+    assert.deepEqual(
+      loadCliDotEnv(env, file, {
+        resolvedNs: "demo",
+        loadBase: false,
+        protectedKeys,
+        warn: (message) => warnings.push(message),
+      }),
+      ["ADMIN_TOKEN"]
+    );
 
     assert.equal(env.WDL_NS, "demo");
     assert.equal(env.ADMIN_TOKEN, "demo-token");
@@ -514,17 +455,7 @@ test("loadCliDotEnv does not warn for WDL_NS in an unselected section", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-env-"));
   const file = path.join(dir, ".env");
   try {
-    writeFileSync(
-      file,
-      [
-        "WDL_NS=demo",
-        "",
-        "[prod]",
-        "WDL_NS=ignored",
-        "ADMIN_TOKEN=prod-token",
-        "",
-      ].join("\n")
-    );
+    writeFileSync(file, ["WDL_NS=demo", "", "[prod]", "WDL_NS=ignored", "ADMIN_TOKEN=prod-token", ""].join("\n"));
 
     /** @type {string[]} */
     const warnings = [];
@@ -532,12 +463,15 @@ test("loadCliDotEnv does not warn for WDL_NS in an unselected section", () => {
     /** @type {Set<string>} */
     const protectedKeys = new Set();
     loadCliDotEnv(env, file, { protectedKeys });
-    assert.deepEqual(loadCliDotEnv(env, file, {
-      resolvedNs: "demo",
-      loadBase: false,
-      protectedKeys,
-      warn: (message) => warnings.push(message),
-    }), []);
+    assert.deepEqual(
+      loadCliDotEnv(env, file, {
+        resolvedNs: "demo",
+        loadBase: false,
+        protectedKeys,
+        warn: (message) => warnings.push(message),
+      }),
+      []
+    );
 
     assert.equal(env.WDL_NS, "demo");
     assert.equal(env.ADMIN_TOKEN, undefined);
@@ -640,8 +574,10 @@ test("loadCliControlEnv trusts a .env control endpoint when the token is also fr
 test("loadCliControlEnv keeps the documented multi-ns layout (URL in base, token in [ns])", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-multins-"));
   try {
-    writeFileSync(path.join(dir, ".env"),
-      "CONTROL_URL=https://ctl.shared.example\nWDL_NS=acme\n\n[acme]\nADMIN_TOKEN=acme-token\n");
+    writeFileSync(
+      path.join(dir, ".env"),
+      "CONTROL_URL=https://ctl.shared.example\nWDL_NS=acme\n\n[acme]\nADMIN_TOKEN=acme-token\n"
+    );
     /** @type {NodeJS.ProcessEnv} */
     const env = {};
     /** @type {string[]} */
@@ -669,7 +605,9 @@ test("loadCliControlEnv fills control URL and token from the store as a gap-fill
   loadCliControlEnv(env, {
     nsFromFlag: "acme",
     loadEnv: () => [],
-    readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://store.example", ADMIN_TOKEN: "store-tok" } } }),
+    readStore: () => ({
+      namespaces: { acme: { CONTROL_URL: "https://store.example", ADMIN_TOKEN: "store-tok" } },
+    }),
   });
   assert.equal(env.CONTROL_URL, "https://store.example");
   assert.equal(env.ADMIN_TOKEN, "store-tok");
@@ -753,7 +691,9 @@ test("loadCliControlEnv lets shell env win over the store (gap-fill only)", () =
     nsFromFlag: "acme",
     protectedKeys: new Set(["ADMIN_TOKEN"]),
     loadEnv: () => [],
-    readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://store.example", ADMIN_TOKEN: "store-tok" } } }),
+    readStore: () => ({
+      namespaces: { acme: { CONTROL_URL: "https://store.example", ADMIN_TOKEN: "store-tok" } },
+    }),
   });
   assert.equal(env.ADMIN_TOKEN, "shell-tok", "shell token is not overwritten");
   assert.equal(env.CONTROL_URL, "https://store.example", "the empty control URL slot is filled");
@@ -768,7 +708,9 @@ test("loadCliControlEnv does not fill a flag-covered slot from the store", () =>
     nsFromFlag: "acme",
     controlUrlFromFlag: true,
     loadEnv: () => [],
-    readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://store.example", ADMIN_TOKEN: "store-tok" } } }),
+    readStore: () => ({
+      namespaces: { acme: { CONTROL_URL: "https://store.example", ADMIN_TOKEN: "store-tok" } },
+    }),
   });
   assert.equal(env.CONTROL_URL, undefined, "flag-covered endpoint is not shadowed by the store");
   assert.equal(env.ADMIN_TOKEN, "store-tok", "the uncovered token slot is still filled");
@@ -780,7 +722,10 @@ test("loadCliControlEnv does not read the store when ns and credentials are pres
   loadCliControlEnv(env, {
     nsFromFlag: "acme",
     loadEnv: () => [],
-    readStore: () => { reads += 1; return {}; },
+    readStore: () => {
+      reads += 1;
+      return {};
+    },
   });
   assert.equal(reads, 0, "the store is the lowest layer and untouched when nothing needs it");
 });
@@ -794,18 +739,24 @@ test("loadCliControlEnv ignores a corrupt store when flags cover the credentials
     tokenFromFlag: true,
     controlUrlFromFlag: true,
     loadEnv: () => [],
-    readStore: () => { reads += 1; throw new Error("Invalid credentials line 3"); },
+    readStore: () => {
+      reads += 1;
+      throw new Error("Invalid credentials line 3");
+    },
   });
   assert.equal(reads, 0, "store never read");
 });
 
 test("loadCliControlEnv surfaces a corrupt store when it is the credential source", () => {
   assert.throws(
-    () => loadCliControlEnv(/** @type {NodeJS.ProcessEnv} */ ({}), {
-      nsFromFlag: "acme",
-      loadEnv: () => [],
-      readStore: () => { throw new Error("Invalid credentials line 3"); },
-    }),
+    () =>
+      loadCliControlEnv(/** @type {NodeJS.ProcessEnv} */ ({}), {
+        nsFromFlag: "acme",
+        loadEnv: () => [],
+        readStore: () => {
+          throw new Error("Invalid credentials line 3");
+        },
+      }),
     /Invalid credentials/
   );
 });
@@ -817,7 +768,9 @@ test("loadCliControlEnv tolerates a corrupt store when no namespace is needed", 
   assert.doesNotThrow(() =>
     loadCliControlEnv(env, {
       loadEnv: () => [],
-      readStore: () => { throw new Error("Invalid credentials line 3"); },
+      readStore: () => {
+        throw new Error("Invalid credentials line 3");
+      },
     })
   );
   assert.equal(env.WDL_NS, undefined);
@@ -845,7 +798,9 @@ test("an empty .env ADMIN_TOKEN does not mark a .env endpoint same-source", () =
       }
       return [];
     },
-    readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://good.example", ADMIN_TOKEN: "store-tok" } } }),
+    readStore: () => ({
+      namespaces: { acme: { CONTROL_URL: "https://good.example", ADMIN_TOKEN: "store-tok" } },
+    }),
     onCrossOrigin: (line) => warnings.push(line),
   });
   assert.equal(env.CONTROL_URL, "https://good.example", "evil endpoint dropped, store endpoint used");
@@ -875,7 +830,9 @@ test("a project .env endpoint is still dropped when the token comes from the sto
       }
       return [];
     },
-    readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://good.example", ADMIN_TOKEN: "store-tok" } } }),
+    readStore: () => ({
+      namespaces: { acme: { CONTROL_URL: "https://good.example", ADMIN_TOKEN: "store-tok" } },
+    }),
     onCrossOrigin: (line) => warnings.push(line),
   });
   assert.equal(env.CONTROL_URL, "https://good.example", "evil endpoint dropped, store endpoint used");

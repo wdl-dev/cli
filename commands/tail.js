@@ -6,11 +6,7 @@
 import http from "node:http";
 import https from "node:https";
 import { defineCommand } from "../lib/command.js";
-import {
-  controlRequestError,
-  controlRequestOptions,
-  validateControlHeaders,
-} from "../lib/control-fetch.js";
+import { controlRequestError, controlRequestOptions, validateControlHeaders } from "../lib/control-fetch.js";
 import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
 import { escapeTerminalLines, escapeTerminalText, formatDiagnosticValue } from "../lib/output.js";
 
@@ -25,14 +21,22 @@ const TAIL_ERROR_BODY_MAX_BYTES = 64 * 1024;
 export const SSE_MAX_LINE_CHARS = 1024 * 1024;
 // Socket-shutdown error shapes we tolerate as "our own abort".
 // Anything else (e.g. a 5xx racing the abort) bubbles to the user.
-const ABORT_TOLERATED_ERRORS = new Set([
-  "ECONNRESET", "ECONNABORTED", "EPIPE", "ABORT_ERR",
-]);
+const ABORT_TOLERATED_ERRORS = new Set(["ECONNRESET", "ECONNABORTED", "EPIPE", "ABORT_ERR"]);
 
 const TAIL_OPTIONS = [
   defineCliOption("raw", { type: "boolean" }, "--raw", "Emit one JSON object per line (no pretty-print)."),
-  defineCliOption("since", { type: "string" }, "--since <id>", "Resume from the given Redis stream id (single-worker only)."),
-  defineCliOption("max-reconnects", { type: "string" }, "--max-reconnects <N>", `Bail after N consecutive reconnect attempts that all stayed at the ${RECONNECT_MAX_MS}ms backoff cap (default ${DEFAULT_MAX_RECONNECTS_AT_CAP}, 0 = unlimited).`),
+  defineCliOption(
+    "since",
+    { type: "string" },
+    "--since <id>",
+    "Resume from the given Redis stream id (single-worker only)."
+  ),
+  defineCliOption(
+    "max-reconnects",
+    { type: "string" },
+    "--max-reconnects <N>",
+    `Bail after N consecutive reconnect attempts that all stayed at the ${RECONNECT_MAX_MS}ms backoff cap (default ${DEFAULT_MAX_RECONNECTS_AT_CAP}, 0 = unlimited).`
+  ),
   "ns",
   "control",
   "help",
@@ -145,7 +149,7 @@ async function runTail({ values, positionals, context: baseContext }) {
     if (!/^\d+$/.test(raw)) {
       throw new CliError(
         `--max-reconnects must be a non-negative integer (got ${formatDiagnosticValue(raw)}); ` +
-        `use 0 to disable the cap`,
+          `use 0 to disable the cap`
       );
     }
     maxReconnectsAtCap = Number(raw);
@@ -213,10 +217,11 @@ async function runTail({ values, positionals, context: baseContext }) {
       try {
         const hasResumeCursor = lastEventId !== null;
         result = await streamSse({
-          url: attempts === 0 || (values.since && !hasResumeCursor)
-            ? initialUrl
-            : reconnectUrl,
-          headers: requestHeaders, signal: ctrl.signal, env: context.env, transport,
+          url: attempts === 0 || (values.since && !hasResumeCursor) ? initialUrl : reconnectUrl,
+          headers: requestHeaders,
+          signal: ctrl.signal,
+          env: context.env,
+          transport,
           // renderEvent writes stdout synchronously — fine for TTY
           // backpressure; tail isn't a guaranteed-delivery surface.
           onEvent: (event) => {
@@ -225,9 +230,7 @@ async function runTail({ values, positionals, context: baseContext }) {
           },
           onConnected: () => {
             connectedAt = now();
-            stderr(attempts === 0
-              ? "tail connected; waiting for events…"
-              : "tail reconnected; waiting for events…");
+            stderr(attempts === 0 ? "tail connected; waiting for events…" : "tail reconnected; waiting for events…");
           },
         });
       } catch (err) {
@@ -256,9 +259,8 @@ async function runTail({ values, positionals, context: baseContext }) {
         consecutiveAtCap = 0;
       }
       if (transportErr) {
-        const detail = transportErr instanceof Error
-          ? `${transportErr.name}: ${transportErr.message}`
-          : String(transportErr);
+        const detail =
+          transportErr instanceof Error ? `${transportErr.name}: ${transportErr.message}` : String(transportErr);
         stderr(`tail transport error (${escapeTerminalText(detail)}); will reconnect`);
       }
       // Only stable sessions reset consecutiveAtCap. A flapping network can
@@ -268,8 +270,8 @@ async function runTail({ values, positionals, context: baseContext }) {
         if (maxReconnectsAtCap > 0 && consecutiveAtCap >= maxReconnectsAtCap) {
           throw new CliError(
             `tail: gave up after ${consecutiveAtCap} consecutive reconnects ` +
-            `failed at the ${RECONNECT_MAX_MS}ms backoff cap ` +
-            `(override with --max-reconnects N, or 0 to disable)`,
+              `failed at the ${RECONNECT_MAX_MS}ms backoff cap ` +
+              `(override with --max-reconnects N, or 0 to disable)`
           );
         }
       }
@@ -299,7 +301,10 @@ function buildTailUrl({ baseUrl, workers, since }) {
 function sleep(ms, signal) {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
-    const onAbort = () => { clearTimeout(t); resolve(); };
+    const onAbort = () => {
+      clearTimeout(t);
+      resolve();
+    };
     const t = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
@@ -365,7 +370,9 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
           res.on("end", () => {
             let detail;
             try {
-              const body = /** @type {{ message?: string, error?: string }} */ (JSON.parse(Buffer.concat(chunks).toString("utf8")));
+              const body = /** @type {{ message?: string, error?: string }} */ (
+                JSON.parse(Buffer.concat(chunks).toString("utf8"))
+              );
               detail = escapeTerminalText(body.message || body.error || `HTTP ${status}`);
             } catch {
               detail = `HTTP ${status}`;
@@ -424,7 +431,9 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
   // Drop the session-long signal listener once this connection settles so a
   // flapping reconnect loop doesn't accumulate one closure per attempt.
   return signal
-    ? promise.finally(() => { if (onAbort) signal.removeEventListener("abort", onAbort); })
+    ? promise.finally(() => {
+        if (onAbort) signal.removeEventListener("abort", onAbort);
+      })
     : promise;
 }
 
@@ -474,8 +483,10 @@ export class SseParser {
     if (line.startsWith(":")) return; // comment
     const colon = line.indexOf(":");
     let field, value;
-    if (colon < 0) { field = line; value = ""; }
-    else {
+    if (colon < 0) {
+      field = line;
+      value = "";
+    } else {
       field = line.slice(0, colon);
       value = line.slice(colon + 1);
       if (value.startsWith(" ")) value = value.slice(1);
@@ -520,16 +531,17 @@ function renderEvent({ event, raw, stdout, stderr, isMultiWorker }) {
   let payload;
   try {
     const decoded = JSON.parse(event.data);
-    payload = decoded && typeof decoded === "object" && !Array.isArray(decoded)
-      ? /** @type {TailPayload} */ (decoded)
-      : { event: event.event, raw: decoded };
+    payload =
+      decoded && typeof decoded === "object" && !Array.isArray(decoded)
+        ? /** @type {TailPayload} */ (decoded)
+        : { event: event.event, raw: decoded };
   } catch {
     payload = { event: event.event, raw: event.data };
   }
 
   const eventType = payload.event || event.event;
-  const isServerRecycle = eventType === "tail_warning" &&
-    (payload.code === "session_idle" || payload.code === "session_expired");
+  const isServerRecycle =
+    eventType === "tail_warning" && (payload.code === "session_idle" || payload.code === "session_expired");
 
   if (raw) {
     stdout(JSON.stringify(payload));
@@ -543,16 +555,16 @@ function renderEvent({ event, raw, stdout, stderr, isMultiWorker }) {
   // newlines but every line is escaped.
   if (eventType === "tail_warning") {
     if (isServerRecycle) {
-      stderr(`tail ${escapeTerminalText(payload.code)}: ${escapeTerminalText(payload.message || "session closed by control")}`);
+      stderr(
+        `tail ${escapeTerminalText(payload.code)}: ${escapeTerminalText(payload.message || "session closed by control")}`
+      );
       return "server-recycle";
     }
     stderr(`! tail_warning ${escapeTerminalText(payload.code || "")}: ${escapeTerminalText(payload.message || "")}`);
     return;
   }
 
-  const ts = typeof payload.ts === "number"
-    ? new Date(payload.ts).toISOString()
-    : new Date().toISOString();
+  const ts = typeof payload.ts === "number" ? new Date(payload.ts).toISOString() : new Date().toISOString();
   const prefix = isMultiWorker && payload.worker ? `[${escapeTerminalText(payload.worker)}] ` : "";
 
   if (eventType === "worker_console") {
@@ -648,14 +660,16 @@ function formatConsoleArgs(message) {
 function stringifyMessage(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  try { return JSON.stringify(value); } catch { return String(value); }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function usageText() {
   return formatHelp({
-    usage: [
-      "wdl tail <worker> [<worker>...] [options]",
-    ],
+    usage: ["wdl tail <worker> [<worker>...] [options]"],
     description: "Live-tail worker console, exception, fetch, scheduled, and queue events in a namespace.",
     options: optionHelp(TAIL_OPTIONS),
   });

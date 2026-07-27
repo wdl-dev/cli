@@ -58,9 +58,11 @@ reaching the terminal**.
 
 ## Checks
 
-All of these run in CI on every pull request and must pass:
+Run `npm run format` to apply the repository formatting rules. The following
+checks run in CI on every pull request and must pass:
 
 ```bash
+npm run format:check
 npm run lint
 npm run typecheck
 npm test

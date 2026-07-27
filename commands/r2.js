@@ -2,10 +2,7 @@ import { createWriteStream } from "node:fs";
 import { once } from "node:events";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import {
-  LONG_CONTROL_TIMEOUT_MS,
-  UNLIMITED_CONTROL_BODY_BYTES,
-} from "../lib/control-fetch.js";
+import { LONG_CONTROL_TIMEOUT_MS, UNLIMITED_CONTROL_BODY_BYTES } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
@@ -100,15 +97,21 @@ async function runR2({ values, positionals, context: baseContext }) {
     if (extraArg) throw unexpectedArgument("r2 objects get", extraArg);
     const objectKey = requireR2ObjectKey(key);
     if (!values.out && isInteractiveStdout(stdoutStream)) {
-      throw new CliError("r2 objects get refuses to write raw object bytes to an interactive terminal; pass --out <path>");
+      throw new CliError(
+        "r2 objects get refuses to write raw object bytes to an interactive terminal; pass --out <path>"
+      );
     }
     const { headers } = context.resolveControl();
-    const res = await context.fetchStream(objectUrl(objectKey), {
-      headers,
-      timeoutMs: LONG_CONTROL_TIMEOUT_MS,
-      maxBodyBytes: UNLIMITED_CONTROL_BODY_BYTES,
-      streamResponse: true,
-    }, "get R2 object");
+    const res = await context.fetchStream(
+      objectUrl(objectKey),
+      {
+        headers,
+        timeoutMs: LONG_CONTROL_TIMEOUT_MS,
+        maxBodyBytes: UNLIMITED_CONTROL_BODY_BYTES,
+        streamResponse: true,
+      },
+      "get R2 object"
+    );
     // streamResponse: true always yields a body.
     const responseBody = /** @type {import("node:stream").Readable} */ (res.body);
     if (values.out) {
@@ -125,10 +128,14 @@ async function runR2({ values, positionals, context: baseContext }) {
     if (extraArg) throw unexpectedArgument("r2 objects head", extraArg);
     const objectKey = requireR2ObjectKey(key);
     const { headers } = context.resolveControl();
-    const res = await context.fetchStream(objectUrl(objectKey), {
-      method: "HEAD",
-      headers,
-    }, "head R2 object");
+    const res = await context.fetchStream(
+      objectUrl(objectKey),
+      {
+        method: "HEAD",
+        headers,
+      },
+      "head R2 object"
+    );
     const body = objectHeadFromHeaders({
       namespace: ns,
       bucket,
@@ -152,14 +159,16 @@ async function runR2({ values, positionals, context: baseContext }) {
       action: `delete R2 object "${ns}/${bucket}/${objectKey}"`,
     });
     const body = /** @type {{ namespace?: string, bucket?: string, key?: string }} */ (
-      await context.fetchJson(objectUrl(objectKey), {
-        method: "DELETE",
-        headers,
-      }, "delete R2 object")
+      await context.fetchJson(
+        objectUrl(objectKey),
+        {
+          method: "DELETE",
+          headers,
+        },
+        "delete R2 object"
+      )
     );
-    writeResult(values.json === true, body, () => [
-      `OK ${body.namespace}/${body.bucket}/${body.key} deleted`,
-    ], stdout);
+    writeResult(values.json === true, body, () => [`OK ${body.namespace}/${body.bucket}/${body.key} deleted`], stdout);
     return;
   }
 
@@ -241,7 +250,9 @@ function objectHeadFromHeaders({ namespace, bucket, key, headers }) {
     httpMetadata: {
       ...(getHeader(headers, "content-type") ? { contentType: getHeader(headers, "content-type") } : {}),
       ...(getHeader(headers, "content-language") ? { contentLanguage: getHeader(headers, "content-language") } : {}),
-      ...(getHeader(headers, "content-disposition") ? { contentDisposition: getHeader(headers, "content-disposition") } : {}),
+      ...(getHeader(headers, "content-disposition")
+        ? { contentDisposition: getHeader(headers, "content-disposition") }
+        : {}),
       ...(getHeader(headers, "content-encoding") ? { contentEncoding: getHeader(headers, "content-encoding") } : {}),
       ...(getHeader(headers, "cache-control") ? { cacheControl: getHeader(headers, "cache-control") } : {}),
       ...(getHeader(headers, "expires") ? { cacheExpiry: getHeader(headers, "expires") } : {}),

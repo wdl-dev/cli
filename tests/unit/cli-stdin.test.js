@@ -12,10 +12,16 @@ test("readTtyLine hides input by switching the TTY to raw mode", async () => {
   const stdin = Object.assign(new EventEmitter(), {
     isTTY: true,
     setEncoding() {},
-    setRawMode(/** @type {boolean} */ v) { rawCalls.push(v); },
+    setRawMode(/** @type {boolean} */ v) {
+      rawCalls.push(v);
+    },
     pause() {},
   });
-  const pending = readTtyLine(stdin, { prompt: "tok: ", stderr: (s) => stderr.push(s), hidden: true });
+  const pending = readTtyLine(stdin, {
+    prompt: "tok: ",
+    stderr: (s) => stderr.push(s),
+    hidden: true,
+  });
   queueMicrotask(() => {
     stdin.emit("data", "sec");
     stdin.emit("data", "X" + String.fromCharCode(127)); // typo, then backspace removes it
@@ -73,7 +79,9 @@ test("readSecretStdin hides input on a TTY via raw mode", async () => {
   const stdin = Object.assign(new EventEmitter(), {
     isTTY: true,
     setEncoding() {},
-    setRawMode(/** @type {boolean} */ v) { rawCalls.push(v); },
+    setRawMode(/** @type {boolean} */ v) {
+      rawCalls.push(v);
+    },
     pause() {},
   });
   queueMicrotask(() => {
@@ -96,9 +104,17 @@ test("readTtyLine escapes terminal controls in the prompt at the write point", a
 test("confirmAction escapes terminal controls in its refusal message", async () => {
   const esc = String.fromCharCode(27);
   await assert.rejects(
-    () => confirmAction({ stdin: /** @type {import("../../lib/stdin.js").StdinLike} */ (/** @type {unknown} */ ({ isTTY: false })), action: `delete ${esc}[2J thing` }),
+    () =>
+      confirmAction({
+        stdin: /** @type {import("../../lib/stdin.js").StdinLike} */ (/** @type {unknown} */ ({ isTTY: false })),
+        action: `delete ${esc}[2J thing`,
+      }),
     (err) => {
-      assert.doesNotMatch(/** @type {Error} */ (err).message, new RegExp(esc), "raw ESC must not be in the refusal error");
+      assert.doesNotMatch(
+        /** @type {Error} */ (err).message,
+        new RegExp(esc),
+        "raw ESC must not be in the refusal error"
+      );
       assert.match(/** @type {Error} */ (err).message, /Refusing to delete/);
       return true;
     }

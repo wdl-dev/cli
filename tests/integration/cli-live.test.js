@@ -129,353 +129,422 @@ const LIVE_WORKER_COMPATIBILITY_DATE = process.env.WDL_LIVE_COMPATIBILITY_DATE |
 const LIVE_TIMEOUT_MS = 20 * 60_000;
 const TENANT_REQUEST_TIMEOUT_MS = 30_000;
 
-test("live CLI integration covers command surface against a WDL control plane", {
-  timeout: LIVE_TIMEOUT_MS,
-}, async (t) => {
-  const ctx = createLiveContext();
-  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "wdl-cli-live-"));
-  /** @type {Array<() => Promise<void>>} */
-  const cleanup = [];
-  let appDir = "";
-  let doDir = "";
-  let wfDir = "";
-  let envDir = "";
-  let initDir = "";
-  /** @type {NodeJS.ProcessEnv | null} */
-  let storeEnv = null;
-  const cleaned = {
-    appWorker: false,
-    d1: false,
-  };
-
-  /**
-   * @param {string} label
-   * @param {() => unknown} fn
-   */
-  const cleanupStep = (label, fn) => {
-    cleanup.push(async () => {
-      try {
-        await fn();
-      } catch (err) {
-        console.error(`cleanup warning (${label}): ${errorMessage(err)}`);
-      }
-    });
-  };
-  /**
-   * @template T
-   * @param {string} name
-   * @param {() => T | Promise<T>} fn
-   * @returns {Promise<T>}
-   */
-  const step = (name, fn) => runStep(t, name, fn);
-
-  try {
-    const activeTenant = await runStep(t, "preflight and temporary tenant token", async () => {
-      await assertControlReachable(ctx);
-      const provisioned = await provisionTenantToken(ctx);
-      cleanupStep("temporary tokens", () => provisioned.revoke?.());
-      return provisioned;
-    });
-    if (!activeTenant) throw new Error("preflight did not provision a tenant token");
-
-    const ns = activeTenant.ns;
-    const appWorker = "cli-live-app";
-    const doWorker = "cli-live-do";
-    const wfWorker = "cli-live-wf";
-    const envWorker = "cli-live-env";
-    const dbName = `${ns}-main`;
-    const bucket = `cli-live-${ns}`;
-    const kvId = `${ns}-kv`;
-    const queueName = `${ns}-jobs`;
-    const objectKey = `objects/${ns}/sample.txt`;
-    const xdg = path.join(tempRoot, "xdg");
-    const commonEnv = integrationEnv(ctx, { XDG_CONFIG_HOME: xdg });
-    const noCliEnv = withoutCliControlEnv(commonEnv);
-    const directTenantEnv = integrationEnv(ctx, {
-      XDG_CONFIG_HOME: xdg,
-      ADMIN_TOKEN: activeTenant.token,
-      CONTROL_URL: ctx.controlUrl,
-      WDL_NS: ns,
-    });
+test(
+  "live CLI integration covers command surface against a WDL control plane",
+  {
+    timeout: LIVE_TIMEOUT_MS,
+  },
+  async (t) => {
+    const ctx = createLiveContext();
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), "wdl-cli-live-"));
+    /** @type {Array<() => Promise<void>>} */
+    const cleanup = [];
+    let appDir = "";
+    let doDir = "";
+    let wfDir = "";
+    let envDir = "";
+    let initDir = "";
+    /** @type {NodeJS.ProcessEnv | null} */
+    let storeEnv = null;
+    const cleaned = {
+      appWorker: false,
+      d1: false,
+    };
 
     /**
-     * @param {string[]} args
-     * @param {RunWrapperOptions} [options]
-     * @returns {RunResult}
+     * @param {string} label
+     * @param {() => unknown} fn
      */
-    const run = (args, options = {}) => runWdl(args, {
-      cwd: options.cwd || CLI_ROOT,
-      env: options.env ?? commonEnv,
-      input: options.input,
-      timeoutMs: options.timeoutMs,
-    });
-    /**
-     * @template [T=unknown]
-     * @param {string[]} args
-     * @param {RunWrapperOptions} [options]
-     * @returns {T}
-     */
-    const runJson = (args, options = {}) => JSON.parse(run(args, options).stdout);
-
-    await step("top-level help and command help", () => {
-      run(["--version"]);
-      run(["help"]);
-      for (const command of [
-        "init", "deploy", "secret", "secrets", "workers", "delete", "d1", "r2",
-        "tail", "workflows", "token", "config", "doctor", "whoami",
-      ]) {
-        run([command, "--help"]);
-      }
-    });
-
-    await step("init command scaffolds a project", () => {
-      initDir = path.join(tempRoot, "init-project");
-      run(["init", "init-project", "--ns", ns, "--worker", "init-worker"], { cwd: tempRoot });
-      assert.match(readFileSync(path.join(initDir, "wrangler.jsonc"), "utf8"), /2026-06-17/);
-    });
-
-    await step("token store commands", () => {
-      run([
-        "token", "set",
-        "--ns", ns,
-        "--control-url", ctx.controlUrl,
-        "--label", "live integration",
-        "--default",
-      ], {
-        input: `${activeTenant.token}\n`,
-        env: noCliEnv,
-      });
-      const tokenList = runJson(["token", "list", "--json"], {
-        env: noCliEnv,
-      });
-      assert.equal(/** @type {TokenListEntry[]} */ (tokenList)[0]?.namespace, ns);
-      run(["token", "use", ns], { env: noCliEnv });
-      storeEnv = noCliEnv;
-      assert.equal(storeEnv.CONTROL_URL, undefined);
-      assert.equal(storeEnv.ADMIN_TOKEN, undefined);
-      assert.equal(storeEnv.WDL_NS, undefined);
-    });
-
-    await step("config, whoami, and doctor commands", () => {
-      const config = /** @type {ConfigExplain} */ (runJson(["config", "explain", "--json"], { env: storeEnv }));
-      assert.equal(config.namespace.value, ns);
-      const whoami = /** @type {WhoamiResult} */ (runJson(["whoami", "--json"], { env: storeEnv }));
-      assert.equal(whoami.namespace.value, ns);
-      assert.equal(whoami.namespace.matchesConfigured, true);
-      const doctor = /** @type {DoctorResult} */ (runJson(["doctor", "--json"], { env: storeEnv, cwd: initDir }));
-      assert.ok(Array.isArray(doctor.checks));
-    });
-
-    await step("write live app and workflow fixtures", () => {
-      appDir = writeAppProject(tempRoot, { worker: appWorker, dbName, bucket, kvId, queueName });
-      doDir = writeDurableObjectProject(tempRoot, { worker: doWorker });
-      wfDir = writeWorkflowProject(tempRoot, { worker: wfWorker });
-      envDir = writeEnvProject(tempRoot, { worker: envWorker });
-    });
-
-    cleanupStep("delete d1 database", () => {
-      if (!cleaned.d1) run(["d1", "delete", dbName, "--yes", "--json"], { env: directTenantEnv });
-    });
-    cleanupStep("delete app worker", () => {
-      if (!cleaned.appWorker) run(["delete", "worker", appWorker, "--yes", "--json"], { env: directTenantEnv });
-    });
-    cleanupStep("delete durable object worker", () => {
-      run(["delete", "worker", doWorker, "--yes", "--json"], { env: directTenantEnv });
-    });
-    cleanupStep("delete workflow worker", () => {
-      try {
-        run(["delete", "worker", wfWorker, "--yes", "--json"], { env: directTenantEnv });
-      } catch (/** @type {unknown} */ err) {
-        const message = err instanceof Error ? err.message : undefined;
-        if (String(message || err).includes("workflow_instances_active")) {
-          console.error(`cleanup note: ${ns}/${wfWorker} is retained until workflow instance retention expires`);
-          return;
+    const cleanupStep = (label, fn) => {
+      cleanup.push(async () => {
+        try {
+          await fn();
+        } catch (err) {
+          console.error(`cleanup warning (${label}): ${errorMessage(err)}`);
         }
-        throw err;
-      }
-    });
-    cleanupStep("delete env worker", () => {
-      run(["delete", "worker", envWorker, "--yes", "--json"], { env: directTenantEnv });
-    });
-
-    await step("d1 commands create, migrate, list, execute", () => {
-      const createdDb = /** @type {D1CreateResult} */ (runJson(["d1", "create", dbName, "--json"], { env: storeEnv }));
-      assert.equal(createdDb.databaseName, dbName);
-      assert.ok(/** @type {D1ListResult} */ (runJson(["d1", "list", "--json"], { env: storeEnv })).databases.some((db) =>
-        db.databaseName === dbName
-      ));
-      runJson(["d1", "migrations", "status", dbName, "--dir", "migrations", "--json"], {
-        cwd: appDir,
-        env: storeEnv,
       });
-      runJson(["d1", "migrations", "apply", dbName, "--dir", "migrations", "--json"], {
-        cwd: appDir,
-        env: storeEnv,
+    };
+    /**
+     * @template T
+     * @param {string} name
+     * @param {() => T | Promise<T>} fn
+     * @returns {Promise<T>}
+     */
+    const step = (name, fn) => runStep(t, name, fn);
+
+    try {
+      const activeTenant = await runStep(t, "preflight and temporary tenant token", async () => {
+        await assertControlReachable(ctx);
+        const provisioned = await provisionTenantToken(ctx);
+        cleanupStep("temporary tokens", () => provisioned.revoke?.());
+        return provisioned;
       });
-      runJson(["d1", "migrations", "list", dbName, "--json"], { env: storeEnv });
-      runJson(["d1", "execute", dbName, "--sql", "select count(*) as n from cli_live_items", "--json"], {
-        env: storeEnv,
+      if (!activeTenant) throw new Error("preflight did not provision a tenant token");
+
+      const ns = activeTenant.ns;
+      const appWorker = "cli-live-app";
+      const doWorker = "cli-live-do";
+      const wfWorker = "cli-live-wf";
+      const envWorker = "cli-live-env";
+      const dbName = `${ns}-main`;
+      const bucket = `cli-live-${ns}`;
+      const kvId = `${ns}-kv`;
+      const queueName = `${ns}-jobs`;
+      const objectKey = `objects/${ns}/sample.txt`;
+      const xdg = path.join(tempRoot, "xdg");
+      const commonEnv = integrationEnv(ctx, { XDG_CONFIG_HOME: xdg });
+      const noCliEnv = withoutCliControlEnv(commonEnv);
+      const directTenantEnv = integrationEnv(ctx, {
+        XDG_CONFIG_HOME: xdg,
+        ADMIN_TOKEN: activeTenant.token,
+        CONTROL_URL: ctx.controlUrl,
+        WDL_NS: ns,
       });
-    });
 
-    await step("deploy command publishes app worker", async () => {
-      const firstDeploy = run(["deploy", appDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
-      assertDeployPrintedLiveVersion(firstDeploy.stdout);
-      await waitForTenantJson(ctx, ns, appWorker, "/health", (body) =>
-        /** @type {TenantHealthBody} */ (body).worker === appWorker);
-    });
+      /**
+       * @param {string[]} args
+       * @param {RunWrapperOptions} [options]
+       * @returns {RunResult}
+       */
+      const run = (args, options = {}) =>
+        runWdl(args, {
+          cwd: options.cwd || CLI_ROOT,
+          env: options.env ?? commonEnv,
+          input: options.input,
+          timeoutMs: options.timeoutMs,
+        });
+      /**
+       * @template [T=unknown]
+       * @param {string[]} args
+       * @param {RunWrapperOptions} [options]
+       * @returns {T}
+       */
+      const runJson = (args, options = {}) => JSON.parse(run(args, options).stdout);
 
-    await step("secret and secrets commands", () => {
-      run(["secret", "put", "--scope", "ns", "LIVE_NS_SECRET"], {
-        input: "ns-secret\n",
-        env: storeEnv,
+      await step("top-level help and command help", () => {
+        run(["--version"]);
+        run(["help"]);
+        for (const command of [
+          "init",
+          "deploy",
+          "secret",
+          "secrets",
+          "workers",
+          "delete",
+          "d1",
+          "r2",
+          "tail",
+          "workflows",
+          "token",
+          "config",
+          "doctor",
+          "whoami",
+        ]) {
+          run([command, "--help"]);
+        }
       });
-      assert.ok(
-        /** @type {SecretListResult} */ (runJson(["secret", "list", "--scope", "ns", "--json"], { env: storeEnv }))
-          .keys.includes("LIVE_NS_SECRET")
-      );
-      run(["secrets", "list", "--scope", "ns"], { env: storeEnv });
 
-      run(["secret", "put", "--worker", appWorker, "LIVE_WORKER_SECRET"], {
-        input: "worker-secret\n",
-        env: storeEnv,
+      await step("init command scaffolds a project", () => {
+        initDir = path.join(tempRoot, "init-project");
+        run(["init", "init-project", "--ns", ns, "--worker", "init-worker"], { cwd: tempRoot });
+        assert.match(readFileSync(path.join(initDir, "wrangler.jsonc"), "utf8"), /2026-06-17/);
       });
-      assert.ok(
-        /** @type {SecretListResult} */ (runJson(["secret", "list", "--worker", appWorker, "--json"], { env: storeEnv }))
-          .keys.includes("LIVE_WORKER_SECRET")
-      );
-    });
 
-    await step("tenant runtime exercises D1, R2, and KV bindings", async () => {
-      const d1ViaWorker = /** @type {TenantD1Body} */ (
-        await tenantJson(ctx, ns, appWorker, "/d1?name=alice", { method: "POST" })
-      );
-      assert.equal(d1ViaWorker.name, "alice");
-
-      const r2Put = /** @type {TenantR2Body} */ (
-        await tenantJson(ctx, ns, appWorker, `/r2?key=${encodeURIComponent(objectKey)}`, {
-          method: "POST",
-        })
-      );
-      assert.equal(r2Put.key, objectKey);
-
-      const kvPut = await tenantJson(ctx, ns, appWorker, "/kv?key=counter");
-      assert.deepEqual(kvPut, { key: "counter", value: 1 });
-    });
-
-    await step("tenant runtime exercises assets and queue delivery", async () => {
-      const assetUrl = /** @type {{ url?: string }} */ (await tenantJson(ctx, ns, appWorker, "/asset-url"));
-      assert.match(String(assetUrl.url), /hello\.txt/);
-
-      const queued = /** @type {{ id?: string }} */ (
-        await tenantJson(ctx, ns, appWorker, "/queue/enqueue?id=live-1", { method: "POST" })
-      );
-      assert.equal(queued.id, "live-1");
-      await waitForTenantJson(ctx, ns, appWorker, "/queue/jobs?id=live-1", (body) => {
-        const typed = /** @type {{ jobs?: Array<{ id?: string, queue?: string }> }} */ (body);
-        const jobs = typed.jobs || [];
-        return jobs.some((job) => job.id === "live-1" && job.queue === queueName);
+      await step("token store commands", () => {
+        run(["token", "set", "--ns", ns, "--control-url", ctx.controlUrl, "--label", "live integration", "--default"], {
+          input: `${activeTenant.token}\n`,
+          env: noCliEnv,
+        });
+        const tokenList = runJson(["token", "list", "--json"], {
+          env: noCliEnv,
+        });
+        assert.equal(/** @type {TokenListEntry[]} */ (tokenList)[0]?.namespace, ns);
+        run(["token", "use", ns], { env: noCliEnv });
+        storeEnv = noCliEnv;
+        assert.equal(storeEnv.CONTROL_URL, undefined);
+        assert.equal(storeEnv.ADMIN_TOKEN, undefined);
+        assert.equal(storeEnv.WDL_NS, undefined);
       });
-    });
 
-    await step("deploy command publishes Durable Object worker", async () => {
-      const doDeploy = run(["deploy", doDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
-      assertDeployPrintedLiveVersion(doDeploy.stdout);
-      const durableObjectHit = /** @type {{ storedHits?: number }} */ (
-        await tenantJson(ctx, ns, doWorker, "/do?room=live")
-      );
-      assert.equal(durableObjectHit.storedHits, 1);
-    });
-
-    await step("r2 commands list, head, get, delete objects", () => {
-      assert.ok(/** @type {R2BucketsResult} */ (runJson(["r2", "buckets", "list", "--json"], { env: storeEnv }))
-        .buckets.some((b) => b.name === bucket));
-      assert.ok(/** @type {R2ObjectsResult} */ (runJson(["r2", "objects", "list", bucket, "--prefix", `objects/${ns}/`, "--json"], {
-        env: storeEnv,
-      })).objects.some((obj) => obj.key === objectKey));
-      assert.equal(/** @type {R2HeadResult} */ (runJson(["r2", "objects", "head", bucket, objectKey, "--json"], { env: storeEnv })).key, objectKey);
-      const outFile = path.join(tempRoot, "r2-object.txt");
-      run(["r2", "objects", "get", bucket, objectKey, "--out", outFile], { env: storeEnv });
-      assert.equal(readFileSync(outFile, "utf8"), "live-r2-body");
-      runJson(["r2", "objects", "delete", bucket, objectKey, "--yes", "--json"], { env: storeEnv });
-    });
-
-    await step("tail command receives live logs", async () => {
-      await assertTailReceivesLog({
-        ctx, ns, worker: appWorker, env: /** @type {NodeJS.ProcessEnv} */ (storeEnv),
+      await step("config, whoami, and doctor commands", () => {
+        const config = /** @type {ConfigExplain} */ (runJson(["config", "explain", "--json"], { env: storeEnv }));
+        assert.equal(config.namespace.value, ns);
+        const whoami = /** @type {WhoamiResult} */ (runJson(["whoami", "--json"], { env: storeEnv }));
+        assert.equal(whoami.namespace.value, ns);
+        assert.equal(whoami.namespace.matchesConfigured, true);
+        const doctor = /** @type {DoctorResult} */ (runJson(["doctor", "--json"], { env: storeEnv, cwd: initDir }));
+        assert.ok(Array.isArray(doctor.checks));
       });
-    });
 
-    await step("deploy --env publishes selected environment overrides", async () => {
-      const envDeploy = run(["deploy", envDir, "--env", "staging"], { env: storeEnv, timeoutMs: 5 * 60_000 });
-      assertDeployPrintedLiveVersion(envDeploy.stdout);
-      await waitForTenantJson(ctx, ns, envWorker, "/health", (body) =>
-        /** @type {{ label?: string }} */ (body).label === "cli-live-staging");
-    });
+      await step("write live app and workflow fixtures", () => {
+        appDir = writeAppProject(tempRoot, { worker: appWorker, dbName, bucket, kvId, queueName });
+        doDir = writeDurableObjectProject(tempRoot, { worker: doWorker });
+        wfDir = writeWorkflowProject(tempRoot, { worker: wfWorker });
+        envDir = writeEnvProject(tempRoot, { worker: envWorker });
+      });
 
-    await step("workers and delete version commands", () => {
-      writeAppRevision(appDir, appWorker, "v2");
-      const secondDeploy = run(["deploy", appDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
-      assertDeployPrintedLiveVersion(secondDeploy.stdout);
-      const workers = /** @type {WorkersListResult} */ (runJson(["workers", "--json"], { env: storeEnv }));
-      const app = workers.workers.find((worker) => worker.name === appWorker);
-      assert.ok(app?.activeVersion, `workers list did not include an active version for ${appWorker}`);
-      assert.ok(app.versions.includes(app.activeVersion));
-      const oldVersion = app.versions.find((version) => version && version !== app.activeVersion);
-      assert.ok(oldVersion, `second deploy did not leave an old version: ${app.versions.join(", ")}`);
-      runJson(["delete", "version", appWorker, oldVersion, "--json"], { env: storeEnv });
-      runJson(["delete", "worker", appWorker, "--dry-run", "--json"], { env: storeEnv });
-    });
+      cleanupStep("delete d1 database", () => {
+        if (!cleaned.d1) run(["d1", "delete", dbName, "--yes", "--json"], { env: directTenantEnv });
+      });
+      cleanupStep("delete app worker", () => {
+        if (!cleaned.appWorker) run(["delete", "worker", appWorker, "--yes", "--json"], { env: directTenantEnv });
+      });
+      cleanupStep("delete durable object worker", () => {
+        run(["delete", "worker", doWorker, "--yes", "--json"], { env: directTenantEnv });
+      });
+      cleanupStep("delete workflow worker", () => {
+        try {
+          run(["delete", "worker", wfWorker, "--yes", "--json"], { env: directTenantEnv });
+        } catch (/** @type {unknown} */ err) {
+          const message = err instanceof Error ? err.message : undefined;
+          if (String(message || err).includes("workflow_instances_active")) {
+            console.error(`cleanup note: ${ns}/${wfWorker} is retained until workflow instance retention expires`);
+            return;
+          }
+          throw err;
+        }
+      });
+      cleanupStep("delete env worker", () => {
+        run(["delete", "worker", envWorker, "--yes", "--json"], { env: directTenantEnv });
+      });
 
-    await step("secret delete commands", () => {
-      run(["secret", "delete", "--scope", "ns", "LIVE_NS_SECRET", "--yes"], { env: storeEnv });
-      run(["secret", "delete", "--worker", appWorker, "LIVE_WORKER_SECRET", "--yes"], { env: storeEnv });
-    });
+      await step("d1 commands create, migrate, list, execute", () => {
+        const createdDb = /** @type {D1CreateResult} */ (
+          runJson(["d1", "create", dbName, "--json"], { env: storeEnv })
+        );
+        assert.equal(createdDb.databaseName, dbName);
+        assert.ok(
+          /** @type {D1ListResult} */ (runJson(["d1", "list", "--json"], { env: storeEnv })).databases.some(
+            (db) => db.databaseName === dbName
+          )
+        );
+        runJson(["d1", "migrations", "status", dbName, "--dir", "migrations", "--json"], {
+          cwd: appDir,
+          env: storeEnv,
+        });
+        runJson(["d1", "migrations", "apply", dbName, "--dir", "migrations", "--json"], {
+          cwd: appDir,
+          env: storeEnv,
+        });
+        runJson(["d1", "migrations", "list", dbName, "--json"], { env: storeEnv });
+        runJson(["d1", "execute", dbName, "--sql", "select count(*) as n from cli_live_items", "--json"], {
+          env: storeEnv,
+        });
+      });
 
-    await step("workflows commands", async () => {
-      run(["deploy", wfDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
-      assert.ok(/** @type {WorkflowsListResult} */ (runJson(["workflows", "list", "--json"], { env: storeEnv }))
-        .workflows.some((wf) =>
-          wf.worker === wfWorker && wf.name === "orders"
-        ));
-      await waitForTenantJson(ctx, ns, wfWorker, "/health", (body) =>
-        /** @type {TenantHealthBody} */ (body).worker === "workflow");
-      await tenantJson(ctx, ns, wfWorker, "/workflow/start?id=live-wait&wait=1");
-      await waitForWorkflowStatus(runJson, storeEnv, wfWorker, "orders", "live-wait", ["waiting", "queued", "running"]);
-      runJson(["workflows", "instances", wfWorker, "orders", "--limit", "5", "--json"], { env: storeEnv });
-      runJson([
-        "workflows", "status", wfWorker, "orders", "live-wait",
-        "--include-steps", "--step-limit", "10", "--json",
-      ], { env: storeEnv });
-      runJson(["workflows", "pause", wfWorker, "orders", "live-wait", "--json"], { env: storeEnv });
-      runJson(["workflows", "resume", wfWorker, "orders", "live-wait", "--json"], { env: storeEnv });
-      runJson(["workflows", "restart", wfWorker, "orders", "live-wait", "--yes", "--json"], { env: storeEnv });
-      runJson(["workflows", "terminate", wfWorker, "orders", "live-wait", "--yes", "--json"], { env: storeEnv });
-    });
+      await step("deploy command publishes app worker", async () => {
+        const firstDeploy = run(["deploy", appDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
+        assertDeployPrintedLiveVersion(firstDeploy.stdout);
+        await waitForTenantJson(
+          ctx,
+          ns,
+          appWorker,
+          "/health",
+          (body) => /** @type {TenantHealthBody} */ (body).worker === appWorker
+        );
+      });
 
-    await step("explicit cleanup commands", () => {
-      runJson(["delete", "worker", appWorker, "--yes", "--json"], { env: storeEnv });
-      cleaned.appWorker = true;
-      runJson(["d1", "delete", dbName, "--yes", "--json"], { env: storeEnv });
-      cleaned.d1 = true;
-      run(["token", "rm", "--ns", ns], { env: noCliEnv });
-    });
-  } finally {
-    for (const fn of cleanup.reverse()) await fn();
-    rmSync(tempRoot, { recursive: true, force: true });
+      await step("secret and secrets commands", () => {
+        run(["secret", "put", "--scope", "ns", "LIVE_NS_SECRET"], {
+          input: "ns-secret\n",
+          env: storeEnv,
+        });
+        assert.ok(
+          /** @type {SecretListResult} */ (
+            runJson(["secret", "list", "--scope", "ns", "--json"], { env: storeEnv })
+          ).keys.includes("LIVE_NS_SECRET")
+        );
+        run(["secrets", "list", "--scope", "ns"], { env: storeEnv });
+
+        run(["secret", "put", "--worker", appWorker, "LIVE_WORKER_SECRET"], {
+          input: "worker-secret\n",
+          env: storeEnv,
+        });
+        assert.ok(
+          /** @type {SecretListResult} */ (
+            runJson(["secret", "list", "--worker", appWorker, "--json"], { env: storeEnv })
+          ).keys.includes("LIVE_WORKER_SECRET")
+        );
+      });
+
+      await step("tenant runtime exercises D1, R2, and KV bindings", async () => {
+        const d1ViaWorker = /** @type {TenantD1Body} */ (
+          await tenantJson(ctx, ns, appWorker, "/d1?name=alice", { method: "POST" })
+        );
+        assert.equal(d1ViaWorker.name, "alice");
+
+        const r2Put = /** @type {TenantR2Body} */ (
+          await tenantJson(ctx, ns, appWorker, `/r2?key=${encodeURIComponent(objectKey)}`, {
+            method: "POST",
+          })
+        );
+        assert.equal(r2Put.key, objectKey);
+
+        const kvPut = await tenantJson(ctx, ns, appWorker, "/kv?key=counter");
+        assert.deepEqual(kvPut, { key: "counter", value: 1 });
+      });
+
+      await step("tenant runtime exercises assets and queue delivery", async () => {
+        const assetUrl = /** @type {{ url?: string }} */ (await tenantJson(ctx, ns, appWorker, "/asset-url"));
+        assert.match(String(assetUrl.url), /hello\.txt/);
+
+        const queued = /** @type {{ id?: string }} */ (
+          await tenantJson(ctx, ns, appWorker, "/queue/enqueue?id=live-1", { method: "POST" })
+        );
+        assert.equal(queued.id, "live-1");
+        await waitForTenantJson(ctx, ns, appWorker, "/queue/jobs?id=live-1", (body) => {
+          const typed = /** @type {{ jobs?: Array<{ id?: string, queue?: string }> }} */ (body);
+          const jobs = typed.jobs || [];
+          return jobs.some((job) => job.id === "live-1" && job.queue === queueName);
+        });
+      });
+
+      await step("deploy command publishes Durable Object worker", async () => {
+        const doDeploy = run(["deploy", doDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
+        assertDeployPrintedLiveVersion(doDeploy.stdout);
+        const durableObjectHit = /** @type {{ storedHits?: number }} */ (
+          await tenantJson(ctx, ns, doWorker, "/do?room=live")
+        );
+        assert.equal(durableObjectHit.storedHits, 1);
+      });
+
+      await step("r2 commands list, head, get, delete objects", () => {
+        assert.ok(
+          /** @type {R2BucketsResult} */ (runJson(["r2", "buckets", "list", "--json"], { env: storeEnv })).buckets.some(
+            (b) => b.name === bucket
+          )
+        );
+        assert.ok(
+          /** @type {R2ObjectsResult} */ (
+            runJson(["r2", "objects", "list", bucket, "--prefix", `objects/${ns}/`, "--json"], {
+              env: storeEnv,
+            })
+          ).objects.some((obj) => obj.key === objectKey)
+        );
+        assert.equal(
+          /** @type {R2HeadResult} */ (
+            runJson(["r2", "objects", "head", bucket, objectKey, "--json"], { env: storeEnv })
+          ).key,
+          objectKey
+        );
+        const outFile = path.join(tempRoot, "r2-object.txt");
+        run(["r2", "objects", "get", bucket, objectKey, "--out", outFile], { env: storeEnv });
+        assert.equal(readFileSync(outFile, "utf8"), "live-r2-body");
+        runJson(["r2", "objects", "delete", bucket, objectKey, "--yes", "--json"], {
+          env: storeEnv,
+        });
+      });
+
+      await step("tail command receives live logs", async () => {
+        await assertTailReceivesLog({
+          ctx,
+          ns,
+          worker: appWorker,
+          env: /** @type {NodeJS.ProcessEnv} */ (storeEnv),
+        });
+      });
+
+      await step("deploy --env publishes selected environment overrides", async () => {
+        const envDeploy = run(["deploy", envDir, "--env", "staging"], {
+          env: storeEnv,
+          timeoutMs: 5 * 60_000,
+        });
+        assertDeployPrintedLiveVersion(envDeploy.stdout);
+        await waitForTenantJson(
+          ctx,
+          ns,
+          envWorker,
+          "/health",
+          (body) => /** @type {{ label?: string }} */ (body).label === "cli-live-staging"
+        );
+      });
+
+      await step("workers and delete version commands", () => {
+        writeAppRevision(appDir, appWorker, "v2");
+        const secondDeploy = run(["deploy", appDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
+        assertDeployPrintedLiveVersion(secondDeploy.stdout);
+        const workers = /** @type {WorkersListResult} */ (runJson(["workers", "--json"], { env: storeEnv }));
+        const app = workers.workers.find((worker) => worker.name === appWorker);
+        assert.ok(app?.activeVersion, `workers list did not include an active version for ${appWorker}`);
+        assert.ok(app.versions.includes(app.activeVersion));
+        const oldVersion = app.versions.find((version) => version && version !== app.activeVersion);
+        assert.ok(oldVersion, `second deploy did not leave an old version: ${app.versions.join(", ")}`);
+        runJson(["delete", "version", appWorker, oldVersion, "--json"], { env: storeEnv });
+        runJson(["delete", "worker", appWorker, "--dry-run", "--json"], { env: storeEnv });
+      });
+
+      await step("secret delete commands", () => {
+        run(["secret", "delete", "--scope", "ns", "LIVE_NS_SECRET", "--yes"], { env: storeEnv });
+        run(["secret", "delete", "--worker", appWorker, "LIVE_WORKER_SECRET", "--yes"], {
+          env: storeEnv,
+        });
+      });
+
+      await step("workflows commands", async () => {
+        run(["deploy", wfDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
+        assert.ok(
+          /** @type {WorkflowsListResult} */ (
+            runJson(["workflows", "list", "--json"], { env: storeEnv })
+          ).workflows.some((wf) => wf.worker === wfWorker && wf.name === "orders")
+        );
+        await waitForTenantJson(
+          ctx,
+          ns,
+          wfWorker,
+          "/health",
+          (body) => /** @type {TenantHealthBody} */ (body).worker === "workflow"
+        );
+        await tenantJson(ctx, ns, wfWorker, "/workflow/start?id=live-wait&wait=1");
+        await waitForWorkflowStatus(runJson, storeEnv, wfWorker, "orders", "live-wait", [
+          "waiting",
+          "queued",
+          "running",
+        ]);
+        runJson(["workflows", "instances", wfWorker, "orders", "--limit", "5", "--json"], {
+          env: storeEnv,
+        });
+        runJson(
+          ["workflows", "status", wfWorker, "orders", "live-wait", "--include-steps", "--step-limit", "10", "--json"],
+          { env: storeEnv }
+        );
+        runJson(["workflows", "pause", wfWorker, "orders", "live-wait", "--json"], {
+          env: storeEnv,
+        });
+        runJson(["workflows", "resume", wfWorker, "orders", "live-wait", "--json"], {
+          env: storeEnv,
+        });
+        runJson(["workflows", "restart", wfWorker, "orders", "live-wait", "--yes", "--json"], {
+          env: storeEnv,
+        });
+        runJson(["workflows", "terminate", wfWorker, "orders", "live-wait", "--yes", "--json"], {
+          env: storeEnv,
+        });
+      });
+
+      await step("explicit cleanup commands", () => {
+        runJson(["delete", "worker", appWorker, "--yes", "--json"], { env: storeEnv });
+        cleaned.appWorker = true;
+        runJson(["d1", "delete", dbName, "--yes", "--json"], { env: storeEnv });
+        cleaned.d1 = true;
+        run(["token", "rm", "--ns", ns], { env: noCliEnv });
+      });
+    } finally {
+      for (const fn of cleanup.reverse()) await fn();
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   }
-});
+);
 
 /** @returns {LiveContext} */
 function createLiveContext() {
   const controlUrl = normalizeControlUrl(process.env.WDL_LIVE_CONTROL_URL || DEFAULT_LOCAL_CONTROL_URL);
   const controlHost = new URL(controlUrl).hostname;
-  const isLocalControl = controlHost === "localhost" ||
+  const isLocalControl =
+    controlHost === "localhost" ||
     controlHost === "127.0.0.1" ||
     controlHost.endsWith(".test") ||
     controlHost.endsWith(".local");
-  const connectHost = process.env.WDL_LIVE_CONTROL_CONNECT_HOST ||
-    (isLocalControl ? "localhost" : "");
+  const connectHost = process.env.WDL_LIVE_CONTROL_CONNECT_HOST || (isLocalControl ? "localhost" : "");
   if (connectHost) process.env.CONTROL_CONNECT_HOST = connectHost;
   else delete process.env.CONTROL_CONNECT_HOST;
 
@@ -557,8 +626,8 @@ function runWdl(args, { cwd, env, input = "", timeoutMs = 120_000 }) {
   if (result.status !== 0) {
     throw new Error(
       `wdl ${args.join(" ")} failed with exit ${result.status}\n` +
-      `stdout:\n${result.stdout}\n` +
-      `stderr:\n${result.stderr}`
+        `stdout:\n${result.stdout}\n` +
+        `stderr:\n${result.stderr}`
     );
   }
   return { stdout: result.stdout, stderr: result.stderr };
@@ -599,8 +668,8 @@ async function assertControlReachable(ctx) {
   } catch (err) {
     throw new Error(
       `live integration preflight could not reach ${ctx.controlUrl}; ` +
-      `start the local WDL dev stack or set WDL_LIVE_CONTROL_URL / token env vars. ` +
-      `Underlying error: ${errorMessage(err)}`,
+        `start the local WDL dev stack or set WDL_LIVE_CONTROL_URL / token env vars. ` +
+        `Underlying error: ${errorMessage(err)}`,
       { cause: err }
     );
   }
@@ -625,15 +694,17 @@ async function provisionTenantToken(ctx) {
     throw new Error("WDL live integration needs WDL_LIVE_ISSUER_TOKEN, WDL_LIVE_TENANT_TOKEN, or an admin token");
   }
   const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
-  const issuer = /** @type {{ token: string, tokenId?: string }} */ (await controlJson(ctx, "/auth/tokens", ctx.adminToken, {
-    method: "POST",
-    body: {
-      kind: "token-issuer",
-      issueTemplates: [ctx.template],
-      label: "cli live integration issuer",
-      expiresAt,
-    },
-  }));
+  const issuer = /** @type {{ token: string, tokenId?: string }} */ (
+    await controlJson(ctx, "/auth/tokens", ctx.adminToken, {
+      method: "POST",
+      body: {
+        kind: "token-issuer",
+        issueTemplates: [ctx.template],
+        label: "cli live integration issuer",
+        expiresAt,
+      },
+    })
+  );
   let delegated;
   try {
     delegated = await issueDelegatedTenantToken(ctx, issuer.token);
@@ -641,9 +712,7 @@ async function provisionTenantToken(ctx) {
     try {
       await revokeIssuedTokens(ctx, [issuer.tokenId]);
     } catch (revokeErr) {
-      console.error(
-        `cleanup warning (temporary issuer token): ${errorMessage(revokeErr)}`
-      );
+      console.error(`cleanup warning (temporary issuer token): ${errorMessage(revokeErr)}`);
     }
     throw err;
   }
@@ -671,8 +740,8 @@ async function issueDelegatedTenantToken(ctx, issuerToken) {
   } catch (err) {
     throw new Error(
       `live integration could not issue delegated token from ${ctx.controlUrl}; ` +
-      `verify the control plane is reachable and the issuer token allows template ${ctx.template}. ` +
-      `Underlying error: ${errorMessage(err)}`,
+        `verify the control plane is reachable and the issuer token allows template ${ctx.template}. ` +
+        `Underlying error: ${errorMessage(err)}`,
       { cause: err }
     );
   }
@@ -741,11 +810,20 @@ function writeAppProject(root, { worker, dbName, bucket, kvId, queueName }) {
   mkdirSync(path.join(dir, "src"), { recursive: true });
   mkdirSync(path.join(dir, "migrations"), { recursive: true });
   mkdirSync(path.join(dir, "public"), { recursive: true });
-  writeFileSync(path.join(dir, "package.json"), JSON.stringify({
-    private: true,
-    type: "module",
-  }, null, 2) + "\n");
-  writeFileSync(path.join(dir, "wrangler.toml"), `
+  writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify(
+      {
+        private: true,
+        type: "module",
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  writeFileSync(
+    path.join(dir, "wrangler.toml"),
+    `
 name = "${worker}"
 main = "src/index.js"
 compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
@@ -782,14 +860,18 @@ directory = "public"
 
 [vars]
 LABEL = "cli-live"
-`);
+`
+  );
   writeFileSync(path.join(dir, "public", "hello.txt"), "hello from live assets\n");
-  writeFileSync(path.join(dir, "migrations", "001_init.sql"), `
+  writeFileSync(
+    path.join(dir, "migrations", "001_init.sql"),
+    `
 create table if not exists cli_live_items (
   name text primary key,
   count integer not null default 0
 );
-`);
+`
+  );
   writeAppRevision(dir, worker, "v1");
   return dir;
 }
@@ -907,11 +989,20 @@ export default {
 function writeDurableObjectProject(root, { worker }) {
   const dir = path.join(root, "durable-object");
   mkdirSync(path.join(dir, "src"), { recursive: true });
-  writeFileSync(path.join(dir, "package.json"), JSON.stringify({
-    private: true,
-    type: "module",
-  }, null, 2) + "\n");
-  writeFileSync(path.join(dir, "wrangler.toml"), `
+  writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify(
+      {
+        private: true,
+        type: "module",
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  writeFileSync(
+    path.join(dir, "wrangler.toml"),
+    `
 name = "${worker}"
 main = "src/index.js"
 compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
@@ -923,7 +1014,8 @@ class_name = "Room"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
-`);
+`
+  );
   writeFileSync(path.join(dir, "src", "index.js"), durableObjectWorkerSource(worker));
   return dir;
 }
@@ -991,11 +1083,20 @@ export default {
 function writeEnvProject(root, { worker }) {
   const dir = path.join(root, "env-project");
   mkdirSync(path.join(dir, "src"), { recursive: true });
-  writeFileSync(path.join(dir, "package.json"), JSON.stringify({
-    private: true,
-    type: "module",
-  }, null, 2) + "\n");
-  writeFileSync(path.join(dir, "wrangler.toml"), `
+  writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify(
+      {
+        private: true,
+        type: "module",
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  writeFileSync(
+    path.join(dir, "wrangler.toml"),
+    `
 name = "${worker}"
 main = "src/index.js"
 compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
@@ -1005,8 +1106,11 @@ LABEL = "base"
 
 [env.staging.vars]
 LABEL = "cli-live-staging"
-`);
-  writeFileSync(path.join(dir, "src", "index.js"), `
+`
+  );
+  writeFileSync(
+    path.join(dir, "src", "index.js"),
+    `
 export default {
   async fetch(_request, env) {
     return new Response(JSON.stringify({ label: env.LABEL }), {
@@ -1014,7 +1118,8 @@ export default {
     });
   },
 };
-`);
+`
+  );
   return dir;
 }
 
@@ -1026,11 +1131,20 @@ export default {
 function writeWorkflowProject(root, { worker }) {
   const dir = path.join(root, "workflow");
   mkdirSync(path.join(dir, "src"), { recursive: true });
-  writeFileSync(path.join(dir, "package.json"), JSON.stringify({
-    private: true,
-    type: "module",
-  }, null, 2) + "\n");
-  writeFileSync(path.join(dir, "wrangler.toml"), `
+  writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify(
+      {
+        private: true,
+        type: "module",
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  writeFileSync(
+    path.join(dir, "wrangler.toml"),
+    `
 name = "${worker}"
 main = "src/index.js"
 compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
@@ -1039,7 +1153,8 @@ compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
 name = "orders"
 binding = "ORDERS"
 class_name = "OrderWorkflow"
-`);
+`
+  );
   writeFileSync(path.join(dir, "src", "index.js"), workflowWorkerSource());
   return dir;
 }
@@ -1138,23 +1253,28 @@ function tenantRequest(ctx, ns, worker, pathname, init = {}) {
   const requestPath = `/${worker}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 
   return new Promise((resolve, reject) => {
-    const req = lib.request({
-      hostname: base.hostname,
-      port: Number(base.port) || (base.protocol === "https:" ? 443 : 80),
-      protocol: base.protocol,
-      method: init.method || "GET",
-      path: requestPath,
-      headers,
-    }, (res) => {
-      /** @type {Buffer[]} */
-      const chunks = [];
-      res.on("data", (/** @type {Buffer} */ chunk) => chunks.push(chunk));
-      res.on("end", () => resolve({
-        status: res.statusCode || 0,
-        headers: res.headers,
-        body: Buffer.concat(chunks).toString("utf8"),
-      }));
-    });
+    const req = lib.request(
+      {
+        hostname: base.hostname,
+        port: Number(base.port) || (base.protocol === "https:" ? 443 : 80),
+        protocol: base.protocol,
+        method: init.method || "GET",
+        path: requestPath,
+        headers,
+      },
+      (res) => {
+        /** @type {Buffer[]} */
+        const chunks = [];
+        res.on("data", (/** @type {Buffer} */ chunk) => chunks.push(chunk));
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode || 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString("utf8"),
+          })
+        );
+      }
+    );
     req.on("error", reject);
     req.setTimeout(TENANT_REQUEST_TIMEOUT_MS, () => {
       req.destroy(new Error(`tenant ${worker}${requestPath} timed out after ${TENANT_REQUEST_TIMEOUT_MS}ms`));
@@ -1177,8 +1297,12 @@ async function assertTailReceivesLog({ ctx, ns, worker, env }) {
   let stderr = "";
   tail.stdout.setEncoding("utf8");
   tail.stderr.setEncoding("utf8");
-  tail.stdout.on("data", (/** @type {string} */ chunk) => { stdout += chunk; });
-  tail.stderr.on("data", (/** @type {string} */ chunk) => { stderr += chunk; });
+  tail.stdout.on("data", (/** @type {string} */ chunk) => {
+    stdout += chunk;
+  });
+  tail.stderr.on("data", (/** @type {string} */ chunk) => {
+    stderr += chunk;
+  });
   try {
     await waitUntil("tail connection", async () => stderr.includes("tail connected"));
     const id = randomBytes(3).toString("hex");
@@ -1216,7 +1340,9 @@ async function waitForWorkflowStatus(runJson, env, worker, workflow, instanceId,
   let body;
   await waitUntil(`workflow ${instanceId} status`, async () => {
     body = /** @type {WorkflowStatusResult} */ (
-      runJson(["workflows", "status", worker, workflow, instanceId, "--include-steps", "--json"], { env })
+      runJson(["workflows", "status", worker, workflow, instanceId, "--include-steps", "--json"], {
+        env,
+      })
     );
     return statuses.includes(body.status);
   });

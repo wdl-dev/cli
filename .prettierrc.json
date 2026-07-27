@@ -1,0 +1,22 @@
+{
+  "embeddedLanguageFormatting": "off",
+  "printWidth": 120,
+  "proseWrap": "always",
+  "quoteProps": "preserve",
+  "trailingComma": "es5",
+  "overrides": [
+    {
+      "files": "**/*.md",
+      "options": {
+        "printWidth": 80
+      }
+    },
+    {
+      "files": "**/*-zh.md",
+      "options": {
+        "printWidth": 80,
+        "proseWrap": "never"
+      }
+    }
+  ]
+}

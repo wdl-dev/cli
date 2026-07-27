@@ -83,9 +83,8 @@ Semantic size limits in the Workflows API return `request_too_large`; size
 limits hit during HTTP body parsing may return `request_body_too_large`. A
 Workflows 5xx means a platform or backend failure, and the response body stays a
 generic error summary; underlying diagnostics go to platform logs and are not
-stable CLI output.
-`workflow_metadata_contention` means the active workflow metadata changed while
-control was reading it; retry the command.
+stable CLI output. `workflow_metadata_contention` means the active workflow
+metadata changed while control was reading it; retry the command.
 
 ## End-to-end example
 

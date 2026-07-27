@@ -52,11 +52,13 @@
     "node": ">=22"
   },
   "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/unit/cli-*.test.js",
     "test:integration:live": "node --test tests/integration/cli-live.test.js",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm test"
+    "prepublishOnly": "npm run format:check && npm run lint && npm run typecheck && npm test"
   },
   "publishConfig": {
     "access": "public"
@@ -66,6 +68,7 @@
     "@types/node": "^22.20.1",
     "eslint": "^10.7.0",
     "globals": "^17.7.0",
+    "prettier": "3.9.6",
     "typescript": "^6.0.3"
   }
 }

@@ -19,6 +19,8 @@ newer target.
 
 - `npm install`: install dependencies from `package-lock.json`.
 - `npm link`: expose the local `wdl` binary for manual testing.
+- `npm run format`: format supported source and documentation files.
+- `npm run format:check`: verify formatting without modifying files.
 - `npm run lint`: run ESLint over the CLI, docs helpers, and examples.
 - `npm run typecheck`: run TypeScript's JavaScript-aware `tsc --noEmit` check.
 - `npm test`: run Node's built-in test runner against
@@ -31,9 +33,9 @@ newer target.
   configured — the CLI has no default endpoint.
 
 Use Node.js 22 or newer for local work. The GitHub Actions workflow uses Node
-22, runs `npm ci`, `npm audit --audit-level=moderate`, `npm run lint`,
-`npm run typecheck`, `npm test`, and `npm pack --dry-run`, then checks workflow
-syntax with actionlint.
+22, runs `npm ci`, `npm audit --audit-level=moderate`, `npm run format:check`,
+`npm run lint`, `npm run typecheck`, `npm test`, and `npm pack --dry-run`, then
+checks workflow syntax with actionlint.
 
 ## Coding Style & Naming Conventions
 
@@ -47,14 +49,14 @@ dependency injection for testable command behavior, as seen in
 types rather than `any`, and use `unknown` plus narrowing for values validated
 at runtime.
 
-Markdown wrapping is bilingual by design, normalized with Prettier
-(`--embedded-language-formatting=off`; code blocks are hand-formatted) and kept
-by editing habit rather than a linter: English prose hard-wraps at 80 columns
-(`--prose-wrap always`), while Chinese prose never hard-wraps inside a sentence
-(`--prose-wrap never`, one line per paragraph) because CommonMark renders a soft
-break as a space and CJK text would pick up spurious mid-sentence spaces.
-Tables, code blocks, and long URLs are exempt; there is no line-length lint,
-since table rows would trip it.
+Prettier formats supported files with a 120-column source width. Markdown
+wrapping is bilingual by design (`--embedded-language-formatting=off`; code
+blocks are hand-formatted): English prose hard-wraps at 80 columns
+(`--prose-wrap always`), while Chinese `*-zh.md` prose never hard-wraps inside a
+sentence (`--prose-wrap never`, one line per paragraph) because CommonMark
+renders a soft break as a space and CJK text would pick up spurious mid-sentence
+spaces. Tables, code blocks, and long URLs are exempt; run
+`npm run format:check` to enforce the repository configuration.
 
 ## Testing Guidelines
 
@@ -75,26 +77,27 @@ defaults change. The per-feature docs are bilingual pairs — `docs/<name>.md`
 (English) and `docs/<name>-zh.md` (Chinese) — and both languages are
 authoritative: update the pair in the same change. Agent-facing references
 (`templates/AGENTS.md`, the wdl-deploy skill, generated projects) point only at
-the English set. Before packaging, re-run the audit, test, and `npm pack
---dry-run` checks from Build, Test, and Development Commands.
+the English set. Before packaging, re-run the audit, test, and
+`npm pack --dry-run` checks from Build, Test, and Development Commands.
 
 ## Release
 
-Releases are tag-driven. `.github/workflows/release.yml` re-runs audit, lint,
-typecheck, and tests, verifies the tag matches `version` in `package.json`, and
-runs `npm pack --dry-run` — all before any publish, so a broken release fails the
-tag's check job and never publishes. It then publishes `@wdl-dev/cli` to npmjs
-(with provenance) and to GitHub Packages (authenticated with the workflow's own
-`GITHUB_TOKEN`), and creates a GitHub Release for the tag: final releases take
-their notes from the matching `CHANGELOG.md` section, pre-releases fall back to
-generated notes and are marked Pre-release. Do not run `npm publish` by hand.
+Releases are tag-driven. `.github/workflows/release.yml` re-runs formatting,
+audit, lint, typecheck, and tests, verifies the tag matches `version` in
+`package.json`, and runs `npm pack --dry-run` — all before any publish, so a
+broken release fails the tag's check job and never publishes. It then publishes
+`@wdl-dev/cli` to npmjs (with provenance) and to GitHub Packages (authenticated
+with the workflow's own `GITHUB_TOKEN`), and creates a GitHub Release for the
+tag: final releases take their notes from the matching `CHANGELOG.md` section,
+pre-releases fall back to generated notes and are marked Pre-release. Do not run
+`npm publish` by hand.
 
 Published npm versions are immutable (no reuse; unpublish only within 72 hours),
 but the check job gates every publish, so most releases tag the final version
 directly. This project ships documented breaking removals in 1.x minors (called
 out in the CHANGELOG) — do not hold or re-version a release for generic SemVer
 reasons. Stage a pre-release only for the narrower risk an RC actually guards:
-the *published artifact* differing from what the check job validated — packaging
+the _published artifact_ differing from what the check job validated — packaging
 changes (the `files` allowlist, entry points, the bundle/publish pipeline) or a
 large release you want to smoke-test as a real `@next` install. For an RC, set
 `version` to e.g. `2.0.0-rc.1`, write the CHANGELOG entry, commit, and tag
@@ -128,15 +131,15 @@ drops a `.env`-supplied endpoint when the effective token is not from the same
 `.env`), then the global token store (`~/.config/wdl/credentials`, managed by
 `wdl token`). The store is trusted (home directory, same-source token +
 endpoint) and not subject to the guard; a project `.env` is not. The namespace
-itself follows the same shape — `--ns > shell WDL_NS > project .env WDL_NS >
-store default (base WDL_NS)` — so the store's default namespace is the lowest
-selector, materialized into `env.WDL_NS` before the per-key gap-fill. Keep that
-ordering and the guard intact when touching `loadCliControlEnv` or
-`lib/token-store.js`; `--no-token-store` / `WDL_TOKEN_STORE=off` (via
-`tokenStoreReader`, read from the process env, not a project `.env`) must keep
-opting the store out of resolution entirely. Do not commit tenant tokens or
-generated secrets; read credentials from the environment and keep example
-configuration generic.
+itself follows the same shape —
+`--ns > shell WDL_NS > project .env WDL_NS > store default (base WDL_NS)` — so
+the store's default namespace is the lowest selector, materialized into
+`env.WDL_NS` before the per-key gap-fill. Keep that ordering and the guard
+intact when touching `loadCliControlEnv` or `lib/token-store.js`;
+`--no-token-store` / `WDL_TOKEN_STORE=off` (via `tokenStoreReader`, read from
+the process env, not a project `.env`) must keep opting the store out of
+resolution entirely. Do not commit tenant tokens or generated secrets; read
+credentials from the environment and keep example configuration generic.
 
 ### Deploy runs project code as you
 

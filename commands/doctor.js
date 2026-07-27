@@ -58,7 +58,12 @@ async function runDoctor({ values, positionals, context: baseContext }) {
   let tokenStoreError = null;
   let state;
   try {
-    state = resolveCliConfigState({ values, env: context.env, cwd: context.cwd, warn: context.warn });
+    state = resolveCliConfigState({
+      values,
+      env: context.env,
+      cwd: context.cwd,
+      warn: context.warn,
+    });
   } catch (err) {
     if (!(err instanceof TokenStoreConfigError)) throw err;
     tokenStoreError = err.message;
@@ -266,12 +271,14 @@ async function checkRemoteWhoami({ state, controlFetch, warn }) {
   warnIfInsecureControlUrl(control.controlUrl, warn, state.env);
 
   try {
-    const remote = summarizeWhoami(await fetchWhoami({
-      controlUrl: control.controlUrl,
-      headers: control.headers,
-      controlFetch,
-      env: state.env,
-    }));
+    const remote = summarizeWhoami(
+      await fetchWhoami({
+        controlUrl: control.controlUrl,
+        headers: control.headers,
+        controlFetch,
+        env: state.env,
+      })
+    );
     const tokenNs = namespaceFromPrincipal(remote.principal ?? undefined);
     const checks = [
       check({
@@ -298,24 +305,29 @@ async function checkRemoteWhoami({ state, controlFetch, warn }) {
       checks.push(check({ ok: true, label: `Platform ${remote.platformVersion}` }));
     }
     if (state.namespace.value && tokenNs) {
-      checks.push(check({
-        ok: state.namespace.value === tokenNs,
-        label: `Token namespace ${tokenNs}`,
-        detail: state.namespace.value === tokenNs
-          ? `matches configured namespace ${state.namespace.value}`
-          : `configured namespace is ${state.namespace.value}`,
-      }));
+      checks.push(
+        check({
+          ok: state.namespace.value === tokenNs,
+          label: `Token namespace ${tokenNs}`,
+          detail:
+            state.namespace.value === tokenNs
+              ? `matches configured namespace ${state.namespace.value}`
+              : `configured namespace is ${state.namespace.value}`,
+        })
+      );
     }
     return { whoami: remote, error: null, checks };
   } catch (err) {
     return {
       whoami: null,
       error: err instanceof Error && err.message ? err.message : String(err),
-      checks: [check({
-        ok: false,
-        label: "Control /whoami",
-        detail: err instanceof Error && err.message ? err.message : String(err),
-      })],
+      checks: [
+        check({
+          ok: false,
+          label: "Control /whoami",
+          detail: err instanceof Error && err.message ? err.message : String(err),
+        }),
+      ],
     };
   }
 }

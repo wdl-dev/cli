@@ -30,15 +30,22 @@ export const meta = command.meta;
 async function runWhoami({ values, positionals, context }) {
   if (positionals.length > 0) throw new CliError(usageText());
 
-  const state = resolveCliConfigState({ values, env: context.env, cwd: context.cwd, warn: context.warn });
+  const state = resolveCliConfigState({
+    values,
+    env: context.env,
+    cwd: context.cwd,
+    warn: context.warn,
+  });
   const control = ensureControlContextFromConfigState(state);
   warnIfInsecureControlUrl(control.controlUrl, context.warn, state.env);
-  const remote = summarizeWhoami(await fetchWhoami({
-    controlUrl: control.controlUrl,
-    headers: control.headers,
-    controlFetch: context.controlFetch,
-    env: state.env,
-  }));
+  const remote = summarizeWhoami(
+    await fetchWhoami({
+      controlUrl: control.controlUrl,
+      headers: control.headers,
+      controlFetch: context.controlFetch,
+      env: state.env,
+    })
+  );
   const body = buildWhoamiBody(state, remote);
   writeResult(values.json === true, body, () => formatWhoami(body), context.stdout);
 }
@@ -93,7 +100,9 @@ function formatWhoami(body) {
     `Assets URL:    ${displayRemoteValue(body.urls.assets)}`,
   ];
   if (!body.namespace.matchesConfigured) {
-    lines.push(`Configured NS: ${displayRemoteValue(body.namespace.configured)} (token principal is ${displayRemoteValue(body.namespace.value)})`);
+    lines.push(
+      `Configured NS: ${displayRemoteValue(body.namespace.configured)} (token principal is ${displayRemoteValue(body.namespace.value)})`
+    );
   }
   return lines;
 }

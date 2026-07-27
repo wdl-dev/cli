@@ -13,13 +13,13 @@ import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
 const define = (spec) => defineCommand({ name: "t", summary: "t", ...spec });
 
 test("defineCommand assembles flag presets and custom options", async () => {
-  let seen = /** @type {{ values: Record<string, unknown>, positionals: string[] }} */ (
-    /** @type {unknown} */ (null)
-  );
+  let seen = /** @type {{ values: Record<string, unknown>, positionals: string[] }} */ (/** @type {unknown} */ (null));
   const cmd = define({
     options: ["ns", "control", "json", "help", defineCliOption("tag", { type: "string" }, "--tag <tag>", "Tag.")],
     usage: () => "usage",
-    run: ({ values, positionals }) => { seen = { values, positionals }; },
+    run: ({ values, positionals }) => {
+      seen = { values, positionals };
+    },
   });
   await cmd.run(["pos1", "--ns", "demo", "--json", "--tag", "x", "--token", "t"], { env: {} });
   assert.equal(seen.values.ns, "demo");
@@ -30,7 +30,13 @@ test("defineCommand assembles flag presets and custom options", async () => {
 });
 
 test("defineCommand exposes name/summary metadata and the parse schema", () => {
-  const cmd = defineCommand({ name: "workers", summary: "List workers.", options: ["ns", "help"], usage: () => "", run: () => {} });
+  const cmd = defineCommand({
+    name: "workers",
+    summary: "List workers.",
+    options: ["ns", "help"],
+    usage: () => "",
+    run: () => {},
+  });
   const { parseOptions, ...meta } = cmd.meta;
   assert.deepEqual(meta, { name: "workers", summary: "List workers.", autoloadEnv: true });
   // The dispatcher pre-scans argv with this schema (ns overlay, help alias).
@@ -54,34 +60,42 @@ test("defineCommand direct runner escapes parseArgs errors", async () => {
       assertNoRawTerminalControls(err.message, "direct runner errors");
       assert.match(err.message, /--bad\\u001b\[2J\\nFORGED\\rBAD/);
       return true;
-    },
+    }
   );
 });
 
 test("defineCommand exposes autoloadEnv metadata", () => {
-  const cmd = defineCommand({ name: "doctor", summary: "Check local state.", autoloadEnv: false, usage: () => "", run: () => {} });
+  const cmd = defineCommand({
+    name: "doctor",
+    summary: "Check local state.",
+    autoloadEnv: false,
+    usage: () => "",
+    run: () => {},
+  });
   const { parseOptions, ...meta } = cmd.meta;
   assert.deepEqual(meta, { name: "doctor", summary: "Check local state.", autoloadEnv: false });
   assert.deepEqual(parseOptions, {});
 });
 
 test("defineCommand rejects an unknown option preset", () => {
-  assert.throws(
-    () => define({ options: ["bogus"], usage: () => "", run: () => {} }),
-    /unknown option preset "bogus"/,
-  );
+  assert.throws(() => define({ options: ["bogus"], usage: () => "", run: () => {} }), /unknown option preset "bogus"/);
 });
 
 test("defineCommand rejects raw parse option objects", () => {
   assert.throws(
-    () => define({
-      // A raw parse-option object is not a valid OptionListItem; the command
-      // must reject it at runtime, so feed it through an unknown cast.
-      options: [/** @type {import("../../lib/common.js").OptionListItem} */ (/** @type {unknown} */ ({ tag: { type: "string" } }))],
-      usage: () => "",
-      run: () => {},
-    }),
-    /option entries must be preset names or option specs/,
+    () =>
+      define({
+        // A raw parse-option object is not a valid OptionListItem; the command
+        // must reject it at runtime, so feed it through an unknown cast.
+        options: [
+          /** @type {import("../../lib/common.js").OptionListItem} */ (
+            /** @type {unknown} */ ({ tag: { type: "string" } })
+          ),
+        ],
+        usage: () => "",
+        run: () => {},
+      }),
+    /option entries must be preset names or option specs/
   );
 });
 
@@ -105,7 +119,9 @@ test("--help prints usage and skips the run body", async () => {
   const cmd = define({
     options: ["help"],
     usage: () => "USAGE TEXT",
-    run: () => { ran = true; },
+    run: () => {
+      ran = true;
+    },
   });
   await cmd.run(["--help"], { stdout: (/** @type {string} */ line) => lines.push(line) });
   assert.equal(ran, false);
@@ -119,7 +135,9 @@ test("positional help prints usage and skips the run body", async () => {
   const cmd = define({
     options: ["help"],
     usage: () => "USAGE TEXT",
-    run: () => { ran = true; },
+    run: () => {
+      ran = true;
+    },
   });
   await cmd.run(["help"], { stdout: (/** @type {string} */ line) => lines.push(line) });
   assert.equal(ran, false);
@@ -127,21 +145,21 @@ test("positional help prints usage and skips the run body", async () => {
 });
 
 test("context applies dep defaults, injected overrides, and passthrough deps", async () => {
-  let ctx = /** @type {CommandContext & Record<string, unknown>} */ (
-    /** @type {unknown} */ (null)
-  );
+  let ctx = /** @type {CommandContext & Record<string, unknown>} */ (/** @type {unknown} */ (null));
   const cmd = define({
     options: ["help"],
     defaults: { custom: "default-custom" },
     usage: () => "",
-    run: ({ context }) => { ctx = context; },
+    run: ({ context }) => {
+      ctx = context;
+    },
   });
   const injectedStdout = () => {};
   await cmd.run([], { stdout: injectedStdout, custom: "injected", extra: 42 });
-  assert.equal(ctx.stdout, injectedStdout);        // injected wins over default
-  assert.equal(typeof ctx.stderr, "function");      // standard default present
-  assert.equal(ctx.custom, "injected");             // injected wins over command default
-  assert.equal(ctx.extra, 42);                       // unknown dep passed through
+  assert.equal(ctx.stdout, injectedStdout); // injected wins over default
+  assert.equal(typeof ctx.stderr, "function"); // standard default present
+  assert.equal(ctx.custom, "injected"); // injected wins over command default
+  assert.equal(ctx.extra, 42); // unknown dep passed through
 });
 
 test("context.nsUrl builds an encoded namespace URL", async () => {
@@ -150,12 +168,13 @@ test("context.nsUrl builds an encoded namespace URL", async () => {
   const cmd = define({
     options: ["ns", "control"],
     usage: () => "",
-    run: ({ context }) => { url = context.nsUrl("worker", "a b", "versions", "v/1"); },
+    run: ({ context }) => {
+      url = context.nsUrl("worker", "a b", "versions", "v/1");
+    },
   });
-  await cmd.run(
-    ["--ns", "demo space", "--control-url", "http://ctl.test", "--token", "t"],
-    { env: {} },
-  );
+  await cmd.run(["--ns", "demo space", "--control-url", "http://ctl.test", "--token", "t"], {
+    env: {},
+  });
   assert.equal(url, "http://ctl.test/ns/demo%20space/worker/a%20b/versions/v%2F1");
 });
 
@@ -167,7 +186,7 @@ test("context.nsUrl throws when the namespace is unresolved", async () => {
   });
   await assert.rejects(
     () => cmd.run(["--control-url", "http://ctl.test", "--token", "t"], { env: {} }),
-    /namespace not resolved/,
+    /namespace not resolved/
   );
 });
 
@@ -183,11 +202,17 @@ test("context.fetchJson fetches with the given init and parses JSON", async () =
   const body = await cmd.run([], {
     env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
     /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} init */
-    controlFetch: async (url, init) => { got = { url, init }; return response({ ok: 1 }); },
+    controlFetch: async (url, init) => {
+      got = { url, init };
+      return response({ ok: 1 });
+    },
   });
   assert.deepEqual(body, { ok: 1 });
   assert.equal(got.url, "http://x/y");
-  assert.deepEqual(got.init, { headers: { a: "b" }, env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" } });
+  assert.deepEqual(got.init, {
+    headers: { a: "b" },
+    env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
+  });
 });
 
 test("context.fetchJson throws a CliError on a non-2xx response", async () => {
@@ -198,7 +223,7 @@ test("context.fetchJson throws a CliError on a non-2xx response", async () => {
   });
   await assert.rejects(
     () => cmd.run([], { env: {}, controlFetch: async () => response({ error: "nope" }, 500) }),
-    /load failed/,
+    /load failed/
   );
 });
 
@@ -209,20 +234,25 @@ test("context.fetchJson escapes structured error context keys", async () => {
     run: ({ context }) => context.fetchJson("http://x", {}, "load"),
   });
   await assert.rejects(
-    () => cmd.run([], {
-      env: {},
-      controlFetch: async () => response({
-        error: "nope\u001b[31m",
-        "bad\u001b]52;c;Y2xpcGJvYXJk\u0007key": "value\u001b[32m",
-      }, 500),
-    }),
+    () =>
+      cmd.run([], {
+        env: {},
+        controlFetch: async () =>
+          response(
+            {
+              error: "nope\u001b[31m",
+              "bad\u001b]52;c;Y2xpcGJvYXJk\u0007key": "value\u001b[32m",
+            },
+            500
+          ),
+      }),
     (err) => {
       assert(err instanceof CliError);
       assert.equal(err.message.includes("\u001b]52;c;Y2xpcGJvYXJk\u0007"), false);
       assert.match(err.message, /nope\\u001b\[31m/);
       assert.match(err.message, /bad\\u001b]52;c;Y2xpcGJvYXJk\\u0007key=value\\u001b\[32m/);
       return true;
-    },
+    }
   );
 });
 
@@ -233,27 +263,30 @@ test("context.fetchJson renders reserved module arrays from control errors", asy
     run: ({ context }) => context.fetchJson("http://x", {}, "deploy"),
   });
   await assert.rejects(
-    () => cmd.run([], {
-      env: {},
-      controlFetch: async () => response({
-        error: "worker_code_invalid",
-        message: "reserved injected module name",
-        reserved_modules: ["_wdl-wrapper.js", "_wdl-init.js"],
-      }, 400),
-    }),
+    () =>
+      cmd.run([], {
+        env: {},
+        controlFetch: async () =>
+          response(
+            {
+              error: "worker_code_invalid",
+              message: "reserved injected module name",
+              reserved_modules: ["_wdl-wrapper.js", "_wdl-init.js"],
+            },
+            400
+          ),
+      }),
     (err) => {
       assert(err instanceof CliError);
       assert.match(err.message, /reserved_modules=\["_wdl-wrapper\.js","_wdl-init\.js"\]/);
       return true;
-    },
+    }
   );
 });
 
 test("context.fetchStream returns the raw response after a status check", async () => {
   const ok = response("bytes");
-  let got = /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (
-    /** @type {unknown} */ (null)
-  );
+  let got = /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (/** @type {unknown} */ (null));
   const cmd = define({
     options: [],
     usage: () => "",
@@ -261,7 +294,10 @@ test("context.fetchStream returns the raw response after a status check", async 
   });
   const res = await cmd.run([], {
     env: { CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
-    controlFetch: async (/** @type {string} */ _url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init) => {
+    controlFetch: async (
+      /** @type {string} */ _url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init
+    ) => {
       got = init;
       return ok;
     },
@@ -276,7 +312,7 @@ test("context.fetchStream returns the raw response after a status check", async 
   });
   await assert.rejects(
     () => bad.run([], { env: {}, controlFetch: async () => response({ error: "no" }, 404) }),
-    /get object failed/,
+    /get object failed/
   );
 });
 
@@ -297,10 +333,7 @@ test("context.resolveControl memoizes; resolveNamespace reads values then env", 
       c2 = context.resolveControl();
     },
   });
-  await cmd.run(
-    ["--ns", "demo", "--control-url", "http://ctl.test", "--token", "t"],
-    { env: {} },
-  );
+  await cmd.run(["--ns", "demo", "--control-url", "http://ctl.test", "--token", "t"], { env: {} });
   assert.equal(nsFromFlag, "demo");
   assert.equal(c1.controlUrl, "http://ctl.test");
   assert.equal(c1, c2); // same object — resolved once
@@ -308,7 +341,9 @@ test("context.resolveControl memoizes; resolveNamespace reads values then env", 
   const envCmd = define({
     options: ["ns"],
     usage: () => "",
-    run: ({ context }) => { nsFromEnv = context.resolveNamespace(); },
+    run: ({ context }) => {
+      nsFromEnv = context.resolveNamespace();
+    },
   });
   await envCmd.run([], { env: { WDL_NS: "envns" } });
   assert.equal(nsFromEnv, "envns");
@@ -327,7 +362,9 @@ test("run errors propagate from the exported runner (main swallows separately)",
   const cmd = define({
     options: [],
     usage: () => "",
-    run: () => { throw new CliError("boom"); },
+    run: () => {
+      throw new CliError("boom");
+    },
   });
   await assert.rejects(() => cmd.run([], { env: {} }), /boom/);
 });

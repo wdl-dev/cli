@@ -26,12 +26,14 @@ function escapeHtml(value) {
 }
 
 function safeFileName(name) {
-  return String(name || "upload")
-    .replaceAll("/", "-")
-    .replaceAll("\\", "-")
-    .replace(/[^\w. -]/g, "")
-    .trim()
-    .slice(0, 80) || "upload";
+  return (
+    String(name || "upload")
+      .replaceAll("/", "-")
+      .replaceAll("\\", "-")
+      .replace(/[^\w. -]/g, "")
+      .trim()
+      .slice(0, 80) || "upload"
+  );
 }
 
 async function ensureSchema(env) {
@@ -39,17 +41,14 @@ async function ensureSchema(env) {
 }
 
 async function incrementCounter(env, key) {
-  const current = Number.parseInt(await env.COUNTERS.get(key) || "0", 10) || 0;
+  const current = Number.parseInt((await env.COUNTERS.get(key)) || "0", 10) || 0;
   const next = current + 1;
   await env.COUNTERS.put(key, String(next));
   return next;
 }
 
 async function counters(env) {
-  const [visits, submissions] = await Promise.all([
-    env.COUNTERS.get("visits"),
-    env.COUNTERS.get("submissions"),
-  ]);
+  const [visits, submissions] = await Promise.all([env.COUNTERS.get("visits"), env.COUNTERS.get("submissions")]);
   return {
     visits: Number.parseInt(visits || "0", 10) || 0,
     submissions: Number.parseInt(submissions || "0", 10) || 0,
@@ -71,12 +70,14 @@ function rowToInspection(row) {
 
 async function listInspections(env) {
   await ensureSchema(env);
-  const { results } = await env.DB.prepare(`
+  const { results } = await env.DB.prepare(
+    `
     select id, image_key, image_name, image_type, image_size, comment, created_at
     from inspections
     order by created_at desc
     limit 30
-  `).all();
+  `
+  ).all();
   return results.map(rowToInspection);
 }
 
@@ -117,29 +118,36 @@ async function createInspection(request, env) {
   });
 
   try {
-    await env.DB.prepare(`
+    await env.DB.prepare(
+      `
       insert into inspections
         (id, image_key, image_name, image_type, image_size, comment, created_at)
       values (?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, imageKey, imageName, image.type, image.size, comment, createdAt).run();
+    `
+    )
+      .bind(id, imageKey, imageName, image.type, image.size, comment, createdAt)
+      .run();
   } catch (err) {
     await env.IMAGES.delete(imageKey).catch(() => {});
     throw err;
   }
 
   await incrementCounter(env, "submissions");
-  return json({
-    inspection: rowToInspection({
-      id,
-      image_key: imageKey,
-      image_name: imageName,
-      image_type: image.type,
-      image_size: image.size,
-      comment,
-      created_at: createdAt,
-    }),
-    counters: await counters(env),
-  }, { status: 201 });
+  return json(
+    {
+      inspection: rowToInspection({
+        id,
+        image_key: imageKey,
+        image_name: imageName,
+        image_type: image.type,
+        image_size: image.size,
+        comment,
+        created_at: createdAt,
+      }),
+      counters: await counters(env),
+    },
+    { status: 201 }
+  );
 }
 
 async function imageResponse(env, encodedKey) {
@@ -155,13 +163,11 @@ async function imageResponse(env, encodedKey) {
 }
 
 async function page(env) {
-  const [cssUrl, jsUrl] = await Promise.all([
-    env.ASSETS.url("style.css"),
-    env.ASSETS.url("app.js"),
-  ]);
+  const [cssUrl, jsUrl] = await Promise.all([env.ASSETS.url("style.css"), env.ASSETS.url("app.js")]);
   await incrementCounter(env, "visits");
 
-  return new Response(`<!doctype html>
+  return new Response(
+    `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -214,9 +220,11 @@ async function page(env) {
   </main>
   <script type="module" src="${escapeHtml(jsUrl)}"></script>
 </body>
-</html>`, {
-    headers: { "content-type": "text/html; charset=utf-8" },
-  });
+</html>`,
+    {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    }
+  );
 }
 
 export default {

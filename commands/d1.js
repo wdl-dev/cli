@@ -16,7 +16,15 @@ import {
 } from "../lib/d1-format.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, isMain, isPathInside, optionHelp, unexpectedArgument } from "../lib/common.js";
+import {
+  CliError,
+  defineCliOption,
+  formatHelp,
+  isMain,
+  isPathInside,
+  optionHelp,
+  unexpectedArgument,
+} from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
 import { escapeTerminalText, formatDiagnosticValue, writeResult } from "../lib/output.js";
 
@@ -96,17 +104,24 @@ async function runD1({ values, positionals, context }) {
     if (positionals[2]) throw unexpectedArgument("d1 create", positionals[2]);
     const { headers } = context.resolveControl();
     const body = /** @type {{ namespace?: string, databaseId?: string, databaseName?: string }} */ (
-      await context.fetchJson(context.nsUrl("d1", "databases"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          databaseName,
-        }),
-      }, "create d1 database")
+      await context.fetchJson(
+        context.nsUrl("d1", "databases"),
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            databaseName,
+          }),
+        },
+        "create d1 database"
+      )
     );
-    writeResult(values.json === true, body, () => [
-      `OK ${body.namespace}/${body.databaseId} created name=${body.databaseName || "-"}`,
-    ], stdout);
+    writeResult(
+      values.json === true,
+      body,
+      () => [`OK ${body.namespace}/${body.databaseId} created name=${body.databaseName || "-"}`],
+      stdout
+    );
     return;
   }
 
@@ -123,14 +138,16 @@ async function runD1({ values, positionals, context }) {
       action: `delete D1 database "${ns}/${databaseRef}"`,
     });
     const body = /** @type {{ namespace?: string, databaseId?: string }} */ (
-      await context.fetchJson(context.nsUrl("d1", "databases", databaseRef), {
-        method: "DELETE",
-        headers,
-      }, "delete d1 database")
+      await context.fetchJson(
+        context.nsUrl("d1", "databases", databaseRef),
+        {
+          method: "DELETE",
+          headers,
+        },
+        "delete d1 database"
+      )
     );
-    writeResult(values.json === true, body, () => [
-      `OK ${body.namespace}/${body.databaseId} deleted`,
-    ], stdout);
+    writeResult(values.json === true, body, () => [`OK ${body.namespace}/${body.databaseId} deleted`], stdout);
     return;
   }
 
@@ -161,16 +178,20 @@ async function runD1({ values, positionals, context }) {
     }
     const { headers } = context.resolveControl();
     const body = /** @type {Parameters<typeof formatD1Execute>[0]} */ (
-      await context.fetchJson(context.nsUrl("d1", "databases", databaseRef, "query"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          sql,
-          mode,
-          ...(params ? { params } : {}),
-        }),
-        timeoutMs: LONG_CONTROL_TIMEOUT_MS,
-      }, "execute d1 query")
+      await context.fetchJson(
+        context.nsUrl("d1", "databases", databaseRef, "query"),
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            sql,
+            mode,
+            ...(params ? { params } : {}),
+          }),
+          timeoutMs: LONG_CONTROL_TIMEOUT_MS,
+        },
+        "execute d1 query"
+      )
     );
     writeResult(values.json === true, body, () => formatD1Execute(body), stdout);
     return;
@@ -200,11 +221,15 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
   if (action === "status") {
     const migrations = loadLocalMigrations({ values, env, cwd, databaseRef, warn });
     const body = /** @type {Parameters<typeof formatD1MigrationStatus>[0]} */ (
-      await context.fetchJson(`${migrationsBase}/status`, {
-        method: "POST",
-        headers,
-        body: serializeMigrationStatusRequest(migrations),
-      }, "show d1 migration status")
+      await context.fetchJson(
+        `${migrationsBase}/status`,
+        {
+          method: "POST",
+          headers,
+          body: serializeMigrationStatusRequest(migrations),
+        },
+        "show d1 migration status"
+      )
     );
     writeResult(values.json === true, body, () => formatD1MigrationStatus(body), stdout);
     return;
@@ -213,12 +238,16 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
   if (action === "apply") {
     const migrations = loadLocalMigrations({ values, env, cwd, databaseRef, warn });
     const body = /** @type {Parameters<typeof formatD1MigrationApply>[0]} */ (
-      await context.fetchJson(`${migrationsBase}/apply`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ migrations }),
-        timeoutMs: LONG_CONTROL_TIMEOUT_MS,
-      }, "apply d1 migrations")
+      await context.fetchJson(
+        `${migrationsBase}/apply`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ migrations }),
+          timeoutMs: LONG_CONTROL_TIMEOUT_MS,
+        },
+        "apply d1 migrations"
+      )
     );
     writeResult(values.json === true, body, () => formatD1MigrationApply(body), stdout);
     return;
@@ -309,7 +338,9 @@ function resolveMigrationsDir({ values, env, cwd, databaseRef, warn }) {
   const byName = [];
   for (const [idx, entry] of entries.entries()) {
     if (entry.migrations_dir != null && (typeof entry.migrations_dir !== "string" || !entry.migrations_dir.trim())) {
-      throw new CliError(`${escapeTerminalText(configRel)}: [[d1_databases]] ${escapeTerminalText(entry.binding || idx)}: migrations_dir must be a string`);
+      throw new CliError(
+        `${escapeTerminalText(configRel)}: [[d1_databases]] ${escapeTerminalText(entry.binding || idx)}: migrations_dir must be a string`
+      );
     }
     if (entry.database_id === databaseRef) {
       byId.push(entry);
@@ -322,12 +353,14 @@ function resolveMigrationsDir({ values, env, cwd, databaseRef, warn }) {
   const matches = byId.length > 0 ? byId : byName;
 
   if (matches.length > 1) {
-    throw new CliError(`${escapeTerminalText(configRel)}: multiple [[d1_databases]] entries match ${formatDiagnosticValue(databaseRef)}`);
+    throw new CliError(
+      `${escapeTerminalText(configRel)}: multiple [[d1_databases]] entries match ${formatDiagnosticValue(databaseRef)}`
+    );
   }
   if (matches.length === 0) {
     throw new CliError(
       `${escapeTerminalText(configRel)}: no matching [[d1_databases]] entry for ${formatDiagnosticValue(databaseRef)}; ` +
-      "use a configured database_name/database_id or pass --dir explicitly"
+        "use a configured database_name/database_id or pass --dir explicitly"
     );
   }
 
@@ -370,12 +403,11 @@ function resolveConfiguredMigrationsDir({ configDir, migrationsDir, configRel, b
   if (!isPathInside(root, resolved)) {
     throw new CliError(
       `${escapeTerminalText(configRel)}: [[d1_databases]] ${escapeTerminalText(binding)}: ` +
-      `migrations_dir must stay inside the project (got ${formatDiagnosticValue(migrationsDir)})`
+        `migrations_dir must stay inside the project (got ${formatDiagnosticValue(migrationsDir)})`
     );
   }
   return resolved;
 }
-
 
 function usageText() {
   return formatHelp({

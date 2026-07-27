@@ -58,8 +58,7 @@ If you do not want to link the CLI globally, call the entrypoint directly:
 node /path/to/cli/bin/wdl.js deploy ./my-worker
 ```
 
-For command-specific help, run `wdl <command> --help` or
-`wdl help <command>`.
+For command-specific help, run `wdl <command> --help` or `wdl help <command>`.
 
 ### Configure Defaults
 
@@ -106,47 +105,45 @@ The CLI loads only WDL platform variables from `.env`: `ADMIN_TOKEN`,
 `CLI flag > shell/CI env > [resolved-ns] section > base .env > wdl token store`,
 and if none supplies a value the command fails — there is no built-in default.
 Namespace resolution is `--ns`, then `WDL_NS` from your shell or base `.env`,
-then the token store's default namespace. Section
-names may be normal tenant namespaces, such as `[acme]`, or opaque
-operator-reserved sections shaped like `[__name__]`. Tenant Wrangler config
-still uses normal tenant namespace grammar unless your operator explicitly gave
-you such a namespace token. Do not put `__name__`-shaped names in
-`[[services]].ns`, `allowed_callers`, or command examples without that operator
-instruction. Bare production control hosts such as `api.wdl.dev` default to
-`https://`; bare local-dev hosts such as `localhost:8080` or `*.test:8080`
-default to `http://`. Any bare `:8080` control URL is treated as local HTTP.
-Include an explicit scheme when you need to force a different protocol. If no
-namespace resolves, section values are skipped and the command will fail
-normally if it needs a namespace or token. Pass `--ns` when you want to override
-the default for one command.
+then the token store's default namespace. Section names may be normal tenant
+namespaces, such as `[acme]`, or opaque operator-reserved sections shaped like
+`[__name__]`. Tenant Wrangler config still uses normal tenant namespace grammar
+unless your operator explicitly gave you such a namespace token. Do not put
+`__name__`-shaped names in `[[services]].ns`, `allowed_callers`, or command
+examples without that operator instruction. Bare production control hosts such
+as `api.wdl.dev` default to `https://`; bare local-dev hosts such as
+`localhost:8080` or `*.test:8080` default to `http://`. Any bare `:8080` control
+URL is treated as local HTTP. Include an explicit scheme when you need to force
+a different protocol. If no namespace resolves, section values are skipped and
+the command will fail normally if it needs a namespace or token. Pass `--ns`
+when you want to override the default for one command.
 
-`CONTROL_CONNECT_HOST` is a local-dev / debug override: it changes the TCP target
-the request connects to while the HTTP Host header and TLS SNI keep tracking
-`CONTROL_URL` (so over HTTPS the control plane's certificate still rejects a
-redirected connection; plain http has no such check). Use it only for local
-development — never set it persistently in a CI or production shell, where a
-stale value could route the admin token to an unintended target. When the
+`CONTROL_CONNECT_HOST` is a local-dev / debug override: it changes the TCP
+target the request connects to while the HTTP Host header and TLS SNI keep
+tracking `CONTROL_URL` (so over HTTPS the control plane's certificate still
+rejects a redirected connection; plain http has no such check). Use it only for
+local development — never set it persistently in a CI or production shell, where
+a stale value could route the admin token to an unintended target. When the
 override is a URL, its scheme only selects the default TCP port (`http` uses 80;
 `https` uses 443); request transport, Host, and SNI still follow `CONTROL_URL`.
 
 The recommended setup keeps these credentials in a managed store rather than a
 shell export or a project `.env`: `wdl token set --ns <ns> --control-url <url>`
-reads the token with
-hidden input, validates it against `/whoami`, and stores it under the namespace
-in `~/.config/wdl/credentials` (so it never lands in shell history or a project
-file). The store is the lowest-precedence layer — flags, shell env, and a
-project `.env` still win — and `wdl token list` / `wdl token rm` manage it. The
-first stored namespace becomes the default (a base `WDL_NS`, like a project
-`.env`'s), so commands run without `--ns`; `wdl token use <ns>` switches it. See
-[token.md](./docs/token.md).
+reads the token with hidden input, validates it against `/whoami`, and stores it
+under the namespace in `~/.config/wdl/credentials` (so it never lands in shell
+history or a project file). The store is the lowest-precedence layer — flags,
+shell env, and a project `.env` still win — and `wdl token list` /
+`wdl token rm` manage it. The first stored namespace becomes the default (a base
+`WDL_NS`, like a project `.env`'s), so commands run without `--ns`;
+`wdl token use <ns>` switches it. See [token.md](./docs/token.md).
 
-`wdl deploy` runs the project's local Wrangler dry-run and build hooks as your OS
-user before uploading, and that code can read the on-disk store (the env scrub
-keeps WDL variables out of the Wrangler child's environment, not out of the
-file), so only deploy projects you trust. `--no-token-store` (or
+`wdl deploy` runs the project's local Wrangler dry-run and build hooks as your
+OS user before uploading, and that code can read the on-disk store (the env
+scrub keeps WDL variables out of the Wrangler child's environment, not out of
+the file), so only deploy projects you trust. `--no-token-store` (or
 `WDL_TOKEN_STORE=off`) resolves credentials from flags / shell / `.env` only and
-never reads the store — a resolution opt-out for less-trusted projects or CI, not
-protection for the file itself.
+never reads the store — a resolution opt-out for less-trusted projects or CI,
+not protection for the file itself.
 
 Use `wdl config explain` to inspect the final namespace, control URL, masked
 token, and where each value came from. Use `wdl whoami` to call control-plane
@@ -157,9 +154,9 @@ credentials, and `/whoami` reachability. Add `--strict` when using it as a CI
 gate; the command still prints the checks, then exits non-zero if any check
 fails. `doctor` can detect token validity, principal namespace, platform
 version, and CLI compatibility when the control plane exposes `/whoami`; deeper
-capability checks still require additional control endpoints.
-The namespace URL can be `(unavailable)` when the operator has not configured a
-public platform domain; authentication and other `/whoami` fields still work.
+capability checks still require additional control endpoints. The namespace URL
+can be `(unavailable)` when the operator has not configured a public platform
+domain; authentication and other `/whoami` fields still work.
 
 ## Scaffolding a New Worker
 
@@ -222,10 +219,10 @@ APP_NAME = "hello"
 ```
 
 For new projects, use `compatibility_date = "2026-06-17"` unless a required
-feature or your operator gives you a newer target.
-Control rejects explicit dates before `2026-04-01`, invalid or future dates,
-and dates newer than the bundled workerd supports. Upstream experimental enable
-flags, `legacy_error_serialization`, and `allow_irrevocable_stub_storage` are
+feature or your operator gives you a newer target. Control rejects explicit
+dates before `2026-04-01`, invalid or future dates, and dates newer than the
+bundled workerd supports. Upstream experimental enable flags,
+`legacy_error_serialization`, and `allow_irrevocable_stub_storage` are
 unsupported. These checks are control-owned; the CLI does not mirror workerd's
 flag table.
 
@@ -242,9 +239,8 @@ consult the configured npm registry when reporting an unknown configuration
 field. Project build hooks retain their normal network access.
 
 When several Wrangler config files exist, WDL follows Wrangler's priority:
-`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`.
-Both JSON filenames use Wrangler's JSONC syntax, including comments and
-trailing commas.
+`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`. Both JSON
+filenames use Wrangler's JSONC syntax, including comments and trailing commas.
 
 After configuring the CLI defaults:
 
@@ -349,8 +345,8 @@ for you.
 
 A Worker with at least one route pattern may set `workers_dev = false` to
 disable its default WDL platform-domain URL while keeping its pattern routes
-active. WDL requires this explicit opt-out; declaring `route` / `routes`
-alone does not disable the platform URL. The deploy summary prints every active
+active. WDL requires this explicit opt-out; declaring `route` / `routes` alone
+does not disable the platform URL. The deploy summary prints every active
 route-pattern URL hint, preserving the trailing `*` on prefix patterns, and
 prints the platform-domain URL only while it is enabled.
 
@@ -359,46 +355,46 @@ preview URLs are controlled separately by `preview_urls`, which defaults to the
 `workers_dev` setting. WDL maps `workers_dev` to
 `<ns>.<platform-domain>/<worker>/`, the namespace's ordinary serving path, so
 review the flag when porting a `wrangler.toml`. WDL also requires an explicit
-opt-out with at least one route pattern instead of inferring it from routes.
-WDL does not support `preview_urls`; the CLI rejects that field.
+opt-out with at least one route pattern instead of inferring it from routes. WDL
+does not support `preview_urls`; the CLI rejects that field.
 
 ## Supported Wrangler Configuration
 
-The control plane is the canonical validator for shapes that Wrangler can
-bundle but WDL cannot run, including unsupported workerd compatibility flags
-and WDL-reserved injected module names. The CLI still fails fast for cheap local
+The control plane is the canonical validator for shapes that Wrangler can bundle
+but WDL cannot run, including unsupported workerd compatibility flags and
+WDL-reserved injected module names. The CLI still fails fast for cheap local
 cases such as Python Worker modules and ambiguous runtime `env` name collisions
 between `[vars]`, explicit bindings, and the implicit `ASSETS` binding. Deploy
 and secret mutation also enforce the headroomed 1 MiB workerd `workerLoader` env
 budget; large `[vars]`, secrets, binding metadata, or retained versions can fail
 with `worker_env_too_large`.
 
-| Configuration                                                                                                                                                                                                                                                                                                                                    | Support                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name` / `main` / `compatibility_date` / `compatibility_flags`                                                                                                                                                                                                                                                                                   | Supported                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `[vars]`                                                                                                                                                                                                                                                                                                                                         | Supported; must be an object. Values must be string / number / boolean; arrays and nested values are rejected. Accepted values are exposed through Worker `env`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `[[kv_namespaces]]`                                                                                                                                                                                                                                                                                                                              | Supported for common KV APIs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `[[d1_databases]]`                                                                                                                                                                                                                                                                                                                               | Supported for bindings; create/manage databases with `wdl d1`, then reference them by `database_id` (preferred when present) or `database_name` (namespace-unique alias)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `[assets] directory = "..."`                                                                                                                                                                                                                                                                                                                     | Supported; static files are deployed to platform assets, and the Worker gets `env.ASSETS.url(path)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `route` / `routes`                                                                                                                                                                                                                                                                                                                               | Not generally available for tenant self-service; use only when your operator explicitly enables a custom host for your namespace                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `workers_dev`                                                                                                                                                                                                                                                                                                                                    | Optional boolean for a Worker with at least one `route` / `routes` pattern. `false` disables the default WDL platform-domain URL; omitted or `true` keeps it enabled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `[triggers] crons`                                                                                                                                                                                                                                                                                                                               | Supported; Cloudflare-compatible form, executed in UTC                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `[[triggers.schedules]]`                                                                                                                                                                                                                                                                                                                         | Platform extension; each cron can specify its own `timezone`; not part of standard Cloudflare configuration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `[[queues.producers]]` / `[[queues.consumers]]`                                                                                                                                                                                                                                                                                                  | Supported for producing and consuming queues; `delivery_delay` and `retry_delay` are honored, while `max_concurrency` is rejected                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `[[services]]`                                                                                                                                                                                                                                                                                                                                   | Supported for Worker-to-Worker calls; same namespace works directly, cross-namespace calls require target-side authorization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `[[platform_bindings]]`                                                                                                                                                                                                                                                                                                                          | Supported for platform-provided first-party capabilities                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `[env.<name>]`                                                                                                                                                                                                                                                                                                                                   | Supported; select with `--env <name>` or `CLOUDFLARE_ENV`; see environment override notes below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `[[r2_buckets]]`                                                                                                                                                                                                                                                                                                                                 | Supported for common R2 object APIs, including conditional requests, range GETs, and `list({ include })`; objects are stored in platform-local R2 and isolated by namespace + `bucket_name`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Durable Objects                                                                                                                                                                                                                                                                                                                                  | Supported for local classes listed in `[[migrations]].new_classes` or `[[migrations]].new_sqlite_classes`; both map to SQLite-backed DO storage in WDL. `script_name` and renamed/deleted migrations are not supported yet. `stub.fetch()`, JSON-structured `stub.method(...args)` DO RPC, synchronous `ctx.storage.sql`, the alarm shim, ordinary WebSocket upgrade, and the native WebSocket hibernation API surface are available; platform-level session/cursor recovery remains application-owned                                                                                                                                                                                                                                 |
-| `[[workflows]]`                                                                                                                                                                                                                                                                                                                                  | Supported for workflow classes defined in the current Worker. `WorkflowEntrypoint`, `env.<BINDING>.create()`, `createBatch()`, `get()`, `status()`, `pause()`/`resume()`/`restart()`/`terminate()`, `sendEvent()`, `step.do()`/`sleep()`/`sleepUntil()`/`waitForEvent()`, retries, `NonRetryableError`, same-worker DO progress callbacks, and runtime-observed parallel/DAG steps are available. This is WDL Workflows support, not full Cloudflare Workflows parity. Instance payloads, per-turn step fan-out, and parallel step ordering are bounded; started steps must be awaited. `script_name`, cross-worker workflows, cross-worker callbacks, service-binding callbacks, and Cloudflare source-AST visualizer are unsupported |
-| Analytics Engine                                                                                                                                                                                                                                                                                                                                 | Not currently supported; deploy fails if configured                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Other unmapped Wrangler binding/config/policy sections (for example `ai`, `vectorize`, `hyperdrive`, `agent_memory`, `websearch`, `media`, `stream`, `ratelimits`, `vpc_services`, `cloudchamber`, `containers`, `wasm_modules`, `[site]`, `limits`, `placement`, `observability`, `pages_build_output_dir`)                                            | Not supported; deploy fails loudly instead of silently dropping the binding/config. The CLI error names the rejected field; the internal rejection list tracks the bundled Wrangler schema and is not reproduced exhaustively here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Configuration                                                                                                                                                                                                                                                                                                | Support                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name` / `main` / `compatibility_date` / `compatibility_flags`                                                                                                                                                                                                                                               | Supported                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `[vars]`                                                                                                                                                                                                                                                                                                     | Supported; must be an object. Values must be string / number / boolean; arrays and nested values are rejected. Accepted values are exposed through Worker `env`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `[[kv_namespaces]]`                                                                                                                                                                                                                                                                                          | Supported for common KV APIs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `[[d1_databases]]`                                                                                                                                                                                                                                                                                           | Supported for bindings; create/manage databases with `wdl d1`, then reference them by `database_id` (preferred when present) or `database_name` (namespace-unique alias)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `[assets] directory = "..."`                                                                                                                                                                                                                                                                                 | Supported; static files are deployed to platform assets, and the Worker gets `env.ASSETS.url(path)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `route` / `routes`                                                                                                                                                                                                                                                                                           | Not generally available for tenant self-service; use only when your operator explicitly enables a custom host for your namespace                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `workers_dev`                                                                                                                                                                                                                                                                                                | Optional boolean for a Worker with at least one `route` / `routes` pattern. `false` disables the default WDL platform-domain URL; omitted or `true` keeps it enabled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `[triggers] crons`                                                                                                                                                                                                                                                                                           | Supported; Cloudflare-compatible form, executed in UTC                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `[[triggers.schedules]]`                                                                                                                                                                                                                                                                                     | Platform extension; each cron can specify its own `timezone`; not part of standard Cloudflare configuration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `[[queues.producers]]` / `[[queues.consumers]]`                                                                                                                                                                                                                                                              | Supported for producing and consuming queues; `delivery_delay` and `retry_delay` are honored, while `max_concurrency` is rejected                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `[[services]]`                                                                                                                                                                                                                                                                                               | Supported for Worker-to-Worker calls; same namespace works directly, cross-namespace calls require target-side authorization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `[[platform_bindings]]`                                                                                                                                                                                                                                                                                      | Supported for platform-provided first-party capabilities                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `[env.<name>]`                                                                                                                                                                                                                                                                                               | Supported; select with `--env <name>` or `CLOUDFLARE_ENV`; see environment override notes below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `[[r2_buckets]]`                                                                                                                                                                                                                                                                                             | Supported for common R2 object APIs, including conditional requests, range GETs, and `list({ include })`; objects are stored in platform-local R2 and isolated by namespace + `bucket_name`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Durable Objects                                                                                                                                                                                                                                                                                              | Supported for local classes listed in `[[migrations]].new_classes` or `[[migrations]].new_sqlite_classes`; both map to SQLite-backed DO storage in WDL. `script_name` and renamed/deleted migrations are not supported yet. `stub.fetch()`, JSON-structured `stub.method(...args)` DO RPC, synchronous `ctx.storage.sql`, the alarm shim, ordinary WebSocket upgrade, and the native WebSocket hibernation API surface are available; platform-level session/cursor recovery remains application-owned                                                                                                                                                                                                                                 |
+| `[[workflows]]`                                                                                                                                                                                                                                                                                              | Supported for workflow classes defined in the current Worker. `WorkflowEntrypoint`, `env.<BINDING>.create()`, `createBatch()`, `get()`, `status()`, `pause()`/`resume()`/`restart()`/`terminate()`, `sendEvent()`, `step.do()`/`sleep()`/`sleepUntil()`/`waitForEvent()`, retries, `NonRetryableError`, same-worker DO progress callbacks, and runtime-observed parallel/DAG steps are available. This is WDL Workflows support, not full Cloudflare Workflows parity. Instance payloads, per-turn step fan-out, and parallel step ordering are bounded; started steps must be awaited. `script_name`, cross-worker workflows, cross-worker callbacks, service-binding callbacks, and Cloudflare source-AST visualizer are unsupported |
+| Analytics Engine                                                                                                                                                                                                                                                                                             | Not currently supported; deploy fails if configured                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Other unmapped Wrangler binding/config/policy sections (for example `ai`, `vectorize`, `hyperdrive`, `agent_memory`, `websearch`, `media`, `stream`, `ratelimits`, `vpc_services`, `cloudchamber`, `containers`, `wasm_modules`, `[site]`, `limits`, `placement`, `observability`, `pages_build_output_dir`) | Not supported; deploy fails loudly instead of silently dropping the binding/config. The CLI error names the rejected field; the internal rejection list tracks the bundled Wrangler schema and is not reproduced exhaustively here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-WDL parses `[[exports]]`, `[[platform_bindings]]`,
-`[[triggers.schedules]]`, and `[[services]].ns` itself and removes these private
-extensions from the temporary config passed to the Wrangler bundler. Other
-fields retain their existing Wrangler passthrough behavior. Wrangler's
-object-shaped declarative `exports` configuration is not supported by WDL.
+WDL parses `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`, and
+`[[services]].ns` itself and removes these private extensions from the temporary
+config passed to the Wrangler bundler. Other fields retain their existing
+Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
+configuration is not supported by WDL.
 
 Cron triggers and queue consumers are dispatch features. Declare them only on
 routeable Workers in tenant namespaces unless your operator gives you an
@@ -477,8 +473,8 @@ arrayBuffer/stream shapes before proxying.
 Returned keys are not sorted, `limit` is a target page size capped at 1000, and
 the opaque WDL cursor must be passed back verbatim. KV values are capped at 25
 MiB before proxying, and keys (and list prefixes) are capped at 512 bytes,
-matching Cloudflare's limit — a longer key fails with `KV key exceeds 512 byte
-limit`.
+matching Cloudflare's limit — a longer key fails with
+`KV key exceeds 512 byte limit`.
 
 WDL KV writes are visible immediately. Expiring a key removes both value and
 metadata; putting the key again without an expiration clears the previous
@@ -532,10 +528,9 @@ Conditional reads, range GETs, and `list({ include })` metadata hydration are
 also supported for Workers that need them; metadata hydration issues extra HEAD
 requests under a concurrency cap. `put(stream, ...)` currently buffers before
 sending a single S3 PUT and has a 25 MiB maximum. Multipart upload, SSE-C, and
-checksum selection are not supported.
-When `httpMetadata` is supplied as a `Headers` object, an `Expires` header must
-use canonical IMF-fixdate syntax, such as
-`Wed, 21 Oct 2015 07:28:00 GMT`.
+checksum selection are not supported. When `httpMetadata` is supplied as a
+`Headers` object, an `Expires` header must use canonical IMF-fixdate syntax,
+such as `Wed, 21 Oct 2015 07:28:00 GMT`.
 
 Use `wdl r2` commands to inspect or explicitly delete namespace R2 data:
 
@@ -601,9 +596,9 @@ happen.
 
 SQLite object names starting with `_cf_` are reserved by workerd,
 case-insensitively. Avoid creating or renaming D1 tables, indexes, triggers, or
-views to `_cf_*`; a migration containing that DDL can fail on a new database.
-Do not edit an already-applied migration file — add a forward migration that
-moves application data to a non-reserved name when needed.
+views to `_cf_*`; a migration containing that DDL can fail on a new database. Do
+not edit an already-applied migration file — add a forward migration that moves
+application data to a non-reserved name when needed.
 
 Useful commands:
 
@@ -616,9 +611,9 @@ wdl d1 migrations apply main
 wdl d1 delete main
 ```
 
-`wdl d1 execute` requires exactly one of `--sql` or `--file` (even
-`--sql ""` conflicts with `--file`), and the selected SQL source must be
-non-empty. `--file` must exist, be readable, and stay inside the project root;
+`wdl d1 execute` requires exactly one of `--sql` or `--file` (even `--sql ""`
+conflicts with `--file`), and the selected SQL source must be non-empty.
+`--file` must exist, be readable, and stay inside the project root;
 missing/unreadable files are rejected before control is contacted.
 
 `wdl d1 delete` asks for confirmation by default. In automation, pass `--yes`
@@ -637,10 +632,10 @@ files into smaller batches before applying.
 
 Control-plane D1 lifecycle APIs redact 5xx failures forwarded from the D1
 runtime/backend to `Internal error` and retain only bounded machine classifiers
-(`upstreamCode`, `upstreamCategory`, `upstreamRetryable`, and
-`upstreamStatus`). Control-generated contention and collision 503 responses
-retain actionable messages. Outward 4xx SQL and migration failures can retain
-actionable diagnostics.
+(`upstreamCode`, `upstreamCategory`, `upstreamRetryable`, and `upstreamStatus`).
+Control-generated contention and collision 503 responses retain actionable
+messages. Outward 4xx SQL and migration failures can retain actionable
+diagnostics.
 
 See `examples/d1-demo` for a minimal visitor counter using D1 plus a
 forward-only migration.
@@ -798,8 +793,8 @@ Effect timing:
   version, so new traffic cold-loads the updated secret. Already-loaded
   historical versions can keep old values until runtime eviction or recycle.
 - Worker-level secret changes are atomic. If the active version changes during
-  the mutation, control returns `secret_mutation_contention` and the CLI asks you
-  to retry instead of leaving a stored-but-not-promoted partial update.
+  the mutation, control returns `secret_mutation_contention` and the CLI asks
+  you to retry instead of leaving a stored-but-not-promoted partial update.
 - Secret-envelope errors such as `secret_encryption_unconfigured`,
   `secret_decrypt_failed`, `invalid_envelope`, `unsupported_envelope`,
   `unknown_kid`, or `secret_not_encrypted` mean the mutation was not written;
@@ -873,15 +868,15 @@ Workers, not on platform binding target Workers.
 
 Queue behavior tenants can rely on:
 
-| Feature            | Behavior                                                                                                                                                                                                 |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Body types         | `json` is the default. Use `{ contentType: "text" }` for strings and `{ contentType: "bytes" }` for `Uint8Array` payloads. `v8` structured-clone payloads are not supported.                             |
-| Send delay         | `[[queues.producers]].delivery_delay` is the default send delay in seconds. `send(body, { delaySeconds })` and per-message `sendBatch()` delays override it; `delaySeconds: 0` means immediate delivery. |
-| Retry delay        | `[[queues.consumers]].retry_delay` is the default retry delay in seconds. `msg.retry({ delaySeconds })` / `batch.retryAll({ delaySeconds })` override it; `delaySeconds: 0` means immediate retry.       |
-| Attempts           | The handler sees `msg.attempts` starting at `1`. With `max_retries = N`, a message can be delivered up to `N + 1` times before dead-letter handling.                                                     |
-| Dead letter queue  | `dead_letter_queue` is honored. If omitted, failed messages use the queue's default DLQ.                                                                                                                 |
+| Feature            | Behavior                                                                                                                                                                                                                                                                                |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Body types         | `json` is the default. Use `{ contentType: "text" }` for strings and `{ contentType: "bytes" }` for `Uint8Array` payloads. `v8` structured-clone payloads are not supported.                                                                                                            |
+| Send delay         | `[[queues.producers]].delivery_delay` is the default send delay in seconds. `send(body, { delaySeconds })` and per-message `sendBatch()` delays override it; `delaySeconds: 0` means immediate delivery.                                                                                |
+| Retry delay        | `[[queues.consumers]].retry_delay` is the default retry delay in seconds. `msg.retry({ delaySeconds })` / `batch.retryAll({ delaySeconds })` override it; `delaySeconds: 0` means immediate retry.                                                                                      |
+| Attempts           | The handler sees `msg.attempts` starting at `1`. With `max_retries = N`, a message can be delivered up to `N + 1` times before dead-letter handling.                                                                                                                                    |
+| Dead letter queue  | `dead_letter_queue` is honored. If omitted, failed messages use the queue's default DLQ.                                                                                                                                                                                                |
 | Batch timeout      | The CLI forwards `max_batch_timeout` values that pass basic integer delay parsing for config compatibility; WDL control enforces the tighter Cloudflare-compatible 0..60 second range. Dispatch is currently capped by `max_batch_size`; do not depend on timeout-based batch flushing. |
-| Unsupported config | `max_concurrency` is rejected during deploy instead of being silently ignored.                                                                                                                           |
+| Unsupported config | `max_concurrency` is rejected during deploy instead of being silently ignored.                                                                                                                                                                                                          |
 
 See `examples/queues-demo` for a single Worker that produces queue messages,
 consumes them, and stores delivery state in KV.
@@ -1185,7 +1180,7 @@ wdl tail hello
 
 | Symptom                                                                | Likely cause                                                                                                        | What to check                                                                                                           |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Missing admin token`                                                  | No tenant token was provided                                                                                        | Run `wdl token set --ns <ns> --control-url <url>` (recommended), set `ADMIN_TOKEN`, or pass `--token`                                                                                     |
+| `Missing admin token`                                                  | No tenant token was provided                                                                                        | Run `wdl token set --ns <ns> --control-url <url>` (recommended), set `ADMIN_TOKEN`, or pass `--token`                   |
 | `wrangler build failed`                                                | Wrangler could not bundle the Worker project                                                                        | Run `npx wrangler deploy --dry-run` inside the Worker project and fix local build/config errors                         |
 | Deploy succeeds but promote fails                                      | Route, custom host, or binding validation failed at promotion time                                                  | Check that custom hosts are enabled for your namespace and service-binding targets exist                                |
 | Worker URL returns 404                                                 | URL shape or worker name is wrong                                                                                   | Use `https://<namespace>.<platform-domain>/<worker-name>/`; include the worker name path segment                        |

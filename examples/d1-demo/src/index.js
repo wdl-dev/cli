@@ -10,11 +10,11 @@ export default {
        ON CONFLICT(name) DO UPDATE SET
          count = count + 1,
          updated_at = CURRENT_TIMESTAMP`
-    ).bind(name).run();
+    )
+      .bind(name)
+      .run();
 
-    const current = await env.DB.prepare(
-      "SELECT count FROM visits WHERE name = ?1"
-    ).bind(name).first();
+    const current = await env.DB.prepare("SELECT count FROM visits WHERE name = ?1").bind(name).first();
 
     const { results } = await env.DB.prepare(
       "SELECT name, count FROM visits ORDER BY count DESC, name ASC LIMIT 20"
@@ -24,9 +24,7 @@ export default {
       greeting: env.GREETING,
       you: name,
       visits: current?.count || 0,
-      leaderboard: Object.fromEntries(
-        results.map((row) => [row.name, row.count])
-      ),
+      leaderboard: Object.fromEntries(results.map((row) => [row.name, row.count])),
     });
   },
 };

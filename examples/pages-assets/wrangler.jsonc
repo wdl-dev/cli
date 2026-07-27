@@ -8,6 +8,6 @@
   // worker uses env.ASSETS.url() to get CDN URLs back. Same field shape
   // as Cloudflare Workers Assets.
   "assets": {
-    "directory": "./public"
-  }
+    "directory": "./public",
+  },
 }

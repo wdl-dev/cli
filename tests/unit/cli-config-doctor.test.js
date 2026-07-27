@@ -30,13 +30,16 @@ function withTempDir(fn) {
 
 test("resolveCliConfigState reports .env section sources and masks token", () => {
   withTempDir((cwd) => {
-    writeFileSync(path.join(cwd, ".env"), [
-      "CONTROL_URL=https://ctl.base.example",
-      "ADMIN_TOKEN=base-token",
-      "",
-      "[acme]",
-      "ADMIN_TOKEN=section-token",
-    ].join("\n"));
+    writeFileSync(
+      path.join(cwd, ".env"),
+      [
+        "CONTROL_URL=https://ctl.base.example",
+        "ADMIN_TOKEN=base-token",
+        "",
+        "[acme]",
+        "ADMIN_TOKEN=section-token",
+      ].join("\n")
+    );
 
     const state = resolveCliConfigState({
       values: { ns: "acme" },
@@ -63,13 +66,10 @@ test("resolveCliConfigState resolves the .env namespace over the store default g
         demo: { CONTROL_URL: "https://demo.store.example", ADMIN_TOKEN: "demo-store-token" },
       },
     });
-    writeFileSync(path.join(cwd, ".env"), [
-      "WDL_NS=acme",
-      "",
-      "[acme]",
-      "CONTROL_URL=https://acme.env.example",
-      "ADMIN_TOKEN=acme-env-token",
-    ].join("\n"));
+    writeFileSync(
+      path.join(cwd, ".env"),
+      ["WDL_NS=acme", "", "[acme]", "CONTROL_URL=https://acme.env.example", "ADMIN_TOKEN=acme-env-token"].join("\n")
+    );
 
     const state = resolveCliConfigState({
       env: { WDL_NS: "", XDG_CONFIG_HOME: xdg },
@@ -86,18 +86,27 @@ test("resolveCliConfigState ignores the token store with WDL_TOKEN_STORE=off / -
     const xdg = path.join(cwd, "xdg");
     writeTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg }), {
       defaultNs: "demo",
-      namespaces: { demo: { CONTROL_URL: "https://demo.store.example", ADMIN_TOKEN: "demo-store-token" } },
+      namespaces: {
+        demo: { CONTROL_URL: "https://demo.store.example", ADMIN_TOKEN: "demo-store-token" },
+      },
     });
 
     const baseline = resolveCliConfigState({ env: { WDL_NS: "", XDG_CONFIG_HOME: xdg }, cwd });
     assert.equal(baseline.namespace.display, "demo", "baseline: store default namespace resolves");
     assert.ok(baseline.token.value, "baseline: store token gap-fills");
 
-    const viaEnv = resolveCliConfigState({ env: { WDL_NS: "", XDG_CONFIG_HOME: xdg, WDL_TOKEN_STORE: "off" }, cwd });
+    const viaEnv = resolveCliConfigState({
+      env: { WDL_NS: "", XDG_CONFIG_HOME: xdg, WDL_TOKEN_STORE: "off" },
+      cwd,
+    });
     assert.ok(!viaEnv.namespace.value, "WDL_TOKEN_STORE=off: no store default namespace");
     assert.ok(!viaEnv.token.value, "WDL_TOKEN_STORE=off: no store token");
 
-    const viaFlag = resolveCliConfigState({ values: { "no-token-store": true }, env: { WDL_NS: "", XDG_CONFIG_HOME: xdg }, cwd });
+    const viaFlag = resolveCliConfigState({
+      values: { "no-token-store": true },
+      env: { WDL_NS: "", XDG_CONFIG_HOME: xdg },
+      cwd,
+    });
     assert.ok(!viaFlag.namespace.value, "--no-token-store: no store default namespace");
   });
 });
@@ -107,7 +116,9 @@ test("a project .env cannot disable the token store (WDL_TOKEN_STORE is not a .e
     const xdg = path.join(cwd, "xdg");
     writeTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg }), {
       defaultNs: "demo",
-      namespaces: { demo: { CONTROL_URL: "https://demo.store.example", ADMIN_TOKEN: "demo-store-token" } },
+      namespaces: {
+        demo: { CONTROL_URL: "https://demo.store.example", ADMIN_TOKEN: "demo-store-token" },
+      },
     });
     writeFileSync(path.join(cwd, ".env"), "WDL_TOKEN_STORE=off\n");
 
@@ -120,7 +131,9 @@ test("a project .env cannot disable the token store (WDL_TOKEN_STORE is not a .e
 test("the dispatcher honors --no-token-store when autoloading credentials", async () => {
   const oldExit = process.exit;
   const oldError = console.error;
-  process.exit = (code) => { throw new Error(`exit:${code}`); };
+  process.exit = (code) => {
+    throw new Error(`exit:${code}`);
+  };
   console.error = () => {};
   try {
     await withTempDir(async (cwd) => {
@@ -153,14 +166,12 @@ test("the dispatcher honors --no-token-store when autoloading credentials", asyn
   }
 });
 
-
 test("config explain prints final values and sources", async () => {
   await withTempDir(async (cwd) => {
-    writeFileSync(path.join(cwd, ".env"), [
-      "CONTROL_URL=https://ctl.base.example",
-      "[acme]",
-      "ADMIN_TOKEN=section-token",
-    ].join("\n"));
+    writeFileSync(
+      path.join(cwd, ".env"),
+      ["CONTROL_URL=https://ctl.base.example", "[acme]", "ADMIN_TOKEN=section-token"].join("\n")
+    );
 
     /** @type {string[]} */
     const lines = [];
@@ -184,9 +195,24 @@ test("bin does not preload .env for local diagnostic commands", async () => {
   const oldLog = console.log;
   console.log = () => {};
   try {
-    await wdlMain(["config", "--help"], { loadEnv: () => { calls.push("config"); return []; } });
-    await wdlMain(["doctor", "--help"], { loadEnv: () => { calls.push("doctor"); return []; } });
-    await wdlMain(["whoami", "--help"], { loadEnv: () => { calls.push("whoami"); return []; } });
+    await wdlMain(["config", "--help"], {
+      loadEnv: () => {
+        calls.push("config");
+        return [];
+      },
+    });
+    await wdlMain(["doctor", "--help"], {
+      loadEnv: () => {
+        calls.push("doctor");
+        return [];
+      },
+    });
+    await wdlMain(["whoami", "--help"], {
+      loadEnv: () => {
+        calls.push("whoami");
+        return [];
+      },
+    });
   } finally {
     console.log = oldLog;
   }
@@ -246,11 +272,12 @@ test("whoami reports an unavailable namespace URL when control omits it", async 
       cwd,
       env: {},
       stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async () => response({
-        ok: true,
-        principal: { kind: "ns", ns: "acme" },
-        urls: { control: "http://ctl.test" },
-      }),
+      controlFetch: async () =>
+        response({
+          ok: true,
+          principal: { kind: "ns", ns: "acme" },
+          urls: { control: "http://ctl.test" },
+        }),
     });
 
     assert.match(lines.join("\n"), /Namespace URL: \(unavailable\)/);
@@ -266,13 +293,14 @@ test("whoami text reports configured namespace mismatch", async () => {
       env: { CONTROL_URL: "https://api.wdl.dev" },
       /** @param {string} line */
       stdout: (line) => lines.push(line),
-      controlFetch: async () => response({
-        ok: true,
-        principal: { kind: "ns", ns: "actual" },
-        tokenId: "tok_123",
-        minCliVersion: "0.7.1",
-        urls: { control: "https://api.wdl.dev" },
-      }),
+      controlFetch: async () =>
+        response({
+          ok: true,
+          principal: { kind: "ns", ns: "actual" },
+          tokenId: "tok_123",
+          minCliVersion: "0.7.1",
+          urls: { control: "https://api.wdl.dev" },
+        }),
     });
 
     assert.match(lines.join("\n"), /Configured NS: configured \(token principal is actual\)/);
@@ -351,17 +379,19 @@ test("doctor --strict exits non-zero when any check fails", async () => {
     const lines = [];
 
     await assert.rejects(
-      () => runDoctorCommand(["--strict", "--ns", "acme", "--token", "secret-token"], {
-        cwd,
-        env: { CONTROL_URL: "https://api.wdl.dev" },
-        execFile: () => "wrangler 3.99.0\n",
-        stdout: (/** @type {string} */ line) => lines.push(line),
-        controlFetch: async () => response({
-          ok: true,
-          principal: { kind: "ns", ns: "acme" },
-          minCliVersion: "0.7.1",
+      () =>
+        runDoctorCommand(["--strict", "--ns", "acme", "--token", "secret-token"], {
+          cwd,
+          env: { CONTROL_URL: "https://api.wdl.dev" },
+          execFile: () => "wrangler 3.99.0\n",
+          stdout: (/** @type {string} */ line) => lines.push(line),
+          controlFetch: async () =>
+            response({
+              ok: true,
+              principal: { kind: "ns", ns: "acme" },
+              minCliVersion: "0.7.1",
+            }),
         }),
-      }),
       /doctor checks failed/
     );
 
@@ -410,7 +440,11 @@ test("doctor reports the token store namespace count and the build-readable cave
       /** @param {string} line */
       stdout: (line) => lines.push(line),
       controlFetch: async () =>
-        response({ ok: true, principal: { kind: "ns", ns: "demo" }, urls: { control: "http://ctl.test" } }),
+        response({
+          ok: true,
+          principal: { kind: "ns", ns: "demo" },
+          urls: { control: "http://ctl.test" },
+        }),
     });
     const out = lines.join("\n");
     assert.match(out, /Token store 2 namespaces/);
@@ -424,20 +458,25 @@ test("doctor reports a corrupt token store as a failed check", async () => {
     const xdg = path.join(cwd, "xdg");
     const storePath = tokenStorePath({ XDG_CONFIG_HOME: xdg });
     mkdirSync(path.dirname(storePath), { recursive: true });
-    writeFileSync(storePath, "[demo]\nADMIN_TOKEN=\"unterminated\n");
+    writeFileSync(storePath, '[demo]\nADMIN_TOKEN="unterminated\n');
     /** @type {string[]} */
     const lines = [];
 
     await assert.rejects(
-      () => runDoctorCommand(["--strict", "--ns", "demo", "--control-url", "http://ctl.test", "--token", "secret-token"], {
-        cwd,
-        env: { XDG_CONFIG_HOME: xdg },
-        execFile: () => "4.94.0\n",
-        /** @param {string} line */
-        stdout: (line) => lines.push(line),
-        controlFetch: async () =>
-          response({ ok: true, principal: { kind: "ns", ns: "demo" }, urls: { control: "http://ctl.test" } }),
-      }),
+      () =>
+        runDoctorCommand(["--strict", "--ns", "demo", "--control-url", "http://ctl.test", "--token", "secret-token"], {
+          cwd,
+          env: { XDG_CONFIG_HOME: xdg },
+          execFile: () => "4.94.0\n",
+          /** @param {string} line */
+          stdout: (line) => lines.push(line),
+          controlFetch: async () =>
+            response({
+              ok: true,
+              principal: { kind: "ns", ns: "demo" },
+              urls: { control: "http://ctl.test" },
+            }),
+        }),
       /doctor checks failed/
     );
 
@@ -454,21 +493,22 @@ test("doctor reports a corrupt token store even when it blocks credential resolu
     const xdg = path.join(cwd, "xdg");
     const storePath = tokenStorePath({ XDG_CONFIG_HOME: xdg });
     mkdirSync(path.dirname(storePath), { recursive: true });
-    writeFileSync(storePath, "[demo]\nADMIN_TOKEN=\"unterminated\n");
+    writeFileSync(storePath, '[demo]\nADMIN_TOKEN="unterminated\n');
     /** @type {string[]} */
     const lines = [];
 
     await assert.rejects(
-      () => runDoctorCommand(["--strict"], {
-        cwd,
-        env: { XDG_CONFIG_HOME: xdg, WDL_NS: "demo" },
-        execFile: () => "4.94.0\n",
-        /** @param {string} line */
-        stdout: (line) => lines.push(line),
-        controlFetch: async () => {
-          throw new Error("whoami should be skipped without resolved credentials");
-        },
-      }),
+      () =>
+        runDoctorCommand(["--strict"], {
+          cwd,
+          env: { XDG_CONFIG_HOME: xdg, WDL_NS: "demo" },
+          execFile: () => "4.94.0\n",
+          /** @param {string} line */
+          stdout: (line) => lines.push(line),
+          controlFetch: async () => {
+            throw new Error("whoami should be skipped without resolved credentials");
+          },
+        }),
       /doctor checks failed/
     );
 
@@ -500,8 +540,12 @@ test("doctor honors --no-token-store: reports the store disabled without reading
         /** @param {string} line */
         stdout: (line) => lines.push(line),
         controlFetch: async () =>
-          response({ ok: true, principal: { kind: "ns", ns: "demo" }, urls: { control: "http://ctl.test" } }),
-      },
+          response({
+            ok: true,
+            principal: { kind: "ns", ns: "demo" },
+            urls: { control: "http://ctl.test" },
+          }),
+      }
     );
     const out = lines.join("\n");
     assert.match(out, /Token store disabled/);
@@ -540,13 +584,14 @@ test("doctor reports namespace mismatch from whoami", async () => {
       execFile: () => "4.94.0\n",
       /** @param {string} line */
       stdout: (line) => lines.push(line),
-      controlFetch: async () => response({
-        ok: true,
-        principal: { kind: "ns", ns: "actual" },
-        tokenId: "tok_123",
-        minCliVersion: "0.7.1",
-        urls: { control: "https://api.wdl.dev" },
-      }),
+      controlFetch: async () =>
+        response({
+          ok: true,
+          principal: { kind: "ns", ns: "actual" },
+          tokenId: "tok_123",
+          minCliVersion: "0.7.1",
+          urls: { control: "https://api.wdl.dev" },
+        }),
     });
 
     assert.match(lines.join("\n"), /✗ Token namespace actual\n {2}configured namespace is configured/);
@@ -563,11 +608,12 @@ test("doctor flags a Wrangler major below the deploy minimum", async () => {
       execFile: () => "3.99.0\n",
       /** @param {string} line */
       stdout: (line) => lines.push(line),
-      controlFetch: async () => response({
-        ok: true,
-        principal: { kind: "ns", ns: "acme" },
-        minCliVersion: "0.7.1",
-      }),
+      controlFetch: async () =>
+        response({
+          ok: true,
+          principal: { kind: "ns", ns: "acme" },
+          minCliVersion: "0.7.1",
+        }),
     });
 
     const out = lines.join("\n");
@@ -594,24 +640,31 @@ test("ensureControlContextFromConfigState fails closed on an unresolved control 
   const token = { value: "tok", display: "****", source: "--token", error: null };
   // value:null with no error shouldn't happen, but must never be returned as a string.
   assert.throws(
-    () => ensureControlContextFromConfigState({
-      controlUrl: { value: null, display: "(unset)", source: "(unset)", error: null },
-      token,
-    }),
+    () =>
+      ensureControlContextFromConfigState({
+        controlUrl: { value: null, display: "(unset)", source: "(unset)", error: null },
+        token,
+      }),
     /No control URL configured/
   );
   // An explicit resolver error is surfaced verbatim.
   assert.throws(
-    () => ensureControlContextFromConfigState({
-      controlUrl: { value: null, display: "(unset)", source: "--control-url", error: "boom" },
-      token,
-    }),
+    () =>
+      ensureControlContextFromConfigState({
+        controlUrl: { value: null, display: "(unset)", source: "--control-url", error: "boom" },
+        token,
+      }),
     /boom/
   );
   // A fully resolved state yields the admin-token header.
   assert.deepEqual(
     ensureControlContextFromConfigState({
-      controlUrl: { value: "https://api.example", display: "https://api.example", source: "--control-url", error: null },
+      controlUrl: {
+        value: "https://api.example",
+        display: "https://api.example",
+        source: "--control-url",
+        error: null,
+      },
       token,
     }),
     {
@@ -675,11 +728,10 @@ test("whoami and doctor pass effective .env CONTROL_CONNECT_HOST to whoami reque
   };
 
   await withTempDir(async (cwd) => {
-    writeFileSync(path.join(cwd, ".env"), [
-      "CONTROL_URL=http://admin.test:8080",
-      "CONTROL_CONNECT_HOST=127.0.0.1:18080",
-      "ADMIN_TOKEN=env-token",
-    ].join("\n"));
+    writeFileSync(
+      path.join(cwd, ".env"),
+      ["CONTROL_URL=http://admin.test:8080", "CONTROL_CONNECT_HOST=127.0.0.1:18080", "ADMIN_TOKEN=env-token"].join("\n")
+    );
     /** @type {import("../../lib/control-fetch.js").ControlFetchInit[]} */
     const seen = [];
     await runWhoamiCommand(["--ns", "acme"], {
@@ -688,7 +740,7 @@ test("whoami and doctor pass effective .env CONTROL_CONNECT_HOST to whoami reque
       stdout: () => {},
       controlFetch: async (
         /** @type {string} */ _url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {},
+        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
       ) => {
         seen.push(init);
         return response(whoamiBody);
@@ -700,11 +752,10 @@ test("whoami and doctor pass effective .env CONTROL_CONNECT_HOST to whoami reque
   });
 
   await withTempDir(async (cwd) => {
-    writeFileSync(path.join(cwd, ".env"), [
-      "CONTROL_URL=http://admin.test:8080",
-      "CONTROL_CONNECT_HOST=127.0.0.1:18080",
-      "ADMIN_TOKEN=env-token",
-    ].join("\n"));
+    writeFileSync(
+      path.join(cwd, ".env"),
+      ["CONTROL_URL=http://admin.test:8080", "CONTROL_CONNECT_HOST=127.0.0.1:18080", "ADMIN_TOKEN=env-token"].join("\n")
+    );
     /** @type {import("../../lib/control-fetch.js").ControlFetchInit[]} */
     const seen = [];
     await runDoctorCommand(["--ns", "acme"], {
@@ -714,7 +765,7 @@ test("whoami and doctor pass effective .env CONTROL_CONNECT_HOST to whoami reque
       stdout: () => {},
       controlFetch: async (
         /** @type {string} */ _url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {},
+        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
       ) => {
         seen.push(init);
         return response(whoamiBody);

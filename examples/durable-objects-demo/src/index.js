@@ -13,17 +13,12 @@ export class Room extends DurableObject {
   }
 
   ensureSchema() {
-    this.ctx.storage.sql.exec(
-      "CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL)"
-    );
+    this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL)");
   }
 
   readCounter(name) {
     this.ensureSchema();
-    const rows = this.ctx.storage.sql.exec(
-      "SELECT value FROM counters WHERE name = ?",
-      name
-    );
+    const rows = this.ctx.storage.sql.exec("SELECT value FROM counters WHERE name = ?", name);
     return [...rows][0]?.value ?? 0;
   }
 

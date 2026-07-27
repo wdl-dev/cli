@@ -34,15 +34,15 @@ resolved.
 
 The CLI needs three values:
 
-| Value         | Purpose                                                                                                                            |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `ADMIN_TOKEN` | Tenant deploy token. **Sensitive** — never paste it into chat or commit history.                                                   |
-| `WDL_NS`      | Tenant namespace, e.g. `acme`, `demo-prod`.                                                                                        |
+| Value         | Purpose                                                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN_TOKEN` | Tenant deploy token. **Sensitive** — never paste it into chat or commit history.                                                                               |
+| `WDL_NS`      | Tenant namespace, e.g. `acme`, `demo-prod`.                                                                                                                    |
 | `CONTROL_URL` | Control-plane URL — from your operator, or your own self-hosted platform (e.g. `https://api.wdl.dev`). The CLI has no built-in default; it must be configured. |
 
 **Recommended path:** `wdl token set --ns <ns> --control-url <url>` reads the
-token at a hidden prompt, validates it against `/whoami`, and stores it `0600` in
-`~/.config/wdl/credentials` — so it never lands in a project file or shell
+token at a hidden prompt, validates it against `/whoami`, and stores it `0600`
+in `~/.config/wdl/credentials` — so it never lands in a project file or shell
 history. The first stored namespace becomes the default, so later `wdl deploy`
 needs no `--ns`. One store serves every project on the machine; see
 [token.md](./token.md).
@@ -50,8 +50,8 @@ needs no `--ns`. One store serves every project on the machine; see
 **Per-repo alternative:** when a project should carry its own control URL /
 namespace, copy `.env.example` to `.env` and fill in the `[<ns>]` section (the
 committed `.env.example` also documents the shape for teammates). The CLI reads
-only `./.env` from the directory you run `wdl` in (there is no upward search), so
-run `wdl` from the directory that holds it. The token stays in the gitignored
+only `./.env` from the directory you run `wdl` in (there is no upward search),
+so run `wdl` from the directory that holds it. The token stays in the gitignored
 `.env`, never committed.
 
 **CI / automation:** inject `ADMIN_TOKEN`, `CONTROL_URL`, and `WDL_NS` as
@@ -62,17 +62,17 @@ Bare control hosts get a scheme automatically; production hosts default to
 `https://`, local `.test` / `.local` or `:8080` hosts default to `http://`. To
 force a protocol, write `https://...` or `http://...` explicitly.
 
-Precedence: `CLI flag > shell env > .env [<ns>] section > .env base section > wdl
-token store`. If none supplies a value, the command fails — there is no built-in
-default.
+Precedence:
+`CLI flag > shell env > .env [<ns>] section > .env base section > wdl token store`.
+If none supplies a value, the command fails — there is no built-in default.
 
 **Untrusted projects:** `wdl deploy` runs the project's local Wrangler dry-run
 and build hooks as your OS user, so that code can read the on-disk token store
 (the credential scrub only keeps WDL variables out of the Wrangler child's
 environment, not out of the file). Only deploy projects you trust. For an
 untrusted or third-party project, pass an ephemeral `--token` / `--control-url`
-plus `--no-token-store` (or `WDL_TOKEN_STORE=off`) so the CLI ignores the store —
-and don't keep a global store at all, since the flag opts out of *reading* the
+plus `--no-token-store` (or `WDL_TOKEN_STORE=off`) so the CLI ignores the store
+— and don't keep a global store at all, since the flag opts out of _reading_ the
 file, not its presence on disk. See [token.md](./token.md).
 
 When unsure which value won, run `wdl config explain`; to confirm which control
@@ -80,8 +80,8 @@ the token actually reaches, plus the principal, platform version, and URL hints,
 run `wdl whoami`; for baseline local and remote diagnostics, run `wdl doctor`.
 When the control plane supports `/whoami`, `doctor` verifies the remote token,
 principal namespace, platform version, and CLI compatibility. Use
-`wdl doctor --strict` in CI when a failed check should make the job fail.
-The namespace URL may be `(unavailable)` when the operator has not configured a
+`wdl doctor --strict` in CI when a failed check should make the job fail. The
+namespace URL may be `(unavailable)` when the operator has not configured a
 public platform domain; that does not mean authentication failed.
 
 For runtime secrets (distinct from `ADMIN_TOKEN`), see
@@ -125,15 +125,15 @@ changes only the control socket target and never a printed Worker origin.
 | Delete a worker (preview)  | `wdl delete worker <worker> --dry-run`                    |
 | Inspect Workflow instances | `wdl workflows instances <worker> <workflow>`             |
 
-`--ns` is optional whenever `WDL_NS` is set via env or `.env`, or the `wdl token`
-store has a default namespace. Every subcommand implements `--help` — run it when
-you don't know which flag to use.
+`--ns` is optional whenever `WDL_NS` is set via env or `.env`, or the
+`wdl token` store has a default namespace. Every subcommand implements `--help`
+— run it when you don't know which flag to use.
 
 ## Standard deploy flow
 
 1. **Resolve the CLI invocation form** (above).
-2. **Resolve credentials** — for a trusted project, prefer `.env` or the `wdl
-   token` store; do not inline environment variables. For an untrusted or
+2. **Resolve credentials** — for a trusted project, prefer `.env` or the
+   `wdl token` store; do not inline environment variables. For an untrusted or
    third-party project, use an ephemeral `--token` / `--control-url` with
    `--no-token-store` instead (see Credentials above — deploy runs project code
    as you).
@@ -182,9 +182,8 @@ names like `my-worker-preview`; WDL does not append that suffix. See
 ## Supported / unsupported wrangler configuration
 
 When multiple Wrangler config files exist, the CLI follows Wrangler's priority:
-`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`.
-Both JSON filenames use Wrangler's JSONC syntax, including comments and
-trailing commas.
+`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`. Both JSON
+filenames use Wrangler's JSONC syntax, including comments and trailing commas.
 
 New projects should keep the `2026-06-17` compatibility date unless a feature
 requires a newer one. Explicit dates before `2026-04-01`, invalid or future
@@ -192,19 +191,19 @@ dates, and dates newer than the bundled workerd supports are rejected by
 control. Upstream experimental enable flags, `legacy_error_serialization`, and
 `allow_irrevocable_stub_storage` are unsupported.
 
-**Supported:** `name`, `main`, `compatibility_date` / `compatibility_flags`, `[vars]`,
-`[[kv_namespaces]]`, `[[d1_databases]]`, `[[durable_objects.bindings]]`,
-`[[workflows]]`, `[[r2_buckets]]`, `[assets] directory`, `[triggers] crons`,
-`[[triggers.schedules]]` (with timezone, a platform extension),
-`[[queues.producers]]` / `[[queues.consumers]]`, `[[services]]`,
-`[[platform_bindings]]`, `[[exports]]`, `route` / `routes`, `workers_dev`,
-`[env.<name>]`.
+**Supported:** `name`, `main`, `compatibility_date` / `compatibility_flags`,
+`[vars]`, `[[kv_namespaces]]`, `[[d1_databases]]`,
+`[[durable_objects.bindings]]`, `[[workflows]]`, `[[r2_buckets]]`,
+`[assets] directory`, `[triggers] crons`, `[[triggers.schedules]]` (with
+timezone, a platform extension), `[[queues.producers]]` /
+`[[queues.consumers]]`, `[[services]]`, `[[platform_bindings]]`, `[[exports]]`,
+`route` / `routes`, `workers_dev`, `[env.<name>]`.
 
-WDL parses `[[exports]]`, `[[platform_bindings]]`,
-`[[triggers.schedules]]`, and `[[services]].ns` itself and removes these private
-extensions from the temporary config passed to the Wrangler bundler. Other
-fields retain their existing Wrangler passthrough behavior. Wrangler's
-object-shaped declarative `exports` configuration is not supported by WDL.
+WDL parses `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`, and
+`[[services]].ns` itself and removes these private extensions from the temporary
+config passed to the Wrangler bundler. Other fields retain their existing
+Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
+configuration is not supported by WDL.
 
 ### Service bindings and delegated capabilities
 
@@ -220,16 +219,14 @@ current Worker — not full Cloudflare Workflows parity; `script_name`,
 cross-worker workflows, cross-worker callbacks, service-binding callbacks, and
 the Cloudflare source-AST visualizer are not supported. `route` / `routes` are
 supported only when the operator enables them. Python Workers modules,
-unsupported workerd compatibility flags, and WDL-reserved injected module
-names are rejected during deploy: the CLI fails fast on local `.py` modules,
-and the control plane is canonical for workerd compatibility and bundle-shape
-policy.
+unsupported workerd compatibility flags, and WDL-reserved injected module names
+are rejected during deploy: the CLI fails fast on local `.py` modules, and the
+control plane is canonical for workerd compatibility and bundle-shape policy.
 Top-level or selected-environment Wrangler runtime/deploy config fields and
 sections that WDL would otherwise ignore are also rejected by the CLI, including
 legacy `[site]` Workers Sites, `pages_build_output_dir`, `observability`,
 `limits`, `placement`, and other unsupported binding/config fields or sections
-named in the error.
-`assets.run_worker_first` is silently ignored.
+named in the error. `assets.run_worker_first` is silently ignored.
 
 Cron triggers and queue consumers are runtime dispatch features; declare them
 only on routeable tenant Workers. Workers selected through
@@ -244,36 +241,36 @@ consumers.
 run it first (or do a read-only check), then add `--yes` only after confirming
 with the user. Do **not** add `--yes` on your own.
 
-`wdl workers` reports `workflow-defs=yes` or `workflow-defs=no`; `unknown`
-means an older control omitted the field, not that no definitions exist. Worker
-delete dry-runs report secret and workflow-definition presence even when a
-blocker makes `wouldDelete=no`.
+`wdl workers` reports `workflow-defs=yes` or `workflow-defs=no`; `unknown` means
+an older control omitted the field, not that no definitions exist. Worker delete
+dry-runs report secret and workflow-definition presence even when a blocker
+makes `wouldDelete=no`.
 
 Deleting a worker does **not** delete R2 data — see [r2.md](./r2.md).
 
 ## Common errors
 
-| Symptom                                                          | Cause / fix                                                                                                          |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `wdl: command not found`                                         | The CLI is not on PATH. Inside the wdl-cli repo use `node <repo>/bin/wdl.js`; otherwise run `npm i -g @wdl-dev/cli`. |
-| `Missing admin token`                                            | No token resolved. Run `wdl token set --ns <ns> --control-url <url>` (recommended), or set `ADMIN_TOKEN` / pass `--token` / use the `[<ns>]` section of `.env`.                         |
-| `401 unknown_token: unauthorized`                                | The token is invalid for this control plane / namespace. Re-check `ADMIN_TOKEN`.                                     |
-| `[vars] must be an object`                                       | Use a `[vars]` table/object; arrays are invalid.                                                                     |
-| `[vars] <NAME>: only string/number/boolean values are supported` | Remove nested values; move sensitive strings to a secret.                                                            |
-| `binding name collision: <NAME>`                                 | `[vars]`, explicit bindings, or the implicit `ASSETS` binding reused a runtime env name. Rename one of them.        |
-| `experimental_compat_flag_unsupported`                           | Remove the experimental workerd compatibility flag.                                                                  |
-| `compatibility_flag_unsupported`                                 | Remove the unsupported compatibility flag named by control.                                                          |
-| `python_workers_unsupported`                                     | Python Workers are not supported by WDL; remove Python Worker modules. The CLI also fails fast on local `.py` modules. |
-| `worker_env_too_large`                                           | Reduce `[vars]`, secrets, or binding metadata; redeploy/delete any retained version named in the error.              |
-| `worker_code_too_large`                                          | Reduce generated Worker code size or split the worker.                                                               |
-| `worker_code_invalid`                                            | Fix the Worker bundle shape reported by the control plane, including WDL-reserved injected module names.             |
-| `wrangler build failed`                                          | Run `npx wrangler deploy --dry-run` inside the project and fix it there.                                             |
-| Deploy succeeds but promote fails                                | Custom host or service-binding target validation issue; check the binding targets.                                   |
-| Worker URL returns 404                                           | The URL is missing the `/<worker-name>` segment.                                                                     |
-| `wdl tail` has no history                                        | Tail is live-only; open `wdl tail <worker>` before triggering the request.                                           |
-| `tail session_idle` / `tail session_expired`                     | Control reclaimed the live-tail stream; the CLI reconnects automatically unless the reconnect cap is reached.        |
-| Namespace secret did not take effect                             | NS-level secrets do not force-bump workers; redeploy once or use a worker-level secret.                              |
-| Service binding still hits the old target                        | Bindings are pinned at caller deploy time; redeploy the caller.                                                      |
+| Symptom                                                          | Cause / fix                                                                                                                                                     |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wdl: command not found`                                         | The CLI is not on PATH. Inside the wdl-cli repo use `node <repo>/bin/wdl.js`; otherwise run `npm i -g @wdl-dev/cli`.                                            |
+| `Missing admin token`                                            | No token resolved. Run `wdl token set --ns <ns> --control-url <url>` (recommended), or set `ADMIN_TOKEN` / pass `--token` / use the `[<ns>]` section of `.env`. |
+| `401 unknown_token: unauthorized`                                | The token is invalid for this control plane / namespace. Re-check `ADMIN_TOKEN`.                                                                                |
+| `[vars] must be an object`                                       | Use a `[vars]` table/object; arrays are invalid.                                                                                                                |
+| `[vars] <NAME>: only string/number/boolean values are supported` | Remove nested values; move sensitive strings to a secret.                                                                                                       |
+| `binding name collision: <NAME>`                                 | `[vars]`, explicit bindings, or the implicit `ASSETS` binding reused a runtime env name. Rename one of them.                                                    |
+| `experimental_compat_flag_unsupported`                           | Remove the experimental workerd compatibility flag.                                                                                                             |
+| `compatibility_flag_unsupported`                                 | Remove the unsupported compatibility flag named by control.                                                                                                     |
+| `python_workers_unsupported`                                     | Python Workers are not supported by WDL; remove Python Worker modules. The CLI also fails fast on local `.py` modules.                                          |
+| `worker_env_too_large`                                           | Reduce `[vars]`, secrets, or binding metadata; redeploy/delete any retained version named in the error.                                                         |
+| `worker_code_too_large`                                          | Reduce generated Worker code size or split the worker.                                                                                                          |
+| `worker_code_invalid`                                            | Fix the Worker bundle shape reported by the control plane, including WDL-reserved injected module names.                                                        |
+| `wrangler build failed`                                          | Run `npx wrangler deploy --dry-run` inside the project and fix it there.                                                                                        |
+| Deploy succeeds but promote fails                                | Custom host or service-binding target validation issue; check the binding targets.                                                                              |
+| Worker URL returns 404                                           | The URL is missing the `/<worker-name>` segment.                                                                                                                |
+| `wdl tail` has no history                                        | Tail is live-only; open `wdl tail <worker>` before triggering the request.                                                                                      |
+| `tail session_idle` / `tail session_expired`                     | Control reclaimed the live-tail stream; the CLI reconnects automatically unless the reconnect cap is reached.                                                   |
+| Namespace secret did not take effect                             | NS-level secrets do not force-bump workers; redeploy once or use a worker-level secret.                                                                         |
+| Service binding still hits the old target                        | Bindings are pinned at caller deploy time; redeploy the caller.                                                                                                 |
 
 ## Anti-patterns
 

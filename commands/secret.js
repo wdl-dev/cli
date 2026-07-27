@@ -3,7 +3,17 @@
 // "meant worker, wrote ns" credential leaks.
 
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, isNonEmptyString, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
+import {
+  CliError,
+  defineCliOption,
+  formatHelp,
+  formatHttpError,
+  isMain,
+  isNonEmptyString,
+  optionHelp,
+  readJsonOrFail,
+  unexpectedArgument,
+} from "../lib/common.js";
 import { confirmAction, readSecretStdin } from "../lib/stdin.js";
 import { escapeTerminalText, writeJsonOr, writeStatusLine } from "../lib/output.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
@@ -72,7 +82,9 @@ async function runSecret({ values, positionals, context }) {
   if (subcommand === "list") {
     if (keyArg) throw unexpectedArgument("secret list", keyArg);
     const { headers } = context.resolveControl();
-    const body = /** @type {SecretResponse} */ (await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list"));
+    const body = /** @type {SecretResponse} */ (
+      await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list")
+    );
     if (writeJsonOr(Boolean(values.json), body, stdout)) return;
     const keys = Array.isArray(body.keys) ? body.keys : [];
     if (keys.length === 0) writeStatusLine(stdout, "(no secrets)");
@@ -89,11 +101,18 @@ async function runSecret({ values, positionals, context }) {
       prompt: `Enter secret value for ${scopeLabel}/${keyArg} (input hidden): `,
       stderr,
     });
-    const body = /** @type {SecretResponse} */ (await fetchSecretMutationJson(context, context.nsUrl(...secretPath, keyArg), {
-      method: "PUT",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ value }),
-    }, "put"));
+    const body = /** @type {SecretResponse} */ (
+      await fetchSecretMutationJson(
+        context,
+        context.nsUrl(...secretPath, keyArg),
+        {
+          method: "PUT",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ value }),
+        },
+        "put"
+      )
+    );
     if (writeJsonOr(Boolean(values.json), body, stdout)) return;
     if (hasWorker && body.version) {
       writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} set — promoted ${body.previousVersion} → ${body.version}`);
@@ -116,14 +135,23 @@ async function runSecret({ values, positionals, context }) {
       prompt: `Are you sure you want to delete secret "${scopeLabel}/${keyArg}"? [y/N] `,
       action: `delete secret "${scopeLabel}/${keyArg}"`,
     });
-    const body = /** @type {SecretResponse} */ (await fetchSecretMutationJson(context, context.nsUrl(...secretPath, keyArg), {
-      method: "DELETE",
-      headers,
-    }, "delete"));
+    const body = /** @type {SecretResponse} */ (
+      await fetchSecretMutationJson(
+        context,
+        context.nsUrl(...secretPath, keyArg),
+        {
+          method: "DELETE",
+          headers,
+        },
+        "delete"
+      )
+    );
     if (writeJsonOr(Boolean(values.json), body, stdout)) return;
     if (!body.deleted) writeStatusLine(stdout, `(${keyArg} was not set)`);
-    else if (hasWorker && body.version) writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — promoted ${body.previousVersion} → ${body.version}`);
-    else if (hasWorker) writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — no active worker version to promote`);
+    else if (hasWorker && body.version)
+      writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — promoted ${body.previousVersion} → ${body.version}`);
+    else if (hasWorker)
+      writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — no active worker version to promote`);
     else writeStatusLine(stdout, `✓ ${scopeLabel}/${keyArg} deleted — effect on next natural cold-load`);
     return;
   }

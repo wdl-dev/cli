@@ -21,17 +21,7 @@ test("cli namespace pattern accepts tenant namespace grammar", () => {
   for (const ok of ["demo", "ns-1", "a", "0123456789", "a-b-c", "a".repeat(63)]) {
     assert.ok(re.test(ok), `expected "${ok}" to match`);
   }
-  for (const bad of [
-    "",
-    "UPPER",
-    "with.dot",
-    "ns_underscore",
-    "ns space",
-    "a/b",
-    "-bad",
-    "bad-",
-    "a".repeat(64),
-  ]) {
+  for (const bad of ["", "UPPER", "with.dot", "ns_underscore", "ns space", "a/b", "-bad", "bad-", "a".repeat(64)]) {
     assert.ok(!re.test(bad), `expected "${bad}" to fail`);
   }
 });
@@ -41,14 +31,7 @@ test("cli reserved namespace helper is shape-only", () => {
   for (const ok of ["__reserved__", "__operator-1__", "__OPERATOR_1__"]) {
     assert.equal(isReservedNs(ok), true, `expected ${JSON.stringify(ok)} accepted`);
   }
-  for (const bad of [
-    "__future",
-    "__reserved__:worker",
-    "__reserved__/worker",
-    "demo",
-    "",
-    undefined,
-  ]) {
+  for (const bad of ["__future", "__reserved__:worker", "__reserved__/worker", "demo", "", undefined]) {
     assert.equal(isReservedNs(bad), false, `expected ${JSON.stringify(bad)} rejected`);
   }
 });

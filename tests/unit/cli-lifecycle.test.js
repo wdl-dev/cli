@@ -15,15 +15,8 @@ import { runWorkflowsCommand } from "../../commands/workflows.js";
 import { main as wdlMain } from "../../bin/wdl.js";
 import { CliError, readJsonOrFail } from "../../lib/common.js";
 import { formatWorkerDelete } from "../../lib/delete-format.js";
-import {
-  LONG_CONTROL_TIMEOUT_MS,
-  UNLIMITED_CONTROL_BODY_BYTES,
-} from "../../lib/control-fetch.js";
-import {
-  formatInstanceList,
-  formatInstanceStatus,
-  formatWorkflowList,
-} from "../../lib/workflows-format.js";
+import { LONG_CONTROL_TIMEOUT_MS, UNLIMITED_CONTROL_BODY_BYTES } from "../../lib/control-fetch.js";
+import { formatInstanceList, formatInstanceStatus, formatWorkflowList } from "../../lib/workflows-format.js";
 import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
@@ -92,49 +85,66 @@ test("readJsonOrFail compacts redacted D1 lifecycle errors", async () => {
     upstreamStatus: 503,
   };
 
-  await assert.rejects(
-    () => readJsonOrFail(response(errBody, 503), "create d1 database"),
-    {
-      message: "create d1 database failed: 503 d1_database_initialize_failed: Internal error namespace=demo databaseId=d1_test upstreamCode=backend-unavailable upstreamCategory=internal upstreamRetryable=true upstreamStatus=503",
-    }
-  );
+  await assert.rejects(() => readJsonOrFail(response(errBody, 503), "create d1 database"), {
+    message:
+      "create d1 database failed: 503 d1_database_initialize_failed: Internal error namespace=demo databaseId=d1_test upstreamCode=backend-unavailable upstreamCategory=internal upstreamRetryable=true upstreamStatus=503",
+  });
 });
 
 test("readJsonOrFail omits nested details from compact control errors", async () => {
   await assert.rejects(
-    () => readJsonOrFail(response({
-      error: "d1_database_initialize_failed",
-      message: "Internal error",
-      upstreamCode: "backend-unavailable",
-      detail: {
-        message: "unredacted upstream detail",
-        internalReference: "ref-1",
-      },
-    }, 503), "create d1 database"),
+    () =>
+      readJsonOrFail(
+        response(
+          {
+            error: "d1_database_initialize_failed",
+            message: "Internal error",
+            upstreamCode: "backend-unavailable",
+            detail: {
+              message: "unredacted upstream detail",
+              internalReference: "ref-1",
+            },
+          },
+          503
+        ),
+        "create d1 database"
+      ),
     {
-      message: "create d1 database failed: 503 d1_database_initialize_failed: Internal error upstreamCode=backend-unavailable",
+      message:
+        "create d1 database failed: 503 d1_database_initialize_failed: Internal error upstreamCode=backend-unavailable",
     }
   );
 });
 
 test("readJsonOrFail keeps diagnostic blockers in compact errors", async () => {
-  const blockers = [{
-    version: "v2",
-    referrers: [{
-      callerNs: "foo",
-      callerWorker: "caller",
-      callerVersion: "v1",
-      binding: "API",
-    }],
-  }];
+  const blockers = [
+    {
+      version: "v2",
+      referrers: [
+        {
+          callerNs: "foo",
+          callerWorker: "caller",
+          callerVersion: "v1",
+          binding: "API",
+        },
+      ],
+    },
+  ];
 
   await assert.rejects(
-    () => readJsonOrFail(response({
-      error: "version_referenced",
-      namespace: "foo",
-      name: "bar",
-      blockers,
-    }, 409), "delete worker"),
+    () =>
+      readJsonOrFail(
+        response(
+          {
+            error: "version_referenced",
+            namespace: "foo",
+            name: "bar",
+            blockers,
+          },
+          409
+        ),
+        "delete worker"
+      ),
     {
       message: `delete worker failed: 409 version_referenced namespace=foo name=bar blockers=${JSON.stringify(blockers)}`,
     }
@@ -143,10 +153,17 @@ test("readJsonOrFail keeps diagnostic blockers in compact errors", async () => {
 
 test("readJsonOrFail formats control error-code plus message convention", async () => {
   await assert.rejects(
-    () => readJsonOrFail(response({
-      error: "invalid_request",
-      message: "Body must be { value: string }",
-    }, 400), "put secret"),
+    () =>
+      readJsonOrFail(
+        response(
+          {
+            error: "invalid_request",
+            message: "Body must be { value: string }",
+          },
+          400
+        ),
+        "put secret"
+      ),
     {
       message: "put secret failed: 400 invalid_request: Body must be { value: string }",
     }
@@ -154,29 +171,42 @@ test("readJsonOrFail formats control error-code plus message convention", async 
 });
 
 test("readJsonOrFail avoids duplicate context when structured error has no summary field", async () => {
-  await assert.rejects(
-    () => readJsonOrFail(response({ host: "demo.workers.example", slot: "/" }, 409), "promote"),
-    { message: 'promote failed: 409 {"host":"demo.workers.example","slot":"/"}' }
-  );
+  await assert.rejects(() => readJsonOrFail(response({ host: "demo.workers.example", slot: "/" }, 409), "promote"), {
+    message: 'promote failed: 409 {"host":"demo.workers.example","slot":"/"}',
+  });
 });
 
 test("readJsonOrFail quotes context values containing whitespace", async () => {
   await assert.rejects(
-    () => readJsonOrFail(response({
-      error: "bad_trace",
-      traceId: "abc def ghi",
-    }, 400), "deploy"),
+    () =>
+      readJsonOrFail(
+        response(
+          {
+            error: "bad_trace",
+            traceId: "abc def ghi",
+          },
+          400
+        ),
+        "deploy"
+      ),
     { message: 'deploy failed: 400 bad_trace traceId="abc def ghi"' }
   );
 });
 
 test("readJsonOrFail escapes decoded terminal control bytes in structured errors", async () => {
   await assert.rejects(
-    () => readJsonOrFail(response({
-      error: "bad\u001b[31m",
-      message: "line1\nline2",
-      traceId: "osc\u001b]0;pwn\u0007",
-    }, 400), "deploy"),
+    () =>
+      readJsonOrFail(
+        response(
+          {
+            error: "bad\u001b[31m",
+            message: "line1\nline2",
+            traceId: "osc\u001b]0;pwn\u0007",
+          },
+          400
+        ),
+        "deploy"
+      ),
     {
       message: "deploy failed: 400 bad\\u001b[31m: line1\\nline2 traceId=osc\\u001b]0;pwn\\u0007",
     }
@@ -185,23 +215,31 @@ test("readJsonOrFail escapes decoded terminal control bytes in structured errors
 
 test("readJsonOrFail preserves non-json response bodies", async () => {
   await assert.rejects(
-    () => readJsonOrFail({
-      status: 502,
-      ok: false,
-      text: async () => "bad gateway",
-    }, "deploy"),
+    () =>
+      readJsonOrFail(
+        {
+          status: 502,
+          ok: false,
+          text: async () => "bad gateway",
+        },
+        "deploy"
+      ),
     { message: "deploy failed: 502 bad gateway" }
   );
 });
 
 test("readJsonOrFail includes redirect locations in HTTP errors", async () => {
   await assert.rejects(
-    () => readJsonOrFail({
-      status: 302,
-      ok: false,
-      headers: { location: "https://login.example/\u001b[31m" },
-      text: async () => "",
-    }, "whoami"),
+    () =>
+      readJsonOrFail(
+        {
+          status: 302,
+          ok: false,
+          headers: { location: "https://login.example/\u001b[31m" },
+          text: async () => "",
+        },
+        "whoami"
+      ),
     { message: "whoami failed: 302 location=https://login.example/\\u001b[31m" }
   );
 });
@@ -215,12 +253,13 @@ test("readJsonOrFail wraps invalid JSON from successful responses", async () => 
 
 test("nsUrl rejects dot path segments before calling control", async () => {
   await assert.rejects(
-    () => runSecretCommand(["list", "--ns", ".", "--scope", "ns", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
-      controlFetch: async () => {
-        throw new Error("controlFetch should not be called");
-      },
-    }),
+    () =>
+      runSecretCommand(["list", "--ns", ".", "--scope", "ns", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
     /invalid URL path segment: "\."/
   );
 });
@@ -229,11 +268,18 @@ test("readJsonOrFail surfaces warnings arrays attached to error bodies", async (
   const warnings = [{ code: "assets_cleanup_task_failed", message: "queue full" }];
 
   await assert.rejects(
-    () => readJsonOrFail(response({
-      error: "asset_upload_failed",
-      message: "Asset upload failed for logo.png",
-      warnings,
-    }, 502), "deploy"),
+    () =>
+      readJsonOrFail(
+        response(
+          {
+            error: "asset_upload_failed",
+            message: "Asset upload failed for logo.png",
+            warnings,
+          },
+          502
+        ),
+        "deploy"
+      ),
     {
       message: `deploy failed: 502 asset_upload_failed: Asset upload failed for logo.png warnings=${JSON.stringify(warnings)}`,
     }
@@ -293,10 +339,10 @@ test("workers command lists namespace worker state", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/workers");
-  assert.deepEqual(/** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (calls[0].init).headers, { "x-admin-token": "tok" });
-  assert.deepEqual(lines, [
-    "api\tactive=v2\tversions=v1,v2\tsecrets=yes\tworkflow-defs=yes",
-  ]);
+  assert.deepEqual(/** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (calls[0].init).headers, {
+    "x-admin-token": "tok",
+  });
+  assert.deepEqual(lines, ["api\tactive=v2\tversions=v1,v2\tsecrets=yes\tworkflow-defs=yes"]);
 });
 
 test("workers command does not double-slash paths when CONTROL_URL has a trailing slash", async () => {
@@ -308,7 +354,10 @@ test("workers command does not double-slash paths when CONTROL_URL has a trailin
       CONTROL_URL: "http://ctl.test/",
     },
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       calls.push({ url, init });
       return response({ namespace: "demo", workers: [] });
     },
@@ -319,11 +368,12 @@ test("workers command does not double-slash paths when CONTROL_URL has a trailin
 
 test("workers command rejects unexpected positional arguments", async () => {
   await assert.rejects(
-    () => runWorkersCommand(["demo"], {
-      env: { ADMIN_TOKEN: "tok" },
-      stdout: () => {},
-      controlFetch: async () => response({ namespace: "demo", workers: [] }),
-    }),
+    () =>
+      runWorkersCommand(["demo"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        controlFetch: async () => response({ namespace: "demo", workers: [] }),
+      }),
     /Usage:/
   );
 });
@@ -335,14 +385,17 @@ test("wdl workers escapes control sequences from the control plane but keeps tab
   await runWorkersCommand(["--ns", "demo", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
     stdout: (/** @type {string} */ line) => lines.push(line),
-    controlFetch: async () => response({
-      workers: [{
-        name: `worker-${hostile}`,
-        activeVersion: `v2-${hostile}`,
-        versions: [`v1-${hostile}`],
-        hasSecrets: false,
-      }],
-    }),
+    controlFetch: async () =>
+      response({
+        workers: [
+          {
+            name: `worker-${hostile}`,
+            activeVersion: `v2-${hostile}`,
+            versions: [`v1-${hostile}`],
+            hasSecrets: false,
+          },
+        ],
+      }),
   });
   const out = lines.join("\n");
   assertNoRawTerminalControls(out, "workers output");
@@ -393,7 +446,10 @@ test("tenant lifecycle commands default namespace from WDL_NS", async () => {
   await runWorkersCommand(["--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       workerCalls.push({ url, init });
       return response({ namespace: "demo", workers: [] });
     },
@@ -405,7 +461,10 @@ test("tenant lifecycle commands default namespace from WDL_NS", async () => {
   await runSecretCommand(["list", "--worker", "api", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       secretCalls.push({ url, init });
       return response({ keys: [] });
     },
@@ -417,7 +476,10 @@ test("tenant lifecycle commands default namespace from WDL_NS", async () => {
   await runDeleteCommand(["version", "api", "v1", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       deleteCalls.push({ url, init });
       return response({
         namespace: "demo",
@@ -439,10 +501,7 @@ test("delete version calls the version hard-delete endpoint", async () => {
     assets: { cleanupTaskId: null, skippedSharedPrefix: false, warnings: [] },
   });
 
-  await runDeleteCommand(
-    ["version", "--ns", "demo", "api", "v1", "--control-url", "http://ctl.test"],
-    deps
-  );
+  await runDeleteCommand(["version", "--ns", "demo", "api", "v1", "--control-url", "http://ctl.test"], deps);
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/worker/api/versions/v1");
@@ -460,13 +519,16 @@ test("delete output does not expose internal cleanup task ids", async () => {
     assets: { cleanupTaskId: "s3cleanup:internal", queueHint: "sent", warnings: [] },
   });
 
-  await runDeleteCommand(
-    ["worker", "--ns", "demo", "api", "--yes", "--control-url", "http://ctl.test"],
-    deps
-  );
+  await runDeleteCommand(["worker", "--ns", "demo", "api", "--yes", "--control-url", "http://ctl.test"], deps);
 
-  assert.equal(lines.some((line) => line.includes("s3cleanup:internal")), false);
-  assert.equal(lines.some((line) => line.includes("cleanup task")), false);
+  assert.equal(
+    lines.some((line) => line.includes("s3cleanup:internal")),
+    false
+  );
+  assert.equal(
+    lines.some((line) => line.includes("cleanup task")),
+    false
+  );
 });
 
 test("delete output projects asset warnings before printing", async () => {
@@ -477,24 +539,26 @@ test("delete output projects asset warnings before printing", async () => {
     versionsDeleted: ["v1"],
     deleted: true,
     assets: {
-      warnings: [{
-        code: "asset_cleanup_skipped",
-        message: "cleanup skipped",
-        internalTaskId: "s3cleanup:internal",
-      }],
+      warnings: [
+        {
+          code: "asset_cleanup_skipped",
+          message: "cleanup skipped",
+          internalTaskId: "s3cleanup:internal",
+        },
+      ],
     },
   });
 
-  await runDeleteCommand(
-    ["worker", "--ns", "demo", "api", "--yes", "--control-url", "http://ctl.test"],
-    deps
-  );
+  await runDeleteCommand(["worker", "--ns", "demo", "api", "--yes", "--control-url", "http://ctl.test"], deps);
 
   assert.equal(
     lines.some((line) => line.includes('{"code":"asset_cleanup_skipped","message":"cleanup skipped"}')),
-    true,
+    true
   );
-  assert.equal(lines.some((line) => line.includes("s3cleanup:internal")), false);
+  assert.equal(
+    lines.some((line) => line.includes("s3cleanup:internal")),
+    false
+  );
 });
 
 test("delete worker supports dry-run query and raw json output", async () => {
@@ -544,14 +608,12 @@ test("delete worker dry-run reports state presence without overstating deletion"
       "  workflow definitions present",
     ]
   );
-  assert.deepEqual(
-    formatWorkerDelete({ ...base, deleted: false, hasWorkflowDefs: false }),
-    ["DRY RUN demo/api wouldDelete=no active=- versions=-"]
-  );
-  assert.deepEqual(
-    formatWorkerDelete({ ...base, deleted: false }),
-    ["DRY RUN demo/api wouldDelete=no active=- versions=-"]
-  );
+  assert.deepEqual(formatWorkerDelete({ ...base, deleted: false, hasWorkflowDefs: false }), [
+    "DRY RUN demo/api wouldDelete=no active=- versions=-",
+  ]);
+  assert.deepEqual(formatWorkerDelete({ ...base, deleted: false }), [
+    "DRY RUN demo/api wouldDelete=no active=- versions=-",
+  ]);
 });
 
 test("delete worker dry-run renders workflow blockers in human output", async () => {
@@ -566,15 +628,19 @@ test("delete worker dry-run renders workflow blockers in human output", async ()
     affectedHosts: [`host-${hostile}.example`],
     hasWorkerSecrets: true,
     hasWorkflowDefs: true,
-    blockers: [{
-      version: `v1-${hostile}`,
-      referrers: [{
-        callerNs: `ns-${hostile}`,
-        callerWorker: `worker-${hostile}`,
-        callerVersion: `version-${hostile}`,
-        binding: `binding-${hostile}`,
-      }],
-    }],
+    blockers: [
+      {
+        version: `v1-${hostile}`,
+        referrers: [
+          {
+            callerNs: `ns-${hostile}`,
+            callerWorker: `worker-${hostile}`,
+            callerVersion: `version-${hostile}`,
+            binding: `binding-${hostile}`,
+          },
+        ],
+      },
+    ],
     workflowBlocker: {
       error: `workflow_instances_active-${hostile}`,
       message: `demo/api has active workflow instances ${hostile}`,
@@ -584,10 +650,7 @@ test("delete worker dry-run renders workflow blockers in human output", async ()
   };
   const { lines, deps } = mockDeps(body);
 
-  await runDeleteCommand(
-    ["worker", "--ns", "demo", "api", "--dry-run", "--control-url", "http://ctl.test"],
-    deps
-  );
+  await runDeleteCommand(["worker", "--ns", "demo", "api", "--dry-run", "--control-url", "http://ctl.test"], deps);
 
   const joined = lines.join("\n");
   assert.doesNotMatch(joined, new RegExp(ESC), "raw ESC must not reach delete dry-run output");
@@ -606,14 +669,18 @@ test("delete worker requires confirmation unless --yes or --dry-run is used", as
   /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
-    () => runDeleteCommand(["worker", "--ns", "demo", "api", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
-      stdin: stdinFrom(""),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({});
-      },
-    }),
+    () =>
+      runDeleteCommand(["worker", "--ns", "demo", "api", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdin: stdinFrom(""),
+        controlFetch: async (
+          /** @type {string} */ url,
+          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+        ) => {
+          calls.push({ url, init });
+          return response({});
+        },
+      }),
     /Refusing to delete worker "demo\/api" without interactive confirmation/
   );
   assert.equal(calls.length, 0);
@@ -621,7 +688,10 @@ test("delete worker requires confirmation unless --yes or --dry-run is used", as
   await runDeleteCommand(["worker", "--ns", "demo", "api", "--yes", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok" },
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       calls.push({ url, init });
       return response({
         namespace: "demo",
@@ -647,7 +717,10 @@ test("delete worker proceeds after interactive confirmation", async () => {
     stdin,
     stderr: (/** @type {string} */ text) => prompts.push(text),
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       calls.push({ url, init });
       return response({
         namespace: "demo",
@@ -665,17 +738,19 @@ test("delete worker proceeds after interactive confirmation", async () => {
 
 test("delete command exposes only documented destructive subcommands", async () => {
   await assert.rejects(
-    () => runDeleteCommand(["ver", "--ns", "demo", "api", "v1"], {
-      env: { ADMIN_TOKEN: "tok" },
-      controlFetch: async () => response({}),
-    }),
+    () =>
+      runDeleteCommand(["ver", "--ns", "demo", "api", "v1"], {
+        env: { ADMIN_TOKEN: "tok" },
+        controlFetch: async () => response({}),
+      }),
     /unknown subcommand: ver/
   );
   await assert.rejects(
-    () => runDeleteCommand(["rm", "--ns", "demo", "api"], {
-      env: { ADMIN_TOKEN: "tok" },
-      controlFetch: async () => response({}),
-    }),
+    () =>
+      runDeleteCommand(["rm", "--ns", "demo", "api"], {
+        env: { ADMIN_TOKEN: "tok" },
+        controlFetch: async () => response({}),
+      }),
     /unknown subcommand: rm/
   );
 });
@@ -724,20 +799,14 @@ test("commands escape terminal controls in unexpected positional errors", async 
 
   await assert.rejects(
     () => runDeleteCommand(["version", "--ns", "demo", "api", "v1", bad], deps),
-    assertEscapedBadArg,
+    assertEscapedBadArg
   );
   await assert.rejects(
     () => runSecretCommand(["list", "--ns", "demo", "--scope", "ns", bad], deps),
-    assertEscapedBadArg,
+    assertEscapedBadArg
   );
-  await assert.rejects(
-    () => runR2Command(["buckets", "list", bad, "--ns", "demo"], deps),
-    assertEscapedBadArg,
-  );
-  await assert.rejects(
-    () => runWorkflowsCommand(["list", "--ns", "demo", bad], deps),
-    assertEscapedBadArg,
-  );
+  await assert.rejects(() => runR2Command(["buckets", "list", bad, "--ns", "demo"], deps), assertEscapedBadArg);
+  await assert.rejects(() => runWorkflowsCommand(["list", "--ns", "demo", bad], deps), assertEscapedBadArg);
 });
 
 test("secret list accepts flags before the subcommand", async () => {
@@ -753,17 +822,17 @@ test("secret list uses encoded namespace and worker path segments", async () => 
   const calls = [];
   /** @type {string[]} */
   const lines = [];
-  await runSecretCommand(
-    ["list", "--ns", "demo space", "--worker", "api/slash", "--control-url", "http://ctl.test"],
-    {
-      env: { ADMIN_TOKEN: "tok" },
-      stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({ keys: ["A", "B"] });
-      },
-    }
-  );
+  await runSecretCommand(["list", "--ns", "demo space", "--worker", "api/slash", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return response({ keys: ["A", "B"] });
+    },
+  });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo%20space/worker/api%2Fslash/secrets");
@@ -774,14 +843,11 @@ test("secret list uses encoded namespace and worker path segments", async () => 
 test("secret list supports raw json output", async () => {
   /** @type {string[]} */
   const lines = [];
-  await runSecretCommand(
-    ["list", "--json", "--ns", "demo", "--scope", "ns", "--control-url", "http://ctl.test"],
-    {
-      env: { ADMIN_TOKEN: "tok" },
-      stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async () => response({ namespace: "demo", keys: ["A", "B"] }),
-    }
-  );
+  await runSecretCommand(["list", "--json", "--ns", "demo", "--scope", "ns", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async () => response({ namespace: "demo", keys: ["A", "B"] }),
+  });
 
   assert.deepEqual(lines, [JSON.stringify({ namespace: "demo", keys: ["A", "B"] }, null, 2)]);
 });
@@ -789,14 +855,11 @@ test("secret list supports raw json output", async () => {
 test("secret list tolerates a response without a keys array", async () => {
   /** @type {string[]} */
   const lines = [];
-  await runSecretCommand(
-    ["list", "--ns", "demo", "--scope", "ns", "--control-url", "http://ctl.test"],
-    {
-      env: { ADMIN_TOKEN: "tok" },
-      stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async () => response({ namespace: "demo" }),
-    }
-  );
+  await runSecretCommand(["list", "--ns", "demo", "--scope", "ns", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async () => response({ namespace: "demo" }),
+  });
   assert.deepEqual(lines, ["(no secrets)"]);
 });
 
@@ -805,18 +868,18 @@ test("secret put reads stdin, trims one newline, and encodes key", async () => {
   const calls = [];
   /** @type {string[]} */
   const lines = [];
-  await runSecretCommand(
-    ["put", "--ns", "demo", "--scope", "ns", "KEY/ONE", "--control-url", "http://ctl.test"],
-    {
-      env: { ADMIN_TOKEN: "tok", CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
-      stdin: stdinFrom("secret-value\n"),
-      stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({ deleted: false });
-      },
-    }
-  );
+  await runSecretCommand(["put", "--ns", "demo", "--scope", "ns", "KEY/ONE", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok", CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
+    stdin: stdinFrom("secret-value\n"),
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return response({ deleted: false });
+    },
+  });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/secrets/KEY%2FONE");
@@ -830,15 +893,12 @@ test("secret put escapes terminal controls from a raw keyArg in the status line"
   const esc = String.fromCharCode(27);
   /** @type {string[]} */
   const lines = [];
-  await runSecretCommand(
-    ["put", "--ns", "demo", "--scope", "ns", `KEY${esc}[2J`, "--control-url", "http://ctl.test"],
-    {
-      env: { ADMIN_TOKEN: "tok" },
-      stdin: stdinFrom("v\n"),
-      stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async () => response({ deleted: false }),
-    }
-  );
+  await runSecretCommand(["put", "--ns", "demo", "--scope", "ns", `KEY${esc}[2J`, "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdin: stdinFrom("v\n"),
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async () => response({ deleted: false }),
+  });
   assert.equal(lines.length, 1);
   assert.doesNotMatch(lines[0], new RegExp(esc), "raw ESC from keyArg must not reach stdout");
 });
@@ -849,19 +909,19 @@ test("secret put reads one tty line without waiting for EOF", async () => {
   /** @type {string[]} */
   const prompts = [];
   const stdin = ttyStdinLine("typed-value\n");
-  await runSecretCommand(
-    ["put", "--ns", "demo", "--scope", "ns", "KEY", "--control-url", "http://ctl.test"],
-    {
-      env: { ADMIN_TOKEN: "tok" },
-      stdin,
-      stdout: () => {},
-      stderr: (/** @type {string} */ text) => prompts.push(text),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({ deleted: false });
-      },
-    }
-  );
+  await runSecretCommand(["put", "--ns", "demo", "--scope", "ns", "KEY", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdin,
+    stdout: () => {},
+    stderr: (/** @type {string} */ text) => prompts.push(text),
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return response({ deleted: false });
+    },
+  });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].init.body, JSON.stringify({ value: "typed-value" }));
@@ -875,18 +935,18 @@ test("secret put reports worker version promotion", async () => {
   const calls = [];
   /** @type {string[]} */
   const lines = [];
-  await runSecretCommand(
-    ["put", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"],
-    {
-      env: { ADMIN_TOKEN: "tok" },
-      stdin: stdinFrom("secret-value\n"),
-      stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({ previousVersion: "v1", version: "v2" });
-      },
-    }
-  );
+  await runSecretCommand(["put", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdin: stdinFrom("secret-value\n"),
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return response({ previousVersion: "v1", version: "v2" });
+    },
+  });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/worker/api/secrets/KEY");
@@ -896,19 +956,21 @@ test("secret put reports worker version promotion", async () => {
 
 test("secret put explains env-budget failures as unwritten mutations", async () => {
   await assert.rejects(
-    () => runSecretCommand(
-      ["put", "--ns", "demo", "--scope", "ns", "KEY", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runSecretCommand(["put", "--ns", "demo", "--scope", "ns", "KEY", "--control-url", "http://ctl.test"], {
         env: { ADMIN_TOKEN: "tok" },
         stdin: stdinFrom("secret-value\n"),
-        controlFetch: async () => response({
-          error: "worker_env_too_large",
-          message: "env too large",
-          source_version: "v2",
-          estimated_version: "v9007199254740991",
-        }, 400),
-      }
-    ),
+        controlFetch: async () =>
+          response(
+            {
+              error: "worker_env_too_large",
+              message: "env too large",
+              source_version: "v2",
+              estimated_version: "v9007199254740991",
+            },
+            400
+          ),
+      }),
     (err) => {
       const message = /** @type {Error} */ (err).message;
       assert.match(message, /worker_env_too_large/);
@@ -923,16 +985,21 @@ test("secret put explains env-budget failures as unwritten mutations", async () 
 test("secret mutation errors explain retry and operator-repair cases", async () => {
   for (const error of ["secret_mutation_contention", "namespace_secret_mutation_contention"]) {
     await assert.rejects(
-      () => runSecretCommand(
-        ["delete", "--ns", "demo", "--worker", "api", "KEY", "--yes", "--control-url", "http://ctl.test"],
-        {
-          env: { ADMIN_TOKEN: "tok" },
-          controlFetch: async () => response({
-            error,
-            message: "active version changed",
-          }, 503),
-        }
-      ),
+      () =>
+        runSecretCommand(
+          ["delete", "--ns", "demo", "--worker", "api", "KEY", "--yes", "--control-url", "http://ctl.test"],
+          {
+            env: { ADMIN_TOKEN: "tok" },
+            controlFetch: async () =>
+              response(
+                {
+                  error,
+                  message: "active version changed",
+                },
+                503
+              ),
+          }
+        ),
       /Retry after concurrent worker metadata updates settle/
     );
   }
@@ -945,16 +1012,21 @@ test("secret mutation errors explain retry and operator-repair cases", async () 
     "unknown_kid",
   ]) {
     await assert.rejects(
-      () => runSecretCommand(
-        ["delete", "--ns", "demo", "--scope", "ns", "KEY", "--yes", "--control-url", "http://ctl.test"],
-        {
-          env: { ADMIN_TOKEN: "tok" },
-          controlFetch: async () => response({
-            error,
-            message: "bad envelope",
-          }, 503),
-        }
-      ),
+      () =>
+        runSecretCommand(
+          ["delete", "--ns", "demo", "--scope", "ns", "KEY", "--yes", "--control-url", "http://ctl.test"],
+          {
+            env: { ADMIN_TOKEN: "tok" },
+            controlFetch: async () =>
+              response(
+                {
+                  error,
+                  message: "bad envelope",
+                },
+                503
+              ),
+          }
+        ),
       /Secret-envelope configuration or stored secret data needs operator repair/
     );
   }
@@ -971,7 +1043,10 @@ test("secret put and delete support raw json output", async () => {
       env: { ADMIN_TOKEN: "tok" },
       stdin: stdinFrom("secret-value\n"),
       stdout: (/** @type {string} */ line) => putLines.push(line),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+      controlFetch: async (
+        /** @type {string} */ url,
+        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+      ) => {
         calls.push({ url, init });
         return response({ previousVersion: "v1", version: "v2" });
       },
@@ -986,7 +1061,10 @@ test("secret put and delete support raw json output", async () => {
     {
       env: { ADMIN_TOKEN: "tok" },
       stdout: (/** @type {string} */ line) => deleteLines.push(line),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+      controlFetch: async (
+        /** @type {string} */ url,
+        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+      ) => {
         calls.push({ url, init });
         return response({ deleted: true, previousVersion: "v2", version: "v3" });
       },
@@ -999,13 +1077,17 @@ test("secret list refuses ambiguous scope before calling control", async () => {
   /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
-    () => runSecretCommand(["list", "--ns", "demo", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({});
-      },
-    }),
+    () =>
+      runSecretCommand(["list", "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        controlFetch: async (
+          /** @type {string} */ url,
+          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+        ) => {
+          calls.push({ url, init });
+          return response({});
+        },
+      }),
     /must specify either --worker <name> \(worker-level\) or --scope ns \(ns-level\)/
   );
 
@@ -1039,7 +1121,10 @@ test("secret delete calls worker endpoint and reports promoted bump", async () =
     {
       env: { ADMIN_TOKEN: "tok" },
       stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+      controlFetch: async (
+        /** @type {string} */ url,
+        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+      ) => {
         calls.push({ url, init });
         return response({ deleted: true, previousVersion: "v1", version: "v2" });
       },
@@ -1056,14 +1141,18 @@ test("secret delete requires confirmation unless --yes is used", async () => {
   /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
-    () => runSecretCommand(["delete", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
-      stdin: stdinFrom(""),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({});
-      },
-    }),
+    () =>
+      runSecretCommand(["delete", "--ns", "demo", "--worker", "api", "KEY", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdin: stdinFrom(""),
+        controlFetch: async (
+          /** @type {string} */ url,
+          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+        ) => {
+          calls.push({ url, init });
+          return response({});
+        },
+      }),
     /Refusing to delete secret "demo\/api\/KEY" without interactive confirmation/
   );
   assert.equal(calls.length, 0);
@@ -1081,7 +1170,10 @@ test("secret delete proceeds after interactive confirmation", async () => {
     stdin,
     stderr: (/** @type {string} */ text) => prompts.push(text),
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       calls.push({ url, init });
       return response({ deleted: true });
     },
@@ -1101,35 +1193,32 @@ test("secret delete ignores obsolete deferred-promote warnings", async () => {
     {
       env: { ADMIN_TOKEN: "tok" },
       stdout: (/** @type {string} */ line) => lines.push(line),
-      controlFetch: async () => response({
-        deleted: false,
-        warnings: [
-          { kind: "promote_failed", reason: "active version changed", nextPickup: "next deploy" },
-        ],
-      }),
+      controlFetch: async () =>
+        response({
+          deleted: false,
+          warnings: [{ kind: "promote_failed", reason: "active version changed", nextPickup: "next deploy" }],
+        }),
     }
   );
 
-  assert.deepEqual(lines, [
-    "(KEY was not set)",
-  ]);
+  assert.deepEqual(lines, ["(KEY was not set)"]);
 });
 
 test("secret put rejects an unexpected VALUE positional before reading stdin", async () => {
   let read = false;
   await assert.rejects(
-    () => runSecretCommand(
-      ["put", "--ns", "demo", "--scope", "ns", "KEY", "VALUE", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runSecretCommand(["put", "--ns", "demo", "--scope", "ns", "KEY", "VALUE", "--control-url", "http://ctl.test"], {
         env: { ADMIN_TOKEN: "tok" },
         stdin: Object.assign(new EventEmitter(), {
-          setEncoding() { read = true; },
+          setEncoding() {
+            read = true;
+          },
         }),
         controlFetch: async () => {
           throw new Error("controlFetch should not be called");
         },
-      }
-    ),
+      }),
     /secret put received unexpected argument: VALUE/
   );
   assert.equal(read, false);
@@ -1152,10 +1241,18 @@ test("r2 buckets and objects commands call encoded control endpoints", async () 
     env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
     stdout: (/** @type {string} */ line) => lines.push(line),
     stdoutStream,
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       calls.push({ url, init });
       if (init.method === "DELETE") {
-        return response({ namespace: "demo space", bucket: "uploads", key: "dir/file.txt", status: "ok" });
+        return response({
+          namespace: "demo space",
+          bucket: "uploads",
+          key: "dir/file.txt",
+          status: "ok",
+        });
       }
       if (init.method === "HEAD") {
         return {
@@ -1186,7 +1283,11 @@ test("r2 buckets and objects commands call encoded control endpoints", async () 
         };
       }
       if (url.endsWith("/r2/buckets?limit=5")) {
-        return response({ namespace: "demo space", buckets: [{ name: "uploads" }], truncated: false });
+        return response({
+          namespace: "demo space",
+          buckets: [{ name: "uploads" }],
+          truncated: false,
+        });
       }
       return response({
         namespace: "demo space",
@@ -1222,7 +1323,10 @@ test("r2 buckets and objects commands call encoded control endpoints", async () 
   ]);
   assert.ok(lines.includes("R2 object demo space/uploads/dir/file.txt:"));
   assert.ok(lines.includes("  customMetadata.source: unit"));
-  assert.ok(lines.includes("  customMetadata.__proto__: pwned"), "a control-supplied __proto__ metadata key is not dropped");
+  assert.ok(
+    lines.includes("  customMetadata.__proto__: pwned"),
+    "a control-supplied __proto__ metadata key is not dropped"
+  );
   assert.equal(lines.at(-1), "OK demo space/uploads/dir/file.txt deleted");
 });
 
@@ -1244,7 +1348,10 @@ test("r2 object head --json keeps a __proto__ metadata key and drops a bare x-am
       text: async () => "",
     }),
   };
-  await runR2Command(["objects", "head", "--ns", "demo", "uploads", "k", "--json", "--control-url", "http://ctl.test"], deps);
+  await runR2Command(
+    ["objects", "head", "--ns", "demo", "uploads", "k", "--json", "--control-url", "http://ctl.test"],
+    deps
+  );
   const meta = JSON.parse(/** @type {string} */ (lines.find((l) => l.trim().startsWith("{")))).customMetadata;
   // JSON.parse re-materializes __proto__ as an own data property, so read the
   // descriptor — `meta.__proto__` would go through the prototype accessor instead.
@@ -1268,11 +1375,16 @@ test("r2 list --limit is validated locally", async () => {
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/r2/buckets?limit=1000");
 
   await assert.rejects(
-    () => runR2Command(["buckets", "list", "--ns", "demo", "--limit", "1001", "--control-url", "http://ctl.test"], deps),
+    () =>
+      runR2Command(["buckets", "list", "--ns", "demo", "--limit", "1001", "--control-url", "http://ctl.test"], deps),
     /--limit must be an integer/
   );
   await assert.rejects(
-    () => runR2Command(["objects", "list", "--ns", "demo", "uploads", "--limit", "1.5", "--control-url", "http://ctl.test"], deps),
+    () =>
+      runR2Command(
+        ["objects", "list", "--ns", "demo", "uploads", "--limit", "1.5", "--control-url", "http://ctl.test"],
+        deps
+      ),
     /--limit must be an integer/
   );
   assert.equal(calls.length, 1);
@@ -1319,13 +1431,14 @@ test("r2 object get refuses raw output to an interactive terminal", async () => 
     },
   });
   await assert.rejects(
-    () => runR2Command(["objects", "get", "--ns", "demo", "uploads", "file.txt"], {
-      env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
-      stdoutStream,
-      controlFetch: async () => {
-        throw new Error("controlFetch should not be called");
-      },
-    }),
+    () =>
+      runR2Command(["objects", "get", "--ns", "demo", "uploads", "file.txt"], {
+        env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
+        stdoutStream,
+        controlFetch: async () => {
+          throw new Error("controlFetch should not be called");
+        },
+      }),
     /refuses to write raw object bytes to an interactive terminal/
   );
 });
@@ -1336,7 +1449,7 @@ test("r2 object get --out escapes a control-char path in the success line", asyn
     const esc = String.fromCharCode(27);
     const outPath = path.join(dir, `file${esc}[2J.bin`);
     /** @type {string[]} */
-  const lines = [];
+    const lines = [];
     await runR2Command(
       ["objects", "get", "--ns", "demo", "uploads", "file.txt", "--out", outPath, "--control-url", "http://ctl.test"],
       {
@@ -1387,7 +1500,10 @@ test("r2 object key preserves empty path segments but rejects dot segments", asy
   const deps = {
     env: { ADMIN_TOKEN: "tok" },
     stdout: () => {},
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       calls.push({ url, init });
       return {
         status: 200,
@@ -1406,11 +1522,12 @@ test("r2 object key preserves empty path segments but rejects dot segments", asy
   assert.equal(calls[2].url, "http://ctl.test/ns/demo/r2/buckets/bkt/objects/a/");
 
   await assert.rejects(
-    () => runR2Command(["objects", "get", "bkt", "a/./b", "--ns", "demo", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
-      stdout: () => {},
-      controlFetch: async () => response({}),
-    }),
+    () =>
+      runR2Command(["objects", "get", "bkt", "a/./b", "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        controlFetch: async () => response({}),
+      }),
     /must not contain \. or \.\. path segments/
   );
 });
@@ -1439,30 +1556,37 @@ test("r2 commands reject unexpected positional arguments", async () => {
 test("r2 streaming commands format JSON control errors", async () => {
   const deps = {
     env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
-    controlFetch: async () => response({
-      error: "r2_object_not_found",
-      message: "R2 object not found",
-    }, 404),
+    controlFetch: async () =>
+      response(
+        {
+          error: "r2_object_not_found",
+          message: "R2 object not found",
+        },
+        404
+      ),
   };
 
-  await assert.rejects(
-    () => runR2Command(["objects", "get", "--ns", "demo", "uploads", "missing.txt"], deps),
-    { message: "get R2 object failed: 404 r2_object_not_found: R2 object not found" }
-  );
+  await assert.rejects(() => runR2Command(["objects", "get", "--ns", "demo", "uploads", "missing.txt"], deps), {
+    message: "get R2 object failed: 404 r2_object_not_found: R2 object not found",
+  });
 });
 
 test("r2 object delete requires confirmation unless --yes is used", async () => {
   /** @type {ControlCall[]} */
   const calls = [];
   await assert.rejects(
-    () => runR2Command(["objects", "delete", "--ns", "demo", "uploads", "a.txt", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
-      stdin: stdinFrom(""),
-      controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
-        calls.push({ url, init });
-        return response({});
-      },
-    }),
+    () =>
+      runR2Command(["objects", "delete", "--ns", "demo", "uploads", "a.txt", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdin: stdinFrom(""),
+        controlFetch: async (
+          /** @type {string} */ url,
+          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+        ) => {
+          calls.push({ url, init });
+          return response({});
+        },
+      }),
     /Refusing to delete R2 object "demo\/uploads\/a.txt" without interactive confirmation/
   );
   assert.equal(calls.length, 0);
@@ -1476,7 +1600,10 @@ test("workflows commands call encoded control endpoints", async () => {
   const deps = {
     env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
     stdout: (/** @type {string} */ line) => lines.push(line),
-    controlFetch: async (/** @type {string} */ url, /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}) => {
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
       calls.push({ url, init });
       if (url.endsWith("/workflows")) {
         return response({
@@ -1517,8 +1644,14 @@ test("workflows commands call encoded control endpoints", async () => {
   };
 
   await runWorkflowsCommand(["list", "--ns", "demo space"], deps);
-  await runWorkflowsCommand(["instances", "--ns", "demo space", "api", "orders", "--limit", "5", "--cursor", "0"], deps);
-  await runWorkflowsCommand(["status", "--ns", "demo space", "api", "orders", "status-instance", "--include-steps", "--step-limit", "10"], deps);
+  await runWorkflowsCommand(
+    ["instances", "--ns", "demo space", "api", "orders", "--limit", "5", "--cursor", "0"],
+    deps
+  );
+  await runWorkflowsCommand(
+    ["status", "--ns", "demo space", "api", "orders", "status-instance", "--include-steps", "--step-limit", "10"],
+    deps
+  );
   await runWorkflowsCommand(["pause", "--ns", "demo space", "api", "orders", "order/1"], deps);
   await runWorkflowsCommand(["resume", "--ns", "demo space", "api", "orders", "order/1"], deps);
   await runWorkflowsCommand(["restart", "--ns", "demo space", "api", "orders", "order/1", "--yes"], deps);
@@ -1526,7 +1659,10 @@ test("workflows commands call encoded control endpoints", async () => {
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo%20space/workflows");
   assert.equal(calls[1].url, "http://ctl.test/ns/demo%20space/workflows/api/orders/instances?limit=5&cursor=0");
-  assert.equal(calls[2].url, "http://ctl.test/ns/demo%20space/workflows/api/orders/instances/status-instance?includeSteps=true&stepLimit=10");
+  assert.equal(
+    calls[2].url,
+    "http://ctl.test/ns/demo%20space/workflows/api/orders/instances/status-instance?includeSteps=true&stepLimit=10"
+  );
   assert.equal(calls[3].url, "http://ctl.test/ns/demo%20space/workflows/api/orders/instances/order%2F1/pause");
   assert.equal(calls[3].init.method, "POST");
   assert.equal(calls[4].url, "http://ctl.test/ns/demo%20space/workflows/api/orders/instances/order%2F1/resume");
@@ -1547,15 +1683,17 @@ test("workflow formatters escape control fields but preserve their own layout", 
   const hostile = `${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`;
   const lines = [
     ...formatWorkflowList({
-      workflows: [{
-        worker: hostile,
-        name: hostile,
-        binding: hostile,
-        className: hostile,
-        activeVersion: hostile,
-        workflowKey: hostile,
-        retired: true,
-      }],
+      workflows: [
+        {
+          worker: hostile,
+          name: hostile,
+          binding: hostile,
+          className: hostile,
+          activeVersion: hostile,
+          workflowKey: hostile,
+          retired: true,
+        },
+      ],
     }),
     ...formatInstanceList({
       instances: [{ id: hostile, status: hostile }],
@@ -1575,11 +1713,7 @@ test("workflow formatters escape control fields but preserve their own layout", 
 
   assertNoRawTerminalControls(out, "workflow formatter output");
   assert.ok(out.includes("\\u001b[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b"));
-  assert.equal(
-    out.split("\t").length - 1,
-    7,
-    "only formatter-owned column separators may remain as raw tabs"
-  );
+  assert.equal(out.split("\t").length - 1, 7, "only formatter-owned column separators may remain as raw tabs");
 });
 
 test("workflow lifecycle status lines escape control fields and preserve JSON", async () => {
@@ -1587,16 +1721,10 @@ test("workflow lifecycle status lines escape control fields and preserve JSON", 
   const body = { id: `id-${hostile}`, status: `status-${hostile}` };
   const human = mockDeps(body);
 
-  await runWorkflowsCommand([
-    "pause",
-    "api",
-    "orders",
-    "instance",
-    "--ns",
-    "demo",
-    "--control-url",
-    "http://ctl.test",
-  ], human.deps);
+  await runWorkflowsCommand(
+    ["pause", "api", "orders", "instance", "--ns", "demo", "--control-url", "http://ctl.test"],
+    human.deps
+  );
 
   assert.equal(human.lines.length, 1);
   assertNoRawTerminalControls(human.lines[0], "workflow lifecycle status");
@@ -1604,17 +1732,10 @@ test("workflow lifecycle status lines escape control fields and preserve JSON", 
   assert.equal(human.lines[0].includes("\t"), false, "status lines must not preserve raw tabs");
 
   const json = mockDeps(body);
-  await runWorkflowsCommand([
-    "pause",
-    "api",
-    "orders",
-    "instance",
-    "--ns",
-    "demo",
-    "--control-url",
-    "http://ctl.test",
-    "--json",
-  ], json.deps);
+  await runWorkflowsCommand(
+    ["pause", "api", "orders", "instance", "--ns", "demo", "--control-url", "http://ctl.test", "--json"],
+    json.deps
+  );
   assert.deepEqual(JSON.parse(json.lines[0]), body);
 });
 
@@ -1675,11 +1796,16 @@ test("wdl dispatcher routes documented commands and rejects unknown commands", a
     assert.ok(/** @type {string} */ (seen.at(-1)).includes("wdl <command> [args] [options]"));
     // Top-level help must list the common control flags too, matching command
     // help — --no-token-store was missing here once.
-    assert.ok(/** @type {string} */ (seen.at(-1)).includes("--no-token-store"), "top-level help lists --no-token-store");
+    assert.ok(
+      /** @type {string} */ (seen.at(-1)).includes("--no-token-store"),
+      "top-level help lists --no-token-store"
+    );
     // The command table is derived from each command's { name, summary }; assert
     // the metadata content renders (and the alias note) without pinning column spacing.
     assert.ok(/** @type {string} */ (seen.at(-1)).includes("Manage D1 databases, SQL execution, and migrations."));
-    assert.ok(/** @type {string} */ (seen.at(-1)).includes("Manage namespace-level or worker-level secrets. (alias: secrets)"));
+    assert.ok(
+      /** @type {string} */ (seen.at(-1)).includes("Manage namespace-level or worker-level secrets. (alias: secrets)")
+    );
     assert.ok(/** @type {string} */ (seen.at(-1)).includes("Inspect and delete R2 virtual bucket data."));
     assert.ok(/** @type {string} */ (seen.at(-1)).includes("Live-tail worker console output and uncaught exceptions."));
     // workflows is the widest name, so its summary sits one space after it.
@@ -1761,10 +1887,19 @@ test("wdl dispatcher loads base dotenv before namespace section overlay", async 
   // dispatch harmless without needing a control-plane mock.
   await withMockedExit(async () => {
     await assert.rejects(
-      () => wdlMain(["secret", "--ns", "demo"], {
-        env: {},
-        loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
-      }),
+      () =>
+        wdlMain(["secret", "--ns", "demo"], {
+          env: {},
+          loadEnv: /** @type {LoadEnvFn} */ (
+            /** @type {unknown} */ (
+              (
+                /** @type {NodeJS.ProcessEnv | undefined} */ _env,
+                /** @type {string | undefined} */ _path,
+                /** @type {LoadEnvOptions} */ options
+              ) => calls.push(options)
+            )
+          ),
+        }),
       /exit:1/
     );
   });
@@ -1785,10 +1920,19 @@ test("wdl dispatcher overlays the LAST --ns occurrence, matching parseArgs", asy
   const calls = [];
   await withMockedExit(async () => {
     await assert.rejects(
-      () => wdlMain(["secret", "--ns", "first", "--ns=last"], {
-        env: {},
-        loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
-      }),
+      () =>
+        wdlMain(["secret", "--ns", "first", "--ns=last"], {
+          env: {},
+          loadEnv: /** @type {LoadEnvFn} */ (
+            /** @type {unknown} */ (
+              (
+                /** @type {NodeJS.ProcessEnv | undefined} */ _env,
+                /** @type {string | undefined} */ _path,
+                /** @type {LoadEnvOptions} */ options
+              ) => calls.push(options)
+            )
+          ),
+        }),
       /exit:1/
     );
   });
@@ -1805,17 +1949,41 @@ test("wdl dispatcher skips dotenv when help is requested", async () => {
   try {
     await wdlMain(["workers", "--ns", "demo", "--help"], {
       env: {},
-      loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
+      loadEnv: /** @type {LoadEnvFn} */ (
+        /** @type {unknown} */ (
+          (
+            /** @type {NodeJS.ProcessEnv | undefined} */ _env,
+            /** @type {string | undefined} */ _path,
+            /** @type {LoadEnvOptions} */ options
+          ) => calls.push(options)
+        )
+      ),
     });
     // The positional alias form must skip autoload too — including with
     // flags present — so a broken .env cannot block `wdl <command> help`.
     await wdlMain(["workers", "help"], {
       env: {},
-      loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
+      loadEnv: /** @type {LoadEnvFn} */ (
+        /** @type {unknown} */ (
+          (
+            /** @type {NodeJS.ProcessEnv | undefined} */ _env,
+            /** @type {string | undefined} */ _path,
+            /** @type {LoadEnvOptions} */ options
+          ) => calls.push(options)
+        )
+      ),
     });
     await wdlMain(["workers", "--ns", "demo", "help"], {
       env: {},
-      loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ ((/** @type {NodeJS.ProcessEnv | undefined} */ _env, /** @type {string | undefined} */ _path, /** @type {LoadEnvOptions} */ options) => calls.push(options))),
+      loadEnv: /** @type {LoadEnvFn} */ (
+        /** @type {unknown} */ (
+          (
+            /** @type {NodeJS.ProcessEnv | undefined} */ _env,
+            /** @type {string | undefined} */ _path,
+            /** @type {LoadEnvOptions} */ options
+          ) => calls.push(options)
+        )
+      ),
     });
   } finally {
     console.log = oldLog;
@@ -1860,15 +2028,24 @@ test("wdl dispatcher skips dotenv for top-level help and unknown commands", asyn
 
   try {
     await assert.rejects(
-      () => wdlMain(["help"], { loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("help"))) }),
+      () =>
+        wdlMain(["help"], {
+          loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("help"))),
+        }),
       /exit:0/
     );
     await assert.rejects(
-      () => wdlMain(["bogus"], { loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("bogus"))) }),
+      () =>
+        wdlMain(["bogus"], {
+          loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("bogus"))),
+        }),
       /exit:1/
     );
     await assert.rejects(
-      () => wdlMain([`bad${ESC}[2J\nFORGED\rBAD`], { loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("bad"))) }),
+      () =>
+        wdlMain([`bad${ESC}[2J\nFORGED\rBAD`], {
+          loadEnv: /** @type {LoadEnvFn} */ (/** @type {unknown} */ (() => calls.push("bad"))),
+        }),
       /exit:1/
     );
     assert.deepEqual(calls, []);
@@ -1896,10 +2073,7 @@ test("wdl dispatcher prints parseArgs errors without a Node stack", async () => 
   console.error = (msg) => errors.push(String(msg));
 
   try {
-    await assert.rejects(
-      () => wdlMain(["tail", `--dsf${ESC}[2J\nFORGED\rBAD`], { loadEnv: null }),
-      /exit:1/
-    );
+    await assert.rejects(() => wdlMain(["tail", `--dsf${ESC}[2J\nFORGED\rBAD`], { loadEnv: null }), /exit:1/);
   } finally {
     process.exit = oldExit;
     console.error = oldError;
@@ -1916,14 +2090,14 @@ test("SseParser dispatches event/id/data on blank line per SSE rules", () => {
   const events = [];
   const parser = new SseParser((event) => events.push(event));
 
-  parser.push("event: worker_console\nid: 1700000000000-0\ndata: {\"a\":");
+  parser.push('event: worker_console\nid: 1700000000000-0\ndata: {"a":');
   parser.push("1}\n");
-  parser.push("data: \"trailing\"\n\n");
+  parser.push('data: "trailing"\n\n');
   parser.push(":hb\n\n");
   parser.push("data: hello\n\n");
 
   assert.deepEqual(events, [
-    { event: "worker_console", id: "1700000000000-0", data: "{\"a\":1}\n\"trailing\"" },
+    { event: "worker_console", id: "1700000000000-0", data: '{"a":1}\n"trailing"' },
     { event: "message", id: "1700000000000-0", data: "hello" },
   ]);
 });
@@ -1968,25 +2142,27 @@ test("wdl tail rejects errors raised while flushing a trailing SSE event", async
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
-        stdout: () => { throw new CliError("stdout stop"); },
+        stdout: () => {
+          throw new CliError("stdout stop");
+        },
         stderr: () => {},
         transport: fakeTransport,
-      }
-    ),
+      }),
     { message: "stdout stop" }
   );
 });
 
 test("wdl tail rejects --since for multi-worker sessions", async () => {
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "bar", "--since", "1-0", "--ns", "demo", "--token", "t"],
-      { env: {}, stdout: () => {}, stderr: () => {} }
-    ),
+    () =>
+      runTailCommand(["foo", "bar", "--since", "1-0", "--ns", "demo", "--token", "t"], {
+        env: {},
+        stdout: () => {},
+        stderr: () => {},
+      }),
     /single-worker/i
   );
 });
@@ -1994,11 +2170,11 @@ test("wdl tail rejects --since for multi-worker sessions", async () => {
 test("wdl tail rejects invalid max-reconnects input", async () => {
   const bad = `forever${ESC}[2J\nFORGED\rBAD\u009b`;
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--max-reconnects", bad, "--ns", "demo", "--token", "t",
-       "--control-url", "http://ctl.test"],
-      { env: {}, stdout: () => {}, stderr: () => {} }
-    ),
+    () =>
+      runTailCommand(
+        ["foo", "--max-reconnects", bad, "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
+        { env: {}, stdout: () => {}, stderr: () => {} }
+      ),
     (err) => {
       const message = /** @type {Error} */ (err).message;
       assert.match(message, /--max-reconnects must be a non-negative integer/);
@@ -2011,10 +2187,12 @@ test("wdl tail rejects invalid max-reconnects input", async () => {
 
 test("wdl tail requires at least one positional worker", async () => {
   await assert.rejects(
-    () => runTailCommand(
-      ["--ns", "demo", "--token", "t"],
-      { env: {}, stdout: () => {}, stderr: () => {} }
-    ),
+    () =>
+      runTailCommand(["--ns", "demo", "--token", "t"], {
+        env: {},
+        stdout: () => {},
+        stderr: () => {},
+      }),
     /Specify one or more worker names/
   );
 });
@@ -2022,14 +2200,11 @@ test("wdl tail requires at least one positional worker", async () => {
 test("wdl tail help short-circuits before max-reconnects validation", async () => {
   /** @type {string[]} */
   const stdoutLines = [];
-  await runTailCommand(
-    ["--help", "--max-reconnects", "forever"],
-    {
-      env: {},
-      stdout: (/** @type {string} */ line) => stdoutLines.push(line),
-      stderr: () => {},
-    }
-  );
+  await runTailCommand(["--help", "--max-reconnects", "forever"], {
+    env: {},
+    stdout: (/** @type {string} */ line) => stdoutLines.push(line),
+    stderr: () => {},
+  });
 
   assert.ok(stdoutLines.some((line) => /--max-reconnects/.test(line)));
 });
@@ -2045,9 +2220,14 @@ test("wdl tail escapes control error details", async () => {
       setImmediate(() => {
         const res = Object.assign(fakeHttpRes(), { statusCode: 500 });
         cb(res);
-        res.emit("data", Buffer.from(JSON.stringify({
-          message: "bad\u001b[31m\nline",
-        })));
+        res.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              message: "bad\u001b[31m\nline",
+            })
+          )
+        );
         res.emit("end");
       });
       return req;
@@ -2055,15 +2235,13 @@ test("wdl tail escapes control error details", async () => {
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: () => {},
         transport: fakeTransport,
-      }
-    ),
+      }),
     { message: "bad\\u001b[31m\\nline" }
   );
 });
@@ -2071,21 +2249,25 @@ test("wdl tail escapes control error details", async () => {
 /** @returns {import("../../lib/control-fetch.js").ControlClientRequest} */
 function fakeHttpReq() {
   return /** @type {import("../../lib/control-fetch.js").ControlClientRequest} */ (
-    /** @type {unknown} */ (Object.assign(new EventEmitter(), {
-      end() {},
-      destroy() {},
-    }))
+    /** @type {unknown} */ (
+      Object.assign(new EventEmitter(), {
+        end() {},
+        destroy() {},
+      })
+    )
   );
 }
 
 /** @returns {import("node:http").IncomingMessage} */
 function fakeHttpRes() {
   return /** @type {import("node:http").IncomingMessage} */ (
-    /** @type {unknown} */ (Object.assign(new EventEmitter(), {
-      statusCode: 200,
-      headers: {},
-      setEncoding() {},
-    }))
+    /** @type {unknown} */ (
+      Object.assign(new EventEmitter(), {
+        statusCode: 200,
+        headers: {},
+        setEncoding() {},
+      })
+    )
   );
 }
 
@@ -2142,21 +2324,22 @@ test("wdl tail renders fetch, scheduled, and queue invocation events", async () 
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: (/** @type {string} */ line) => stdoutLines.push(line),
         stderr: () => {},
         transport: fakeTransport,
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
   assert.match(stdoutLines[0], /scheduled start cron="\*\/5 \* \* \* \*" scheduled_time=123/);
   assert.match(stdoutLines[1], /queue finish name=jobs batch_size=3 outcome=ok duration_ms=7/);
-  assert.match(stdoutLines[2], /fetch finish method=GET path="\/foo\/api\/inspections" \(truncated\) status=204 outcome=ok duration_ms=4/);
+  assert.match(
+    stdoutLines[2],
+    /fetch finish method=GET path="\/foo\/api\/inspections" \(truncated\) status=204 outcome=ok duration_ms=4/
+  );
   assert.ok(!stdoutLines.some((line) => line.includes('{"event"')));
 });
 
@@ -2189,8 +2372,10 @@ test("wdl tail escapes terminal control sequences in rendered events", async () 
             stack: "Error: boom\n    at fetch (\u001b[2Jworker.js:1)",
             ts: 2,
           });
-          res.emit("data", `event: worker_console\ndata: ${consoleEvent}\n\n` +
-            `event: worker_exception\ndata: ${exceptionEvent}\n\n`);
+          res.emit(
+            "data",
+            `event: worker_console\ndata: ${consoleEvent}\n\n` + `event: worker_exception\ndata: ${exceptionEvent}\n\n`
+          );
         }
         res.emit("error", new CliError("test stop"));
       });
@@ -2199,16 +2384,14 @@ test("wdl tail escapes terminal control sequences in rendered events", async () 
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: (/** @type {string} */ line) => stdoutLines.push(line),
         stderr: () => {},
         transport: fakeTransport,
         sleepFn: async () => {},
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2240,9 +2423,8 @@ test("wdl tail accepts bare CONTROL_URL hosts by defaulting to https", async () 
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["kv-demo"],
-      {
+    () =>
+      runTailCommand(["kv-demo"], {
         env: {
           ADMIN_TOKEN: "tok",
           CONTROL_URL: "ctl.uat.example",
@@ -2251,14 +2433,16 @@ test("wdl tail accepts bare CONTROL_URL hosts by defaulting to https", async () 
         stdout: () => {},
         stderr: () => {},
         transport: fakeTransport,
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
   assert.equal(requestsSeen[0].host, "ctl.uat.example");
   assert.equal(requestsSeen[0].port, 443);
-  assert.equal(/** @type {import("node:http").OutgoingHttpHeaders} */ (requestsSeen[0].headers).Host, "ctl.uat.example");
+  assert.equal(
+    /** @type {import("node:http").OutgoingHttpHeaders} */ (requestsSeen[0].headers).Host,
+    "ctl.uat.example"
+  );
   assert.equal(requestsSeen[0].path, "/ns/demo/logs/tail?worker=kv-demo");
 });
 
@@ -2283,9 +2467,8 @@ test("wdl tail uses effective CONTROL_CONNECT_HOST for SSE sockets", async () =>
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["kv-demo"],
-      {
+    () =>
+      runTailCommand(["kv-demo"], {
         env: {
           ADMIN_TOKEN: "tok",
           CONTROL_URL: "http://admin.test:8080",
@@ -2295,14 +2478,16 @@ test("wdl tail uses effective CONTROL_CONNECT_HOST for SSE sockets", async () =>
         stdout: () => {},
         stderr: () => {},
         transport: fakeTransport,
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
   assert.equal(requestsSeen[0].host, "127.0.0.1");
   assert.equal(requestsSeen[0].port, 18080);
-  assert.equal(/** @type {import("node:http").OutgoingHttpHeaders} */ (requestsSeen[0].headers).Host, "admin.test:8080");
+  assert.equal(
+    /** @type {import("node:http").OutgoingHttpHeaders} */ (requestsSeen[0].headers).Host,
+    "admin.test:8080"
+  );
   assert.equal(requestsSeen[0].path, "/ns/demo/logs/tail?worker=kv-demo");
 });
 
@@ -2320,9 +2505,8 @@ test("wdl tail rejects invalid auth headers before opening an SSE request", asyn
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "tok\nnext", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "tok\nnext", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: () => {},
@@ -2330,10 +2514,9 @@ test("wdl tail rejects invalid auth headers before opening an SSE request", asyn
         sleepFn: async () => {
           throw new Error("tail should not enter the reconnect loop");
         },
-      }
-    ),
-    (err) => err instanceof CliError &&
-      err.message.includes('control request failed: invalid HTTP header "x-admin-token"')
+      }),
+    (err) =>
+      err instanceof CliError && err.message.includes('control request failed: invalid HTTP header "x-admin-token"')
   );
   assert.equal(opened, false);
 });
@@ -2351,35 +2534,33 @@ test("wdl tail abort destroys the SSE request with a tolerated abort error", asy
       requestCount += 1;
       const emitter = new EventEmitter();
       const req = /** @type {import("../../lib/control-fetch.js").ControlClientRequest} */ (
-        /** @type {unknown} */ (Object.assign(emitter, {
-          end() {},
-          /** @param {Error & { code?: string }} [err] */
-          destroy(err) {
-            if (err) destroyedWith.push(err);
-            setImmediate(() => emitter.emit(
-              "error",
-              err || Object.assign(new Error("socket closed"), { code: "ECONNRESET" }),
-            ));
-          },
-        }))
+        /** @type {unknown} */ (
+          Object.assign(emitter, {
+            end() {},
+            /** @param {Error & { code?: string }} [err] */
+            destroy(err) {
+              if (err) destroyedWith.push(err);
+              setImmediate(() =>
+                emitter.emit("error", err || Object.assign(new Error("socket closed"), { code: "ECONNRESET" }))
+              );
+            },
+          })
+        )
       );
       setImmediate(() => process.emit("SIGINT"));
       return req;
     },
   };
 
-  await runTailCommand(
-    ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-    {
-      env: {},
-      stdout: () => {},
-      stderr: () => {},
-      transport: fakeTransport,
-      sleepFn: async () => {
-        throw new Error("tail should not reconnect after abort");
-      },
-    }
-  );
+  await runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
+    env: {},
+    stdout: () => {},
+    stderr: () => {},
+    transport: fakeTransport,
+    sleepFn: async () => {
+      throw new Error("tail should not reconnect after abort");
+    },
+  });
 
   assert.equal(requestCount, 1);
   assert.equal(destroyedWith.length, 1);
@@ -2396,7 +2577,10 @@ test("wdl tail sends --since on the initial URL, not duplicated as Last-Event-ID
      * @param {(res: import("node:http").IncomingMessage) => void} cb
      */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
+      requestsSeen.push({
+        path: opts.path,
+        headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) },
+      });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
@@ -2408,16 +2592,13 @@ test("wdl tail sends --since on the initial URL, not duplicated as Last-Event-ID
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--since", "100-0", "--ns", "demo", "--token", "t",
-       "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--since", "100-0", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: () => {},
         transport: fakeTransport,
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2434,7 +2615,10 @@ test("wdl tail keeps --since on reconnect until the server provides an event id"
      * @param {(res: import("node:http").IncomingMessage) => void} cb
      */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
+      requestsSeen.push({
+        path: opts.path,
+        headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) },
+      });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
@@ -2450,17 +2634,14 @@ test("wdl tail keeps --since on reconnect until the server provides an event id"
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--since", "100-0", "--ns", "demo", "--token", "t",
-       "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--since", "100-0", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: () => {},
         transport: fakeTransport,
         sleepFn: async () => {},
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2478,18 +2659,24 @@ test("wdl tail switches from --since to Last-Event-ID after receiving an event i
      * @param {(res: import("node:http").IncomingMessage) => void} cb
      */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
+      requestsSeen.push({
+        path: opts.path,
+        headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) },
+      });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
         cb(res);
         if (requestsSeen.length === 1) {
-          res.emit("data", `id: 101-0\nevent: worker_console\ndata: ${JSON.stringify({
-            event: "worker_console",
-            console_level: "log",
-            message: "hello",
-            ts: 1,
-          })}\n\n`);
+          res.emit(
+            "data",
+            `id: 101-0\nevent: worker_console\ndata: ${JSON.stringify({
+              event: "worker_console",
+              console_level: "log",
+              message: "hello",
+              ts: 1,
+            })}\n\n`
+          );
           res.emit("error", Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }));
           return;
         }
@@ -2500,17 +2687,14 @@ test("wdl tail switches from --since to Last-Event-ID after receiving an event i
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--since", "100-0", "--ns", "demo", "--token", "t",
-       "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--since", "100-0", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: () => {},
         transport: fakeTransport,
         sleepFn: async () => {},
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2539,15 +2723,13 @@ test("wdl tail prints a connected status after SSE handshake", async () => {
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: (/** @type {string} */ line) => stderrLines.push(line),
         transport: fakeTransport,
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2565,21 +2747,32 @@ test("wdl tail reconnects with Last-Event-ID after transport errors", async () =
      * @param {(res: import("node:http").IncomingMessage) => void} cb
      */
     request(opts, cb) {
-      requestsSeen.push({ path: opts.path, headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) } });
+      requestsSeen.push({
+        path: opts.path,
+        headers: { .../** @type {import("node:http").OutgoingHttpHeaders} */ (opts.headers) },
+      });
       const req = fakeHttpReq();
       setImmediate(() => {
         const res = fakeHttpRes();
         cb(res);
         if (requestsSeen.length === 1) {
           setImmediate(() => {
-            res.emit("data", `id: 100-0\nevent: worker_console\ndata: ${JSON.stringify({
-              event: "worker_console",
-              console_level: "log",
-              message: "hello",
-              ts: 1,
-            })}\n\n`);
+            res.emit(
+              "data",
+              `id: 100-0\nevent: worker_console\ndata: ${JSON.stringify({
+                event: "worker_console",
+                console_level: "log",
+                message: "hello",
+                ts: 1,
+              })}\n\n`
+            );
             setImmediate(() => {
-              res.emit("error", Object.assign(new Error(`socket hang up${ESC}[2J\nFORGED\rBAD`), { code: "ECONNRESET" }));
+              res.emit(
+                "error",
+                Object.assign(new Error(`socket hang up${ESC}[2J\nFORGED\rBAD`), {
+                  code: "ECONNRESET",
+                })
+              );
             });
           });
         } else {
@@ -2593,16 +2786,14 @@ test("wdl tail reconnects with Last-Event-ID after transport errors", async () =
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: (/** @type {string} */ line) => stderrLines.push(line),
         transport: fakeTransport,
         sleepFn: async () => {},
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2634,11 +2825,14 @@ test("wdl tail treats session recycle warnings as control-initiated reconnects",
         cb(res);
         if (requestCount === 1) {
           setImmediate(() => {
-            res.emit("data", `event: tail_warning\ndata: ${JSON.stringify({
-              event: "tail_warning",
-              code: "session_idle",
-              message: "client idle",
-            })}\n\n`);
+            res.emit(
+              "data",
+              `event: tail_warning\ndata: ${JSON.stringify({
+                event: "tail_warning",
+                code: "session_idle",
+                message: "client idle",
+              })}\n\n`
+            );
             res.emit("end");
           });
         } else {
@@ -2652,16 +2846,14 @@ test("wdl tail treats session recycle warnings as control-initiated reconnects",
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: (/** @type {string} */ line) => stderrLines.push(line),
         transport: fakeTransport,
         sleepFn: async (/** @type {number} */ ms) => sleepCalls.push(ms),
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2689,11 +2881,14 @@ test("wdl tail --raw still treats session recycle warnings as control-initiated 
         cb(res);
         if (requestCount <= 3) {
           setImmediate(() => {
-            res.emit("data", `event: tail_warning\ndata: ${JSON.stringify({
-              event: "tail_warning",
-              code: "session_idle",
-              message: "client idle",
-            })}\n\n`);
+            res.emit(
+              "data",
+              `event: tail_warning\ndata: ${JSON.stringify({
+                event: "tail_warning",
+                code: "session_idle",
+                message: "client idle",
+              })}\n\n`
+            );
             res.emit("end");
           });
         } else {
@@ -2707,16 +2902,14 @@ test("wdl tail --raw still treats session recycle warnings as control-initiated 
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--raw", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--raw", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: (/** @type {string} */ line) => stdoutLines.push(line),
         stderr: () => {},
         transport: fakeTransport,
         sleepFn: async (/** @type {number} */ ms) => sleepCalls.push(ms),
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2760,22 +2953,21 @@ test("wdl tail --raw treats non-object SSE JSON payloads as raw values", async (
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--raw", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--raw", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: (/** @type {string} */ line) => stdoutLines.push(line),
         stderr: () => {},
         transport: fakeTransport,
         sleepFn: async () => {},
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
-  assert.deepEqual(stdoutLines.map((line) => JSON.parse(line)), [
-    { event: "message", raw: null },
-  ]);
+  assert.deepEqual(
+    stdoutLines.map((line) => JSON.parse(line)),
+    [{ event: "message", raw: null }]
+  );
 });
 
 test("wdl tail increases backoff until a stable session resets it", async () => {
@@ -2814,9 +3006,8 @@ test("wdl tail increases backoff until a stable session resets it", async () => 
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
         env: {},
         stdout: () => {},
         stderr: (/** @type {string} */ line) => stderrLines.push(line),
@@ -2826,8 +3017,7 @@ test("wdl tail increases backoff until a stable session resets it", async () => 
           sleepCalls.push(ms);
           nowMs += ms;
         },
-      }
-    ),
+      }),
     { message: "test stop" }
   );
 
@@ -2857,16 +3047,17 @@ test("wdl tail gives up after reconnects repeatedly hit the cap", async () => {
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--max-reconnects", "2", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
-        env: {},
-        stdout: () => {},
-        stderr: () => {},
-        transport: fakeTransport,
-        sleepFn: async (/** @type {number} */ ms) => sleepCalls.push(ms),
-      }
-    ),
+    () =>
+      runTailCommand(
+        ["foo", "--max-reconnects", "2", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
+        {
+          env: {},
+          stdout: () => {},
+          stderr: () => {},
+          transport: fakeTransport,
+          sleepFn: async (/** @type {number} */ ms) => sleepCalls.push(ms),
+        }
+      ),
     /gave up after 2 consecutive reconnects/
   );
 
@@ -2902,16 +3093,17 @@ test("wdl tail --max-reconnects 0 disables the cap", async () => {
   };
 
   await assert.rejects(
-    () => runTailCommand(
-      ["foo", "--max-reconnects", "0", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
-      {
-        env: {},
-        stdout: () => {},
-        stderr: () => {},
-        transport: fakeTransport,
-        sleepFn: async (/** @type {number} */ ms) => sleepCalls.push(ms),
-      }
-    ),
+    () =>
+      runTailCommand(
+        ["foo", "--max-reconnects", "0", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
+        {
+          env: {},
+          stdout: () => {},
+          stderr: () => {},
+          transport: fakeTransport,
+          sleepFn: async (/** @type {number} */ ms) => sleepCalls.push(ms),
+        }
+      ),
     { message: "test stop" }
   );
 

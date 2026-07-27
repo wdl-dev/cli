@@ -28,7 +28,9 @@ function renderItems(items) {
     return;
   }
 
-  listEl.innerHTML = items.map((item) => `
+  listEl.innerHTML = items
+    .map(
+      (item) => `
     <article class="inspection">
       <a class="thumb" href="${item.imageUrl}" target="_blank" rel="noreferrer">
         <img src="${item.imageUrl}" alt="${escapeHtml(item.comment)}">
@@ -42,7 +44,9 @@ function renderItems(items) {
         <small>${escapeHtml(item.imageName)}</small>
       </div>
     </article>
-  `).join("");
+  `
+    )
+    .join("");
 }
 
 function escapeHtml(value) {

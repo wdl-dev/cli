@@ -1,5 +1,13 @@
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, defineHiddenCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
+import {
+  CliError,
+  defineCliOption,
+  defineHiddenCliOption,
+  formatHelp,
+  isMain,
+  optionHelp,
+  unexpectedArgument,
+} from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
 import { escapeTerminalText, writeResult } from "../lib/output.js";
 import { formatVersionDelete, formatWorkerDelete } from "../lib/delete-format.js";
@@ -54,9 +62,14 @@ async function runDelete({ values, positionals, context }) {
     const body = await context.fetchJson(
       context.nsUrl("worker", worker, "versions", version),
       { method: "DELETE", headers },
-      "delete version",
+      "delete version"
     );
-    writeResult(values.json === true, body, () => formatVersionDelete(/** @type {Parameters<typeof formatVersionDelete>[0]} */ (body)), stdout);
+    writeResult(
+      values.json === true,
+      body,
+      () => formatVersionDelete(/** @type {Parameters<typeof formatVersionDelete>[0]} */ (body)),
+      stdout
+    );
     return;
   }
 
@@ -80,19 +93,21 @@ async function runDelete({ values, positionals, context }) {
     const body = await context.fetchJson(
       `${context.nsUrl("worker", worker, "delete")}${suffix}`,
       { method: "POST", headers },
-      dryRun ? "dry-run delete worker" : "delete worker",
+      dryRun ? "dry-run delete worker" : "delete worker"
     );
-    writeResult(values.json === true, body, () => formatWorkerDelete(/** @type {Parameters<typeof formatWorkerDelete>[0]} */ (body)), stdout);
+    writeResult(
+      values.json === true,
+      body,
+      () => formatWorkerDelete(/** @type {Parameters<typeof formatWorkerDelete>[0]} */ (body)),
+      stdout
+    );
     return;
   }
 }
 
 function usageText() {
   return formatHelp({
-    usage: [
-      "wdl delete version [options] <worker> <version>",
-      "wdl delete worker [options] <worker>",
-    ],
+    usage: ["wdl delete version [options] <worker> <version>", "wdl delete worker [options] <worker>"],
     description: "Delete retained versions or all worker-owned lifecycle state.",
     commands: [
       "version  Delete one retained non-active worker version.",

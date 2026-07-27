@@ -24,7 +24,21 @@ import { tokenStoreReader } from "../lib/token-store.js";
 // Ordered for `wdl help`. Each entry carries its own { name, summary } metadata,
 // so the dispatch map and the help table below are both derived from it — no
 // command name or description is maintained twice.
-const REGISTRY = [initCmd, deployCmd, secretCmd, workersCmd, deleteCmd, d1Cmd, r2Cmd, tailCmd, workflowsCmd, tokenCmd, configCmd, doctorCmd, whoamiCmd];
+const REGISTRY = [
+  initCmd,
+  deployCmd,
+  secretCmd,
+  workersCmd,
+  deleteCmd,
+  d1Cmd,
+  r2Cmd,
+  tailCmd,
+  workflowsCmd,
+  tokenCmd,
+  configCmd,
+  doctorCmd,
+  whoamiCmd,
+];
 
 // Alias -> canonical command name.
 const ALIASES = { secrets: "secret" };
@@ -151,21 +165,18 @@ function usage(exitCode) {
   }
   const width = Math.max(...REGISTRY.map((c) => c.meta.name.length)) + 1;
   const write = exitCode === 0 ? console.log : console.error;
-  write(formatHelp({
-    usage: [
-      "wdl <command> [args] [options]",
-      "wdl <command> --help",
-      "wdl help <command>",
-      "wdl --version",
-    ],
-    description: "Manage deployments, diagnostics, secrets, workers, D1, R2, and Workflows for a WDL control plane.",
-    commands: REGISTRY.map((c) => {
-      const alias = aliasesByTarget[c.meta.name];
-      const note = alias ? ` (alias: ${alias.join(", ")})` : "";
-      return `${c.meta.name.padEnd(width)}${c.meta.summary}${note}`;
-    }),
-    options: commonCliOptions(),
-  }));
+  write(
+    formatHelp({
+      usage: ["wdl <command> [args] [options]", "wdl <command> --help", "wdl help <command>", "wdl --version"],
+      description: "Manage deployments, diagnostics, secrets, workers, D1, R2, and Workflows for a WDL control plane.",
+      commands: REGISTRY.map((c) => {
+        const alias = aliasesByTarget[c.meta.name];
+        const note = alias ? ` (alias: ${alias.join(", ")})` : "";
+        return `${c.meta.name.padEnd(width)}${c.meta.summary}${note}`;
+      }),
+      options: commonCliOptions(),
+    })
+  );
   process.exit(exitCode);
 }
 

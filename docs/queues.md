@@ -57,15 +57,15 @@ and leave it to the platform's `max_retries` and `dead_letter_queue` handling.
 - The default body type is JSON; use `{ contentType: "text" }` for strings and
   `{ contentType: "bytes" }` for binary.
 - `delivery_delay` and `send(..., { delaySeconds })` delay delivery.
-- `retry_delay` and `message.retry({ delaySeconds })` delay retries; an
-  explicit `delaySeconds` overrides the consumer's `retry_delay`, including `0`
-  for an immediate retry.
+- `retry_delay` and `message.retry({ delaySeconds })` delay retries; an explicit
+  `delaySeconds` overrides the consumer's `retry_delay`, including `0` for an
+  immediate retry.
 - `message.attempts` starts at 1, so `max_retries = N` means the handler
   observes at most N + 1 attempts before the message moves to the dead-letter
   queue.
 - The dead-letter queue is a bounded diagnostic channel (about 10k entries by
-  default, approximately trimmed) — drain it promptly rather than treating it
-  as a durable archive.
+  default, approximately trimmed) — drain it promptly rather than treating it as
+  a durable archive.
 - The CLI forwards `max_batch_timeout` values that pass basic integer delay
   parsing for config compatibility; WDL control enforces the tighter
   Cloudflare-compatible 0..60 second range. Do not rely on it for full

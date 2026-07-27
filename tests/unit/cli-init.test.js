@@ -30,8 +30,18 @@ async function captureExit(fn) {
   let errOutput = "";
   const originalExit = process.exit;
   const originalErr = process.stderr.write.bind(process.stderr);
-  process.exit = /** @type {typeof process.exit} */ ((code) => { exitCode = code; throw new Error("__test_exit__"); });
-  process.stderr.write = /** @type {typeof process.stderr.write} */ ((chunk) => { errOutput += chunk; return true; });
+  process.exit = /** @type {typeof process.exit} */ (
+    (code) => {
+      exitCode = code;
+      throw new Error("__test_exit__");
+    }
+  );
+  process.stderr.write = /** @type {typeof process.stderr.write} */ (
+    (chunk) => {
+      errOutput += chunk;
+      return true;
+    }
+  );
   try {
     await fn();
   } catch (err) {
@@ -44,21 +54,22 @@ async function captureExit(fn) {
 }
 
 test("parseArgs accepts --ns and --worker in both forms", () => {
-  assert.deepEqual(
-    parseArgs(["demo", "--ns", "acme", "--worker", "feature"]),
-    { target: "demo", ns: "acme", worker: "feature", help: false },
-  );
-  assert.deepEqual(
-    parseArgs(["demo", "--ns=acme", "--worker=feature"]),
-    { target: "demo", ns: "acme", worker: "feature", help: false },
-  );
+  assert.deepEqual(parseArgs(["demo", "--ns", "acme", "--worker", "feature"]), {
+    target: "demo",
+    ns: "acme",
+    worker: "feature",
+    help: false,
+  });
+  assert.deepEqual(parseArgs(["demo", "--ns=acme", "--worker=feature"]), {
+    target: "demo",
+    ns: "acme",
+    worker: "feature",
+    help: false,
+  });
 });
 
 test("parseArgs accepts positional help alias", () => {
-  assert.deepEqual(
-    parseArgs(["help"]),
-    { target: null, ns: null, worker: null, help: true },
-  );
+  assert.deepEqual(parseArgs(["help"]), { target: null, ns: null, worker: null, help: true });
 });
 
 test("parseArgs rejects unknown flags", () => {
@@ -74,7 +85,7 @@ test("parseArgs escapes terminal controls in argv errors", () => {
       assertNoRawTerminalControls(message, "the error");
       assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD/);
       return true;
-    },
+    }
   );
 });
 
@@ -106,7 +117,7 @@ test("validateNs escapes terminal controls in rejected namespace values", () => 
       assertNoRawTerminalControls(message, "--ns errors");
       assert.match(message, /--ns "bad\\u001b\[2J\\nFORGED\\rBAD" is not a valid tenant namespace/);
       return true;
-    },
+    }
   );
 });
 
@@ -131,7 +142,7 @@ test("validateWorker escapes terminal controls in rejected worker values", () =>
       assertNoRawTerminalControls(message, "--worker errors");
       assert.match(message, /--worker "bad\\u001b\[2J\\nFORGED\\rBAD" must match/);
       return true;
-    },
+    }
   );
 });
 
@@ -274,9 +285,7 @@ test("init refuses to overwrite a non-empty target", async () => {
     mkdirSync(dir);
     writeFileSync(path.join(dir, "existing.txt"), "");
 
-    const { exitCode, errOutput } = await captureExit(() =>
-      main(["demo", "--ns", "acme", "--worker", "site"])
-    );
+    const { exitCode, errOutput } = await captureExit(() => main(["demo", "--ns", "acme", "--worker", "site"]));
     assert.equal(exitCode, 1);
     assert.match(errOutput, /is not empty/);
   });

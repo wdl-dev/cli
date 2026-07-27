@@ -13,10 +13,16 @@ test("writeStatusLine escapes terminal control bytes in the assembled line", () 
 test("writeJsonOr emits JSON and reports handled, or defers to the human path", () => {
   /** @type {string[]} */
   const out = [];
-  assert.equal(writeJsonOr(true, { a: 1 }, (/** @type {string} */ l) => out.push(l)), true);
+  assert.equal(
+    writeJsonOr(true, { a: 1 }, (/** @type {string} */ l) => out.push(l)),
+    true
+  );
   assert.equal(out[0], JSON.stringify({ a: 1 }, null, 2));
   out.length = 0;
-  assert.equal(writeJsonOr(false, { a: 1 }, (/** @type {string} */ l) => out.push(l)), false);
+  assert.equal(
+    writeJsonOr(false, { a: 1 }, (/** @type {string} */ l) => out.push(l)),
+    false
+  );
   assert.equal(out.length, 0, "nothing written when not json");
 });
 

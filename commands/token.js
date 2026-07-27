@@ -17,7 +17,12 @@ import { readTokenStore, tokenStorePath, updateTokenStore } from "../lib/token-s
 
 const TOKEN_OPTIONS = [
   defineCliOption("label", { type: "string" }, "--label <text>", "Human label shown by `wdl token list` (set)."),
-  defineCliOption("default", { type: "boolean" }, "--default", "Make this the default namespace, used when --ns is omitted (set)."),
+  defineCliOption(
+    "default",
+    { type: "boolean" },
+    "--default",
+    "Make this the default namespace, used when --ns is omitted (set)."
+  ),
   // Custom ns option: set/use/rm mutate the global store and ignore ambient
   // WDL_NS, so the shared preset's "(env: WDL_NS)" wording would mislead here.
   defineCliOption("ns", { type: "string" }, "--ns <ns>", "Namespace for set/use/rm (required; ignores WDL_NS)."),
@@ -96,10 +101,12 @@ async function tokenSet({ values, context }) {
   // that sends the token.
   warnIfInsecureControlUrl(controlUrl, context.warn, context.env);
 
-  const token = (await readSecretStdin(context.stdin, {
-    prompt: `Token for ${ns} @ ${controlUrl} (input hidden): `,
-    stderr: context.stderr,
-  })).trim();
+  const token = (
+    await readSecretStdin(context.stdin, {
+      prompt: `Token for ${ns} @ ${controlUrl} (input hidden): `,
+      stderr: context.stderr,
+    })
+  ).trim();
   if (!token) throw new CliError("no token provided on stdin");
 
   // Validate before storing so a typo'd or revoked token is never persisted,
@@ -168,13 +175,15 @@ function tokenUse({ values, context, nsArg }) {
 /** @param {{ values: TokenValues, context: import("../lib/command.js").CommandContext }} arg */
 function tokenList({ values, context }) {
   const store = readTokenStore(tokenStorePath(context.env));
-  const rows = Object.keys(store.namespaces).sort().map((ns) => ({
-    default: store.defaultNs === ns,
-    namespace: ns,
-    label: store.namespaces[ns].LABEL || "",
-    controlUrl: store.namespaces[ns].CONTROL_URL || "",
-    token: maskToken(store.namespaces[ns].ADMIN_TOKEN),
-  }));
+  const rows = Object.keys(store.namespaces)
+    .sort()
+    .map((ns) => ({
+      default: store.defaultNs === ns,
+      namespace: ns,
+      label: store.namespaces[ns].LABEL || "",
+      controlUrl: store.namespaces[ns].CONTROL_URL || "",
+      token: maskToken(store.namespaces[ns].ADMIN_TOKEN),
+    }));
   writeResult(Boolean(values.json), rows, () => formatTokenList(rows), context.stdout);
 }
 
@@ -244,16 +253,17 @@ function formatTokenList(rows) {
   const header = ["", "NAMESPACE", "LABEL", "CONTROL URL", "TOKEN"];
   const cells = [
     header,
-    ...rows.map((r) => [
-      r.default ? "*" : "",
-      r.namespace,
-      r.label,
-      r.controlUrl,
-      r.token,
-    ].map((cell) => escapeTerminalText(cell))),
+    ...rows.map((r) =>
+      [r.default ? "*" : "", r.namespace, r.label, r.controlUrl, r.token].map((cell) => escapeTerminalText(cell))
+    ),
   ];
   const widths = header.map((_, col) => Math.max(...cells.map((l) => l[col].length)));
-  const lines = cells.map((l) => l.map((cell, col) => cell.padEnd(widths[col])).join("  ").trimEnd());
+  const lines = cells.map((l) =>
+    l
+      .map((cell, col) => cell.padEnd(widths[col]))
+      .join("  ")
+      .trimEnd()
+  );
   if (rows.some((r) => r.default)) lines.push("", "* default namespace (used when --ns is omitted)");
   return lines;
 }

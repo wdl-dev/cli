@@ -8,10 +8,7 @@ function escapeHtml(value) {
 
 export default {
   async fetch(_request, env) {
-    const [cssUrl, logoUrl] = await Promise.all([
-      env.ASSETS.url("style.css"),
-      env.ASSETS.url("hello.txt"),
-    ]);
+    const [cssUrl, logoUrl] = await Promise.all([env.ASSETS.url("style.css"), env.ASSETS.url("hello.txt")]);
     const safeCssUrl = escapeHtml(cssUrl);
     const safeLogoUrl = escapeHtml(logoUrl);
 

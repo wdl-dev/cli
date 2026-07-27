@@ -8,7 +8,9 @@ import path from "node:path";
 
 export const ESC = String.fromCharCode(27);
 
-export const POSIX_ONLY = { skip: process.platform === "win32" ? "POSIX-only filesystem behavior" : false };
+export const POSIX_ONLY = {
+  skip: process.platform === "win32" ? "POSIX-only filesystem behavior" : false,
+};
 
 // The uid does not decide this — the effective uid, CAP_DAC_OVERRIDE, and
 // mode-ignoring mounts do. Ask tmpdir() what it actually does.
@@ -93,8 +95,7 @@ export function response(body, status = 200) {
     ok: status >= 200 && status < 300,
     json: async () => JSON.parse(text),
     text: async () => text,
-    arrayBuffer: async () =>
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
   };
 }
 

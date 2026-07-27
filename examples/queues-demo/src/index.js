@@ -18,20 +18,14 @@ async function readPayload(request) {
 
 async function listJobs(env) {
   const { keys } = await env.QUEUE_STATE.list({ prefix: JOB_PREFIX, limit: 20 });
-  const jobs = await Promise.all(
-    keys.map(async (key) => env.QUEUE_STATE.get(key.name, { type: "json" }))
-  );
-  return jobs
-    .filter(Boolean)
-    .toSorted((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || ""));
+  const jobs = await Promise.all(keys.map(async (key) => env.QUEUE_STATE.get(key.name, { type: "json" })));
+  return jobs.filter(Boolean).toSorted((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || ""));
 }
 
 async function enqueue(request, env) {
   const url = new URL(request.url);
   const requestedDelay = Number.parseInt(url.searchParams.get("delay") || "0", 10);
-  const delaySeconds = Number.isFinite(requestedDelay) && requestedDelay > 0
-    ? requestedDelay
-    : 0;
+  const delaySeconds = Number.isFinite(requestedDelay) && requestedDelay > 0 ? requestedDelay : 0;
   const payload = await readPayload(request);
   const id = crypto.randomUUID();
 
@@ -80,14 +74,17 @@ export default {
     for (const message of batch.messages) {
       const body = message.body || {};
       const id = body.id || message.id;
-      await env.QUEUE_STATE.put(`${JOB_PREFIX}${id}`, JSON.stringify({
-        id,
-        queue: batch.queue,
-        attempts: message.attempts,
-        payload: body.payload ?? body,
-        queuedAt: body.queuedAt || null,
-        receivedAt: new Date().toISOString(),
-      }));
+      await env.QUEUE_STATE.put(
+        `${JOB_PREFIX}${id}`,
+        JSON.stringify({
+          id,
+          queue: batch.queue,
+          attempts: message.attempts,
+          payload: body.payload ?? body,
+          queuedAt: body.queuedAt || null,
+          receivedAt: new Date().toISOString(),
+        })
+      );
       message.ack();
     }
   },

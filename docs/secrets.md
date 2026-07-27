@@ -75,13 +75,13 @@ retry after the operator reports the envelope issue repaired.
 
 ## Constraints
 
-- Keys must follow environment-variable grammar: `[A-Za-z_][A-Za-z0-9_]*`,
-  with a maximum length of 128 characters. Runtime-reserved names and reserved
+- Keys must follow environment-variable grammar: `[A-Za-z_][A-Za-z0-9_]*`, with
+  a maximum length of 128 characters. Runtime-reserved names and reserved
   `Object.prototype` keys are rejected.
 - Values are limited to 64 KiB.
 - Secrets count toward the workerLoader env budget together with `[vars]` and
-  binding metadata. If a mutation returns `worker_env_too_large`, reduce the
-  env payload or redeploy/delete the retained version named in the error.
+  binding metadata. If a mutation returns `worker_env_too_large`, reduce the env
+  payload or redeploy/delete the retained version named in the error.
 
 ## Reading in the Worker
 

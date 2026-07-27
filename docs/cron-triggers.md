@@ -95,11 +95,11 @@ combinations:
 - ❌ Assuming cron fires exactly on minute boundaries. There is jitter; do not
   depend on sub-minute timing.
 - ❌ Relying on missed runs being replayed. Cron is Cloudflare-style
-  best-effort: minute-aligned slots fire at most once each, slots missed
-  during downtime are skipped (never replayed), consecutive runs may overlap
-  if a handler outlasts its slot, and a handler failure is recorded as the
-  outcome — the scheduler does not retry it. `event.scheduledTime` is the
-  slot timestamp, not the dispatch time.
+  best-effort: minute-aligned slots fire at most once each, slots missed during
+  downtime are skipped (never replayed), consecutive runs may overlap if a
+  handler outlasts its slot, and a handler failure is recorded as the outcome —
+  the scheduler does not retry it. `event.scheduledTime` is the slot timestamp,
+  not the dispatch time.
 
 ## Local development
 

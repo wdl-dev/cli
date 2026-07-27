@@ -3,7 +3,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
 import { isHelpAlias } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, handleCliError, isMain, isNonEmptyString, optionHelp, optionParseOptions } from "../lib/common.js";
+import {
+  CliError,
+  defineCliOption,
+  formatHelp,
+  handleCliError,
+  isMain,
+  isNonEmptyString,
+  optionHelp,
+  optionParseOptions,
+} from "../lib/common.js";
 import { NS_PATTERN, RESERVED_TENANT_NS, isReservedNs } from "../lib/ns-pattern.js";
 import { escapeTerminalText } from "../lib/output.js";
 import { WRANGLER_WDL_TMP_PREFIX } from "../lib/wrangler/config.js";
@@ -17,7 +26,12 @@ const DEFAULT_COMPATIBILITY_DATE = "2026-06-17";
 const CLI_ROOT = path.resolve(fileURLToPath(import.meta.url), "../..");
 const INIT_OPTIONS = [
   defineCliOption("ns", { type: "string" }, "--ns <ns>", "Tenant namespace baked into the deploy script (optional)."),
-  defineCliOption("worker", { type: "string" }, "--worker <name>", "Worker name in wrangler.jsonc (defaults to <target>)."),
+  defineCliOption(
+    "worker",
+    { type: "string" },
+    "--worker <name>",
+    "Worker name in wrangler.jsonc (defaults to <target>)."
+  ),
   defineCliOption("help", { type: "boolean", short: "h" }, "-h, --help", "Show this help."),
 ];
 
@@ -48,7 +62,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (!NAME_REGEX.test(packageName)) {
       throw new CliError(
         `project name "${escapeTerminalText(packageName)}" must match ${NAME_REGEX} ` +
-        `(letter, then letters / digits / hyphens).`,
+          `(letter, then letters / digits / hyphens).`
       );
     }
 
@@ -101,7 +115,7 @@ function parseArgs(argv) {
   }
   const helpAlias = isHelpAlias(positionals);
   return {
-    target: helpAlias ? null : positionals[0] ?? null,
+    target: helpAlias ? null : (positionals[0] ?? null),
     ns: values.ns ?? null,
     worker: values.worker ?? null,
     help: Boolean(values.help || helpAlias),
@@ -136,7 +150,7 @@ function validateNs(value, label) {
   if (!TENANT_NS_RE.test(value) || RESERVED_TENANT_NS.has(value) || isReservedNs(value)) {
     throw new CliError(
       `${escapeTerminalText(label)} "${escapeTerminalText(value)}" is not a valid tenant namespace ` +
-      `(1-63 lowercase letters / digits / hyphens, start and end with a letter or digit; reserved names are not allowed).`,
+        `(1-63 lowercase letters / digits / hyphens, start and end with a letter or digit; reserved names are not allowed).`
     );
   }
 }
@@ -149,7 +163,7 @@ function validateWorker(value, label) {
   if (!WORKER_NAME_REGEX.test(value)) {
     throw new CliError(
       `${escapeTerminalText(label)} "${escapeTerminalText(value)}" must match ${WORKER_NAME_REGEX} ` +
-      `(letter or digit, then letters / digits / underscores / hyphens; up to 255 chars).`,
+        `(letter or digit, then letters / digits / underscores / hyphens; up to 255 chars).`
     );
   }
 }
@@ -166,13 +180,13 @@ async function ensureEmpty(dir, isInPlace) {
     if (err instanceof Error && /** @type {{ code?: unknown }} */ (err).code === "ENOENT") return;
     throw err;
   }
-  const offending = entries.filter(name => !IGNORABLE_DIR_ENTRIES.has(name));
+  const offending = entries.filter((name) => !IGNORABLE_DIR_ENTRIES.has(name));
   if (offending.length === 0) return;
   const where = isInPlace ? "current directory" : escapeTerminalText(dir);
   throw new CliError(
     `${where} is not empty (found: ${offending.slice(0, 5).map(escapeTerminalText).join(", ")}` +
-    (offending.length > 5 ? ", …" : "") +
-    `). Refusing to overwrite.`,
+      (offending.length > 5 ? ", …" : "") +
+      `). Refusing to overwrite.`
   );
 }
 
@@ -181,28 +195,29 @@ async function ensureEmpty(dir, isInPlace) {
  * @param {{ packageName: string, workerName: string, ns: string | null }} arg
  */
 async function writeStarter(targetDir, { packageName, workerName, ns }) {
-  const [wdlCliDep, wranglerDep] = await Promise.all([
-    resolveWdlCliDep(process.env),
-    resolveWranglerDep(),
-  ]);
+  const [wdlCliDep, wranglerDep] = await Promise.all([resolveWdlCliDep(process.env), resolveWranglerDep()]);
 
-  const packageJson = JSON.stringify({
-    name: packageName,
-    version: "0.0.0",
-    private: true,
-    type: "module",
-    scripts: {
-      deploy: ns ? `wdl deploy . --ns ${ns}` : "wdl deploy .",
-      "dry-run": "wrangler deploy --dry-run --outdir=.deploy-dist",
-    },
-    devDependencies: {
-      wrangler: wranglerDep,
-      "@wdl-dev/cli": wdlCliDep,
-    },
-  }, null, 2) + "\n";
+  const packageJson =
+    JSON.stringify(
+      {
+        name: packageName,
+        version: "0.0.0",
+        private: true,
+        type: "module",
+        scripts: {
+          deploy: ns ? `wdl deploy . --ns ${ns}` : "wdl deploy .",
+          "dry-run": "wrangler deploy --dry-run --outdir=.deploy-dist",
+        },
+        devDependencies: {
+          wrangler: wranglerDep,
+          "@wdl-dev/cli": wdlCliDep,
+        },
+      },
+      null,
+      2
+    ) + "\n";
 
-  const wranglerJsonc =
-`{
+  const wranglerJsonc = `{
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "${workerName}",
   "main": "src/index.js",
@@ -211,16 +226,14 @@ async function writeStarter(targetDir, { packageName, workerName, ns }) {
 }
 `;
 
-  const indexJs =
-`export default {
+  const indexJs = `export default {
   async fetch(request, env, ctx) {
     return new Response("Hello from ${workerName}");
   },
 };
 `;
 
-  const gitignore =
-`node_modules/
+  const gitignore = `node_modules/
 .deploy-dist/
 .wrangler/
 ${WRANGLER_WDL_TMP_PREFIX}*.json
@@ -281,8 +294,8 @@ async function copyAgentsDoc(targetDir) {
     if (err instanceof Error && /** @type {{ code?: unknown }} */ (err).code === "ENOENT") {
       throw new CliError(
         `templates/AGENTS.md missing from the wdl-cli package. ` +
-        `If you installed from npm, please re-install; ` +
-        `if you cloned, the file should live at ${src}.`,
+          `If you installed from npm, please re-install; ` +
+          `if you cloned, the file should live at ${src}.`
       );
     }
     throw err;
@@ -326,16 +339,15 @@ function printNextSteps(target, { packageName, workerName, ns, isInPlace }) {
 
 /** @param {number} exitCode */
 function printHelp(exitCode) {
-  console.log(formatHelp({
-    usage: [
-      "wdl init <target> [--ns <ns>] [--worker <name>]",
-      "wdl init --help",
-    ],
-    description:
-      "Scaffold a new WDL Worker project. <target> is a directory " +
-      "name (creates ./<name>/) or '.' to scaffold into the current directory.",
-    options: optionHelp(INIT_OPTIONS),
-  }));
+  console.log(
+    formatHelp({
+      usage: ["wdl init <target> [--ns <ns>] [--worker <name>]", "wdl init --help"],
+      description:
+        "Scaffold a new WDL Worker project. <target> is a directory " +
+        "name (creates ./<name>/) or '.' to scaffold into the current directory.",
+      options: optionHelp(INIT_OPTIONS),
+    })
+  );
   process.exit(exitCode);
 }
 

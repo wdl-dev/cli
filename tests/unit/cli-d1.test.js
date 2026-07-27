@@ -5,7 +5,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runD1Command, serializeMigrationStatusRequest } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
-import { ESC, MODE_BITS_ENFORCED_ONLY, POSIX_ONLY, assertNoRawTerminalControls, assertUnreadable, mockDeps as sharedMockDeps, response } from "./helpers.js";
+import {
+  ESC,
+  MODE_BITS_ENFORCED_ONLY,
+  POSIX_ONLY,
+  assertNoRawTerminalControls,
+  assertUnreadable,
+  mockDeps as sharedMockDeps,
+  response,
+} from "./helpers.js";
 
 /** @typedef {import("../../lib/control-fetch.js").ControlFetchInit} ControlFetchInit */
 /** @typedef {import("./helpers.js").ControlCall} RecordedCall */
@@ -109,18 +117,21 @@ test("d1 create posts a database name", async () => {
 test("d1 execute sends SQL mode and JSON params", async () => {
   const { calls, lines, deps } = mockDeps({ result: { results: [{ n: 1 }] } });
 
-  await runD1Command([
-    "execute",
-    "main",
-    "--sql",
-    "select ? as n",
-    "--params",
-    "[1]",
-    "--mode",
-    "all",
-    "--control-url",
-    "http://ctl.test",
-  ], deps);
+  await runD1Command(
+    [
+      "execute",
+      "main",
+      "--sql",
+      "select ? as n",
+      "--params",
+      "[1]",
+      "--mode",
+      "all",
+      "--control-url",
+      "http://ctl.test",
+    ],
+    deps
+  );
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/query");
   assert.equal(calls[0].init.method, "POST");
@@ -144,14 +155,15 @@ test("d1 execute rejects empty SQL before calling control", async () => {
       ["execute", "main", "--file", "empty.sql", "--control-url", "http://ctl.test"],
     ]) {
       await assert.rejects(
-        () => runD1Command(args, {
-          cwd: dir,
-          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-          stdout: () => {},
-          controlFetch: async () => {
-            throw new Error("controlFetch should not be called");
-          },
-        }),
+        () =>
+          runD1Command(args, {
+            cwd: dir,
+            env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+            stdout: () => {},
+            controlFetch: async () => {
+              throw new Error("controlFetch should not be called");
+            },
+          }),
         /must contain non-empty SQL/
       );
     }
@@ -172,13 +184,14 @@ test("d1 execute rejects empty --file and conflicting SQL sources before calling
     },
   ]) {
     await assert.rejects(
-      () => runD1Command(args, {
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdout: () => {},
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(args, {
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          stdout: () => {},
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
       message
     );
   }
@@ -191,14 +204,7 @@ test("d1 execute --file accepts a path inside the project", async () => {
     /** @type {RecordedCall[]} */
     const calls = [];
 
-    await runD1Command([
-      "execute",
-      "main",
-      "--file",
-      "inside.sql",
-      "--control-url",
-      "http://ctl.test",
-    ], {
+    await runD1Command(["execute", "main", "--file", "inside.sql", "--control-url", "http://ctl.test"], {
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
@@ -232,15 +238,7 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
     const calls = [];
     /** @type {string[]} */
     const lines = [];
-    await runD1Command([
-      "migrations",
-      "apply",
-      "main",
-      "--dir",
-      "migrations",
-      "--control-url",
-      "http://ctl.test",
-    ], {
+    await runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       /** @param {string} line */
@@ -255,10 +253,10 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
     assert.equal(calls[0].url, "http://ctl.test/ns/demo/d1/databases/main/migrations/apply");
     assert.equal(calls[0].init.timeoutMs, LONG_CONTROL_TIMEOUT_MS);
     const body = parseMigrationsBody(calls[0].init.body);
-    assert.deepEqual(body.migrations.map((migration) => migration.id), [
-      "001_init.sql",
-      "002_add.sql",
-    ]);
+    assert.deepEqual(
+      body.migrations.map((migration) => migration.id),
+      ["001_init.sql", "002_add.sql"]
+    );
     assert.equal(body.migrations[0].sql, "create table users (id integer);");
     assert.match(body.migrations[0].checksum, /^[a-f0-9]{64}$/);
     assert.deepEqual(lines, ["Applied 001_init.sql\tstatements=1"]);
@@ -277,27 +275,23 @@ test("d1 migrations apply surfaces control request body size errors", async () =
     /** @type {RecordedCall[]} */
     const calls = [];
     await assert.rejects(
-      () => runD1Command([
-        "migrations",
-        "apply",
-        "main",
-        "--dir",
-        "migrations",
-        "--control-url",
-        "http://ctl.test",
-      ], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdout: () => {},
-        /** @param {string} url @param {ControlFetchInit} [init] */
-        controlFetch: async (url, init = {}) => {
-          calls.push({ url, init });
-          return response({
-            error: "request_body_too_large",
-            message: "migration request too large",
-          }, 413);
-        },
-      }),
+      () =>
+        runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          stdout: () => {},
+          /** @param {string} url @param {ControlFetchInit} [init] */
+          controlFetch: async (url, init = {}) => {
+            calls.push({ url, init });
+            return response(
+              {
+                error: "request_body_too_large",
+                message: "migration request too large",
+              },
+              413
+            );
+          },
+        }),
       /apply d1 migrations failed: 413 request_body_too_large: migration request too large/
     );
 
@@ -323,10 +317,7 @@ test("d1 migrations status can send oversized metadata bodies to control", () =>
     };
   });
   const body = serializeMigrationStatusRequest(migrations);
-  assert.ok(
-    body.length > 1_048_576,
-    "oversized local migration metadata is sent to control for canonical rejection"
-  );
+  assert.ok(body.length > 1_048_576, "oversized local migration metadata is sent to control for canonical rejection");
   assert.equal(body.includes("select 1;"), false);
   const parsed = /** @type {{ migrations: Array<Record<string, unknown>> }} */ (parseBody(body));
   assert.equal(parsed.migrations.length, migrations.length);
@@ -343,27 +334,23 @@ test("d1 migrations status surfaces control request body size errors", async () 
     /** @type {RecordedCall[]} */
     const calls = [];
     await assert.rejects(
-      () => runD1Command([
-        "migrations",
-        "status",
-        "main",
-        "--dir",
-        "migrations",
-        "--control-url",
-        "http://ctl.test",
-      ], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdout: () => {},
-        /** @param {string} url @param {ControlFetchInit} [init] */
-        controlFetch: async (url, init = {}) => {
-          calls.push({ url, init });
-          return response({
-            error: "request_body_too_large",
-            message: "migration status request too large",
-          }, 413);
-        },
-      }),
+      () =>
+        runD1Command(["migrations", "status", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          stdout: () => {},
+          /** @param {string} url @param {ControlFetchInit} [init] */
+          controlFetch: async (url, init = {}) => {
+            calls.push({ url, init });
+            return response(
+              {
+                error: "request_body_too_large",
+                message: "migration status request too large",
+              },
+              413
+            );
+          },
+        }),
       /show d1 migration status failed: 413 request_body_too_large: migration status request too large/
     );
 
@@ -384,13 +371,14 @@ test("d1 migrations apply rejects symlinked SQL files", POSIX_ONLY, async () => 
     symlinkSync(target, path.join(migrations, `001_link${ESC}[2J\nFORGED\rBAD.sql`));
 
     await assert.rejects(
-      () => runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
       (err) => {
         const message = /** @type {Error} */ (err).message;
         assertNoRawTerminalControls(message, "the error");
@@ -403,67 +391,72 @@ test("d1 migrations apply rejects symlinked SQL files", POSIX_ONLY, async () => 
   }
 });
 
-test("d1 migrations apply escapes terminal controls in unreadable migration file errors", MODE_BITS_ENFORCED_ONLY, async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-unreadable-"));
-  const badName = `001_bad${ESC}[2J\nFORGED\rBAD.sql`;
-  const badPath = path.join(dir, "migrations", badName);
-  try {
-    const migrations = path.join(dir, "migrations");
-    mkdirSync(migrations);
-    writeFileSync(badPath, "create table t (id integer);");
-    chmodSync(badPath, 0o000);
-    assertUnreadable(badPath);
+test(
+  "d1 migrations apply escapes terminal controls in unreadable migration file errors",
+  MODE_BITS_ENFORCED_ONLY,
+  async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migrations-unreadable-"));
+    const badName = `001_bad${ESC}[2J\nFORGED\rBAD.sql`;
+    const badPath = path.join(dir, "migrations", badName);
+    try {
+      const migrations = path.join(dir, "migrations");
+      mkdirSync(migrations);
+      writeFileSync(badPath, "create table t (id integer);");
+      chmodSync(badPath, 0o000);
+      assertUnreadable(badPath);
 
-    await assert.rejects(
-      () => runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
-      (err) => assertEscapedD1Error(err, /cannot read migration file 001_bad\\u001b\[2J\\nFORGED\\rBAD\.sql:/)
-    );
-  } finally {
-    try { chmodSync(badPath, 0o600); } catch {}
-    rmSync(dir, { recursive: true, force: true });
+      await assert.rejects(
+        () =>
+          runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+            cwd: dir,
+            env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+            controlFetch: async () => {
+              throw new Error("controlFetch should not be called");
+            },
+          }),
+        (err) => assertEscapedD1Error(err, /cannot read migration file 001_bad\\u001b\[2J\\nFORGED\\rBAD\.sql:/)
+      );
+    } finally {
+      try {
+        chmodSync(badPath, 0o600);
+      } catch {}
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
-});
+);
 
 test("d1 migrations_dir from wrangler config cannot escape the project", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-contained-"));
   const outside = mkdtempSync(path.join(tmpdir(), "wdl-d1-outside-"));
   try {
     writeFileSync(path.join(outside, "001_leak.sql"), "select 'leak';");
-    writeFileSync(path.join(dir, "wrangler.toml"), [
-      'name = "api"',
-      'main = "src/index.js"',
-      "",
-      "[[d1_databases]]",
-      'binding = "DB"',
-      'database_name = "main"',
-      `migrations_dir = ${JSON.stringify(path.relative(dir, outside))}`,
-      "",
-    ].join("\n"));
+    writeFileSync(
+      path.join(dir, "wrangler.toml"),
+      [
+        'name = "api"',
+        'main = "src/index.js"',
+        "",
+        "[[d1_databases]]",
+        'binding = "DB"',
+        'database_name = "main"',
+        `migrations_dir = ${JSON.stringify(path.relative(dir, outside))}`,
+        "",
+      ].join("\n")
+    );
 
     /** @type {RecordedCall[]} */
     const calls = [];
     await assert.rejects(
-      () => runD1Command([
-        "migrations",
-        "apply",
-        "main",
-        "--control-url",
-        "http://ctl.test",
-      ], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        /** @param {string} url @param {ControlFetchInit} [init] */
-        controlFetch: async (url, init = {}) => {
-          calls.push({ url, init });
-          return response({});
-        },
-      }),
+      () =>
+        runD1Command(["migrations", "apply", "main", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          /** @param {string} url @param {ControlFetchInit} [init] */
+          controlFetch: async (url, init = {}) => {
+            calls.push({ url, init });
+            return response({});
+          },
+        }),
       /migrations_dir must stay inside the project/
     );
     assert.equal(calls.length, 0);
@@ -477,25 +470,35 @@ test("d1 migrations_dir errors escape terminal controls from config fields", asy
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-config-escape-"));
   const badMigrationsDir = `../outside${ESC}[2J\nFORGED\rBAD`;
   try {
-    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
-      name: "api",
-      main: "src/index.js",
-      d1_databases: [{
-        binding: "DB",
-        database_name: "main",
-        migrations_dir: badMigrationsDir,
-      }],
-    }));
+    writeFileSync(
+      path.join(dir, "wrangler.json"),
+      JSON.stringify({
+        name: "api",
+        main: "src/index.js",
+        d1_databases: [
+          {
+            binding: "DB",
+            database_name: "main",
+            migrations_dir: badMigrationsDir,
+          },
+        ],
+      })
+    );
 
     await assert.rejects(
-      () => runD1Command(["migrations", "apply", "main", "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
-      (err) => assertEscapedD1Error(err, /migrations_dir must stay inside the project \(got "\.\.\/outside\\u001b\[2J\\nFORGED\\rBAD"\)/)
+      () =>
+        runD1Command(["migrations", "apply", "main", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
+      (err) =>
+        assertEscapedD1Error(
+          err,
+          /migrations_dir must stay inside the project \(got "\.\.\/outside\\u001b\[2J\\nFORGED\\rBAD"\)/
+        )
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -508,26 +511,34 @@ test("d1 migrations warns when multiple Wrangler configs exist", async () => {
     const migrations = path.join(dir, "schema");
     mkdirSync(migrations);
     writeFileSync(path.join(migrations, "001_init.sql"), "create table t (id integer);");
-    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
-      name: "api",
-      main: "src/index.js",
-      d1_databases: [{
-        binding: "DB",
-        database_name: "main",
-        database_id: "main-id",
-        migrations_dir: "schema",
-      }],
-    }));
-    writeFileSync(path.join(dir, "wrangler.toml"), [
-      'name = "old"',
-      'main = "old.js"',
-      "",
-      "[[d1_databases]]",
-      'binding = "DB"',
-      'database_name = "main"',
-      'migrations_dir = "old-migrations"',
-      "",
-    ].join("\n"));
+    writeFileSync(
+      path.join(dir, "wrangler.json"),
+      JSON.stringify({
+        name: "api",
+        main: "src/index.js",
+        d1_databases: [
+          {
+            binding: "DB",
+            database_name: "main",
+            database_id: "main-id",
+            migrations_dir: "schema",
+          },
+        ],
+      })
+    );
+    writeFileSync(
+      path.join(dir, "wrangler.toml"),
+      [
+        'name = "old"',
+        'main = "old.js"',
+        "",
+        "[[d1_databases]]",
+        'binding = "DB"',
+        'database_name = "main"',
+        'migrations_dir = "old-migrations"',
+        "",
+      ].join("\n")
+    );
 
     /** @type {string[]} */
     const warnings = [];
@@ -551,13 +562,14 @@ test("d1 migrations --dir display errors escape terminal controls", async () => 
   try {
     mkdirSync(path.join(dir, badDir));
     await assert.rejects(
-      () => runD1Command(["migrations", "apply", "main", "--dir", badDir, "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(["migrations", "apply", "main", "--dir", badDir, "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
       (err) => assertEscapedD1Error(err, /no \.sql migration files found in empty\\u001b\[2J\\nFORGED\\rBAD/)
     );
   } finally {
@@ -569,24 +581,30 @@ test("d1 migration config matching errors escape terminal controls", async () =>
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-match-escape-"));
   const badRef = `main${ESC}[2J\nFORGED\rBAD`;
   try {
-    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
-      name: "api",
-      main: "src/index.js",
-      d1_databases: [{
-        binding: "DB",
-        database_name: "other",
-        migrations_dir: "migrations",
-      }],
-    }));
+    writeFileSync(
+      path.join(dir, "wrangler.json"),
+      JSON.stringify({
+        name: "api",
+        main: "src/index.js",
+        d1_databases: [
+          {
+            binding: "DB",
+            database_name: "other",
+            migrations_dir: "migrations",
+          },
+        ],
+      })
+    );
 
     await assert.rejects(
-      () => runD1Command(["migrations", "apply", badRef, "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(["migrations", "apply", badRef, "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
       (err) => assertEscapedD1Error(err, /no matching \[\[d1_databases\]\] entry for "main\\u001b\[2J\\nFORGED\\rBAD"/)
     );
   } finally {
@@ -598,23 +616,27 @@ test("d1 migration multiple-match errors escape terminal controls", async () => 
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-multi-match-escape-"));
   const badRef = `main${ESC}[2J\nFORGED\rBAD`;
   try {
-    writeFileSync(path.join(dir, "wrangler.json"), JSON.stringify({
-      name: "api",
-      main: "src/index.js",
-      d1_databases: [
-        { binding: "DB1", database_name: badRef, migrations_dir: "migrations" },
-        { binding: "DB2", database_name: badRef, migrations_dir: "migrations" },
-      ],
-    }));
+    writeFileSync(
+      path.join(dir, "wrangler.json"),
+      JSON.stringify({
+        name: "api",
+        main: "src/index.js",
+        d1_databases: [
+          { binding: "DB1", database_name: badRef, migrations_dir: "migrations" },
+          { binding: "DB2", database_name: badRef, migrations_dir: "migrations" },
+        ],
+      })
+    );
 
     await assert.rejects(
-      () => runD1Command(["migrations", "apply", badRef, "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(["migrations", "apply", badRef, "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
       (err) => assertEscapedD1Error(err, /multiple \[\[d1_databases\]\] entries match "main\\u001b\[2J\\nFORGED\\rBAD"/)
     );
   } finally {
@@ -628,23 +650,19 @@ test("d1 migrations --dir cannot escape the project", async () => {
   try {
     writeFileSync(path.join(outside, "001_leak.sql"), "select 'leak';");
     await assert.rejects(
-      () => runD1Command([
-        "migrations",
-        "apply",
-        "main",
-        "--dir",
-        path.relative(dir, outside),
-        "--control-url",
-        "http://ctl.test",
-      ], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdin: { isTTY: false },
-        stdout: () => {},
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(
+          ["migrations", "apply", "main", "--dir", path.relative(dir, outside), "--control-url", "http://ctl.test"],
+          {
+            cwd: dir,
+            env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+            stdin: { isTTY: false },
+            stdout: () => {},
+            controlFetch: async () => {
+              throw new Error("controlFetch should not be called");
+            },
+          }
+        ),
       /--dir must stay inside the project/
     );
   } finally {
@@ -664,9 +682,7 @@ test("d1 migrations apply orders unpadded numeric prefixes numerically", async (
 
     /** @type {RecordedCall[]} */
     const calls = [];
-    await runD1Command([
-      "migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test",
-    ], {
+    await runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
@@ -678,11 +694,10 @@ test("d1 migrations apply orders unpadded numeric prefixes numerically", async (
     });
 
     const body = parseMigrationsBody(calls[0].init.body);
-    assert.deepEqual(body.migrations.map((m) => m.id), [
-      "1_init.sql",
-      "2_two.sql",
-      "10_ten.sql",
-    ]);
+    assert.deepEqual(
+      body.migrations.map((m) => m.id),
+      ["1_init.sql", "2_two.sql", "10_ten.sql"]
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -697,9 +712,7 @@ test("d1 migrations --dir accepts a project subdirectory whose name starts with 
 
     /** @type {RecordedCall[]} */
     const calls = [];
-    await runD1Command([
-      "migrations", "apply", "main", "--dir", "..hidden", "--control-url", "http://ctl.test",
-    ], {
+    await runD1Command(["migrations", "apply", "main", "--dir", "..hidden", "--control-url", "http://ctl.test"], {
       cwd: dir,
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
@@ -711,7 +724,10 @@ test("d1 migrations --dir accepts a project subdirectory whose name starts with 
     });
 
     const body = parseMigrationsBody(calls[0].init.body);
-    assert.deepEqual(body.migrations.map((m) => m.id), ["0001_init.sql"]);
+    assert.deepEqual(
+      body.migrations.map((m) => m.id),
+      ["0001_init.sql"]
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -721,12 +737,13 @@ test("d1 execute --file rejects a path outside the project", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-file-escape-"));
   try {
     await assert.rejects(
-      () => runD1Command(["execute", "main", "--file", "../outside.sql", "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdout: () => {},
-        controlFetch: async () => response({}),
-      }),
+      () =>
+        runD1Command(["execute", "main", "--file", "../outside.sql", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          stdout: () => {},
+          controlFetch: async () => response({}),
+        }),
       /--file must stay inside the project/
     );
   } finally {
@@ -738,14 +755,15 @@ test("d1 execute --file wraps missing file read errors", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-file-missing-"));
   try {
     await assert.rejects(
-      () => runD1Command(["execute", "main", "--file", "missing.sql", "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdout: () => {},
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(["execute", "main", "--file", "missing.sql", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          stdout: () => {},
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
       /cannot read SQL file missing\.sql:/
     );
   } finally {
@@ -758,20 +776,21 @@ test("d1 execute --file escapes terminal controls in file read errors", async ()
   const bad = `bad${ESC}[2J\nFORGED\rBAD.sql`;
   try {
     await assert.rejects(
-      () => runD1Command(["execute", "main", "--file", bad, "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdout: () => {},
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
+      () =>
+        runD1Command(["execute", "main", "--file", bad, "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          stdout: () => {},
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
+          },
+        }),
       (err) => {
         const message = /** @type {Error} */ (err).message;
         assertNoRawTerminalControls(message, "the error");
         assert.match(message, /bad\\u001b\[2J\\nFORGED\\rBAD\.sql/);
         return true;
-      },
+      }
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -819,9 +838,12 @@ test("d1 escapes terminal controls in unexpected positional errors", async () =>
     (err) => {
       const message = /** @type {Error} */ (err).message;
       assertNoRawTerminalControls(message, "the error");
-      assert.match(message, /d1 migrations apply\\u001b\[2J\\nFORGED\\rBAD received unexpected argument: bad\\u001b\[2J\\nFORGED\\rBAD/);
+      assert.match(
+        message,
+        /d1 migrations apply\\u001b\[2J\\nFORGED\\rBAD received unexpected argument: bad\\u001b\[2J\\nFORGED\\rBAD/
+      );
       return true;
-    },
+    }
   );
 });
 
@@ -847,11 +869,15 @@ test("d1 escapes terminal controls in unknown subcommand errors", async () => {
 test("d1 execute rejects an unknown --mode before calling control", async () => {
   let fetched = false;
   await assert.rejects(
-    () => runD1Command(["execute", "main", "--sql", "SELECT 1", "--mode", "bogus", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-      stdout: () => {},
-      controlFetch: async () => { fetched = true; return response({}); },
-    }),
+    () =>
+      runD1Command(["execute", "main", "--sql", "SELECT 1", "--mode", "bogus", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        stdout: () => {},
+        controlFetch: async () => {
+          fetched = true;
+          return response({});
+        },
+      }),
     /--mode must be one of/
   );
   assert.equal(fetched, false);
@@ -861,16 +887,7 @@ test("d1 execute accepts all valid --mode values", async () => {
   for (const mode of ["all", "raw", "run", "exec"]) {
     /** @type {RecordedCall[]} */
     const calls = [];
-    await runD1Command([
-      "execute",
-      "main",
-      "--sql",
-      "SELECT 1",
-      "--mode",
-      mode,
-      "--control-url",
-      "http://ctl.test",
-    ], {
+    await runD1Command(["execute", "main", "--sql", "SELECT 1", "--mode", mode, "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
       stdout: () => {},
       /** @param {string} url @param {ControlFetchInit} [init] */
@@ -888,10 +905,29 @@ test("d1 execute accepts all valid --mode values", async () => {
 test("d1 execute rejects --mode exec with any --params before calling control", async () => {
   let fetched = false;
   /** @param {string} paramsJson */
-  const run = (paramsJson) => runD1Command(
-    ["execute", "main", "--sql", "SELECT 1", "--mode", "exec", "--params", paramsJson, "--control-url", "http://ctl.test"],
-    { env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" }, stdout: () => {}, controlFetch: async () => { fetched = true; return response({}); } }
-  );
+  const run = (paramsJson) =>
+    runD1Command(
+      [
+        "execute",
+        "main",
+        "--sql",
+        "SELECT 1",
+        "--mode",
+        "exec",
+        "--params",
+        paramsJson,
+        "--control-url",
+        "http://ctl.test",
+      ],
+      {
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        stdout: () => {},
+        controlFetch: async () => {
+          fetched = true;
+          return response({});
+        },
+      }
+    );
   await assert.rejects(() => run("[1]"), /--mode exec does not accept --params/);
   await assert.rejects(() => run("[]"), /--mode exec does not accept --params/);
   await assert.rejects(() => run(""), /--mode exec does not accept --params/);
@@ -901,10 +937,29 @@ test("d1 execute rejects --mode exec with any --params before calling control", 
 test("d1 execute rejects an invalid --params before calling control", async () => {
   let fetched = false;
   /** @param {string} paramsJson */
-  const run = (paramsJson) => runD1Command(
-    ["execute", "main", "--sql", "SELECT 1", "--mode", "all", "--params", paramsJson, "--control-url", "http://ctl.test"],
-    { env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" }, stdout: () => {}, controlFetch: async () => { fetched = true; return response({}); } }
-  );
+  const run = (paramsJson) =>
+    runD1Command(
+      [
+        "execute",
+        "main",
+        "--sql",
+        "SELECT 1",
+        "--mode",
+        "all",
+        "--params",
+        paramsJson,
+        "--control-url",
+        "http://ctl.test",
+      ],
+      {
+        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+        stdout: () => {},
+        controlFetch: async () => {
+          fetched = true;
+          return response({});
+        },
+      }
+    );
   await assert.rejects(() => run(""), /--params must be a JSON array/);
   await assert.rejects(() => run("{}"), /--params must be a JSON array/);
   assert.equal(fetched, false);
@@ -915,12 +970,13 @@ test("d1 migrations status reports an empty migrations dir like apply", async ()
   try {
     mkdirSync(path.join(dir, "migrations"));
     await assert.rejects(
-      () => runD1Command(["migrations", "status", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
-        cwd: dir,
-        env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
-        stdout: () => {},
-        controlFetch: async () => response({}),
-      }),
+      () =>
+        runD1Command(["migrations", "status", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          stdout: () => {},
+          controlFetch: async () => response({}),
+        }),
       /no \.sql migration files found/
     );
   } finally {

@@ -23,7 +23,12 @@ async function runConfig({ values, positionals, context }) {
   const [subcommand, extra] = positionals;
   if (subcommand !== "explain" || extra) throw new CliError(usageText());
 
-  const state = resolveCliConfigState({ values, env: context.env, cwd: context.cwd, warn: context.warn });
+  const state = resolveCliConfigState({
+    values,
+    env: context.env,
+    cwd: context.cwd,
+    warn: context.warn,
+  });
   const body = {
     namespace: publicEntry(state.namespace),
     controlUrl: publicEntry(state.controlUrl),
@@ -71,11 +76,7 @@ function formatConfigExplain(body) {
  * @param {PublicConfigEntry} entry
  */
 function formatBlock(name, entry) {
-  const lines = [
-    `${name}:`,
-    `  value: ${entry.value}`,
-    `  source: ${entry.source}`,
-  ];
+  const lines = [`${name}:`, `  value: ${entry.value}`, `  source: ${entry.source}`];
   if (entry.error) lines.push(`  error: ${entry.error}`);
   return lines;
 }

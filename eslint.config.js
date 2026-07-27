@@ -32,20 +32,10 @@ const commonRules = {
 export default [
   js.configs.recommended,
   {
-    ignores: [
-      "**/node_modules/**",
-      "**/.deploy-dist/**",
-      "**/.wrangler/**",
-    ],
+    ignores: ["**/node_modules/**", "**/.deploy-dist/**", "**/.wrangler/**"],
   },
   {
-    files: [
-      "bin/**/*.js",
-      "commands/**/*.js",
-      "lib/**/*.js",
-      "tests/**/*.js",
-      "eslint.config.js",
-    ],
+    files: ["bin/**/*.js", "commands/**/*.js", "lib/**/*.js", "tests/**/*.js", "eslint.config.js"],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: "module",

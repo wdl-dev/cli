@@ -96,11 +96,12 @@ wdl tail hello          # live logs while you try the URL
 The worker is now at `https://<namespace>.<platform-domain>/hello/`.
 
 Prefer not to store the token? Credentials can also come from shell env
-(`WDL_NS` / `ADMIN_TOKEN` / `CONTROL_URL`) or a project `.env` with per-namespace
-sections (copy [`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example))
-— see [docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md)
-for the full precedence (flags beat shell env, which beats `.env`, which beats
-the `wdl token` store).
+(`WDL_NS` / `ADMIN_TOKEN` / `CONTROL_URL`) or a project `.env` with
+per-namespace sections (copy
+[`.env.example`](https://github.com/wdl-dev/cli/blob/main/.env.example)) — see
+[docs/deploy.md](https://github.com/wdl-dev/cli/blob/main/docs/deploy.md) for
+the full precedence (flags beat shell env, which beats `.env`, which beats the
+`wdl token` store).
 
 ## Commands
 

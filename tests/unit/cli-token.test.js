@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
@@ -49,6 +58,12 @@ function deps(xdg, { stdin, controlFetch } = {}) {
   const warnings = [];
   /** @type {Array<{ url: string, init: WhoamiInit }>} */
   const calls = [];
+  /** @type {FakeControlFetch} */
+  const defaultControlFetch = async (url, init) => {
+    if (!init) throw new Error("expected whoami request init");
+    calls.push({ url, init });
+    return response({ ok: true, principal: { kind: "ns", ns: "acme" } });
+  };
   return {
     lines,
     warnings,
@@ -62,10 +77,7 @@ function deps(xdg, { stdin, controlFetch } = {}) {
       /** @param {string} line */
       warn: (line) => warnings.push(line),
       stdin,
-      controlFetch: controlFetch || (/** @param {string} url @param {WhoamiInit} init */ async (url, init) => {
-        calls.push({ url, init });
-        return response({ ok: true, principal: { kind: "ns", ns: "acme" } });
-      }),
+      controlFetch: controlFetch || defaultControlFetch,
     },
   };
 }
@@ -81,7 +93,10 @@ test("token set reads stdin, validates via /whoami, and stores the credential", 
     assert.equal(calls[0].init.headers["x-admin-token"], "tok-secret-1234");
 
     const store = readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg }));
-    assert.deepEqual(store.namespaces.acme, { CONTROL_URL: "https://api.example", ADMIN_TOKEN: "tok-secret-1234" });
+    assert.deepEqual(store.namespaces.acme, {
+      CONTROL_URL: "https://api.example",
+      ADMIN_TOKEN: "tok-secret-1234",
+    });
     assert.equal(store.defaultNs, "acme", "the first stored namespace becomes the default");
     assert.match(lines.join("\n"), /Stored token for acme @ https:\/\/api\.example \(\*\*\*\*1234\)/);
     assert.match(lines.join("\n"), /acme is now the default namespace/);
@@ -143,7 +158,10 @@ test("token set does not claim a deliberately-cleared default in an ambiguous st
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
     // Default null but 2+ namespaces (e.g. the default was removed from an
     // ambiguous set); a later set without --default must not steal the default.
-    writeTokenStore(p, { defaultNs: null, namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } } });
+    writeTokenStore(p, {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } },
+    });
     await runTokenCommand(
       ["set", "--ns", "demo", "--control-url", "https://api.example"],
       deps(xdg, {
@@ -158,7 +176,10 @@ test("token set does not claim a deliberately-cleared default in an ambiguous st
 test("token set with --default claims the default in a deliberately-cleared ambiguous store", async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
-    writeTokenStore(p, { defaultNs: null, namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } } });
+    writeTokenStore(p, {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } },
+    });
     await runTokenCommand(
       ["set", "--ns", "demo", "--control-url", "https://api.example", "--default"],
       deps(xdg, {
@@ -194,20 +215,25 @@ test("token set does not store a token that fails /whoami", async () => {
   await withTempXdg(async (xdg) => {
     const controlFetch = async () => response({ error: "unauthorized" }, 401);
     await assert.rejects(
-      () => runTokenCommand(
-        ["set", "--ns", "acme", "--control-url", "https://api.example"],
-        deps(xdg, { stdin: stdinFrom("bad-token\n"), controlFetch }).deps
-      ),
+      () =>
+        runTokenCommand(
+          ["set", "--ns", "acme", "--control-url", "https://api.example"],
+          deps(xdg, { stdin: stdinFrom("bad-token\n"), controlFetch }).deps
+        ),
       /whoami/
     );
-    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), { defaultNs: null, namespaces: {} });
+    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), {
+      defaultNs: null,
+      namespaces: {},
+    });
   });
 });
 
 test("token set requires --ns and a control URL", async () => {
   await withTempXdg(async (xdg) => {
     await assert.rejects(
-      () => runTokenCommand(["set", "--control-url", "https://api.example"], deps(xdg, { stdin: stdinFrom("t\n") }).deps),
+      () =>
+        runTokenCommand(["set", "--control-url", "https://api.example"], deps(xdg, { stdin: stdinFrom("t\n") }).deps),
       /requires --ns/
     );
     await assert.rejects(
@@ -221,13 +247,17 @@ test("token set rejects a token whose principal namespace differs from --ns", as
   await withTempXdg(async (xdg) => {
     const controlFetch = async () => response({ ok: true, principal: { kind: "ns", ns: "other" } });
     await assert.rejects(
-      () => runTokenCommand(
-        ["set", "--ns", "acme", "--control-url", "https://api.example"],
-        deps(xdg, { stdin: stdinFrom("tok\n"), controlFetch }).deps
-      ),
+      () =>
+        runTokenCommand(
+          ["set", "--ns", "acme", "--control-url", "https://api.example"],
+          deps(xdg, { stdin: stdinFrom("tok\n"), controlFetch }).deps
+        ),
       /namespace "other", not "acme"/
     );
-    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), { defaultNs: null, namespaces: {} });
+    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), {
+      defaultNs: null,
+      namespaces: {},
+    });
   });
 });
 
@@ -235,26 +265,34 @@ test("token set rejects a token that is not scoped to a namespace", async () => 
   await withTempXdg(async (xdg) => {
     const controlFetch = async () => response({ ok: true, principal: { kind: "operator" } });
     await assert.rejects(
-      () => runTokenCommand(
-        ["set", "--ns", "acme", "--control-url", "https://api.example"],
-        deps(xdg, { stdin: stdinFrom("tok\n"), controlFetch }).deps
-      ),
+      () =>
+        runTokenCommand(
+          ["set", "--ns", "acme", "--control-url", "https://api.example"],
+          deps(xdg, { stdin: stdinFrom("tok\n"), controlFetch }).deps
+        ),
       /not scoped to namespace "acme"/
     );
-    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), { defaultNs: null, namespaces: {} });
+    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), {
+      defaultNs: null,
+      namespaces: {},
+    });
   });
 });
 
 test("token set rejects a namespace that is not a valid section name", async () => {
   await withTempXdg(async (xdg) => {
     await assert.rejects(
-      () => runTokenCommand(
-        ["set", "--ns", "evil]x", "--control-url", "https://api.example"],
-        deps(xdg, { stdin: stdinFrom("tok\n") }).deps
-      ),
+      () =>
+        runTokenCommand(
+          ["set", "--ns", "evil]x", "--control-url", "https://api.example"],
+          deps(xdg, { stdin: stdinFrom("tok\n") }).deps
+        ),
       /invalid namespace/
     );
-    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), { defaultNs: null, namespaces: {} });
+    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), {
+      defaultNs: null,
+      namespaces: {},
+    });
   });
 });
 
@@ -262,10 +300,11 @@ test("token set escapes terminal controls in a principal-mismatch error", async 
   await withTempXdg(async (xdg) => {
     const controlFetch = async () => response({ ok: true, principal: { kind: "ns", ns: `other${ESC}[2J` } });
     await assert.rejects(
-      () => runTokenCommand(
-        ["set", "--ns", "acme", "--control-url", "https://api.example"],
-        deps(xdg, { stdin: stdinFrom("tok\n"), controlFetch }).deps
-      ),
+      () =>
+        runTokenCommand(
+          ["set", "--ns", "acme", "--control-url", "https://api.example"],
+          deps(xdg, { stdin: stdinFrom("tok\n"), controlFetch }).deps
+        ),
       (err) => {
         const message = /** @type {Error} */ (err).message;
         assertNoRawTerminalControls(message, "principal-mismatch errors");
@@ -306,17 +345,21 @@ test("writeTokenStore replaces a symlink instead of following it", POSIX_ONLY, a
 
     assert.equal(readFileSync(target, "utf8"), "outside\n");
     assert.equal(lstatSync(p).isSymbolicLink(), false);
-    assert.deepEqual(readTokenStore(p), { defaultNs: "acme", namespaces: { acme: { ADMIN_TOKEN: "secret" } } });
+    assert.deepEqual(readTokenStore(p), {
+      defaultNs: "acme",
+      namespaces: { acme: { ADMIN_TOKEN: "secret" } },
+    });
   });
 });
 
 test("token does not accept a --token flag (the token comes from stdin)", async () => {
   await withTempXdg(async (xdg) => {
     await assert.rejects(
-      () => runTokenCommand(
-        ["set", "--ns", "acme", "--control-url", "https://api.example", "--token", "x"],
-        deps(xdg, { stdin: stdinFrom("tok\n") }).deps
-      ),
+      () =>
+        runTokenCommand(
+          ["set", "--ns", "acme", "--control-url", "https://api.example", "--token", "x"],
+          deps(xdg, { stdin: stdinFrom("tok\n") }).deps
+        ),
       /Unknown option|--token/
     );
   });
@@ -329,7 +372,11 @@ test("token list formats stored namespaces with masked tokens and marks the defa
     writeTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg }), {
       defaultNs: "acme",
       namespaces: {
-        acme: { CONTROL_URL: "https://api.example", ADMIN_TOKEN: "tok-abcd1234", LABEL: "production" },
+        acme: {
+          CONTROL_URL: "https://api.example",
+          ADMIN_TOKEN: "tok-abcd1234",
+          LABEL: "production",
+        },
         demo: { CONTROL_URL: "https://api.example", ADMIN_TOKEN: "tok-zzzz9999" },
       },
     });
@@ -478,18 +525,21 @@ test("token set requires an explicit --ns and ignores ambient WDL_NS", async () 
     // without the guard a WDL_NS=acme would let this store under acme.
     const { deps: d } = deps(xdg, { stdin: stdinFrom("tok\n") });
     d.env.WDL_NS = "acme";
-    await assert.rejects(
-      () => runTokenCommand(["set", "--control-url", "https://api.example"], d),
-      /requires --ns/
-    );
-    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), { defaultNs: null, namespaces: {} });
+    await assert.rejects(() => runTokenCommand(["set", "--control-url", "https://api.example"], d), /requires --ns/);
+    assert.deepEqual(readTokenStore(tokenStorePath({ XDG_CONFIG_HOME: xdg })), {
+      defaultNs: null,
+      namespaces: {},
+    });
   });
 });
 
 test("token use requires an explicit namespace and ignores ambient WDL_NS", async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
-    writeTokenStore(p, { defaultNs: "demo", namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } } });
+    writeTokenStore(p, {
+      defaultNs: "demo",
+      namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" } },
+    });
     const { deps: d } = deps(xdg);
     // A stray WDL_NS must NOT make a bare `use` switch the default.
     d.env.WDL_NS = "acme";
@@ -503,7 +553,11 @@ test("token rm of the default promotes a sole survivor, clears it when ambiguous
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
     writeTokenStore(p, {
       defaultNs: "acme",
-      namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" }, prod: { ADMIN_TOKEN: "p" } },
+      namespaces: {
+        acme: { ADMIN_TOKEN: "a" },
+        demo: { ADMIN_TOKEN: "d" },
+        prod: { ADMIN_TOKEN: "p" },
+      },
     });
 
     // Three stored, default removed → two remain → ambiguous → default cleared.
@@ -522,7 +576,11 @@ test("token rm promotes the sole survivor even after the default was already cle
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
     writeTokenStore(p, {
       defaultNs: "acme",
-      namespaces: { acme: { ADMIN_TOKEN: "a" }, demo: { ADMIN_TOKEN: "d" }, prod: { ADMIN_TOKEN: "p" } },
+      namespaces: {
+        acme: { ADMIN_TOKEN: "a" },
+        demo: { ADMIN_TOKEN: "d" },
+        prod: { ADMIN_TOKEN: "p" },
+      },
     });
     await runTokenCommand(["rm", "--ns", "acme"], deps(xdg).deps); // default cleared, 2 remain
     assert.equal(readTokenStore(p).defaultNs, null);
@@ -540,7 +598,9 @@ test("token rejects unknown subcommands", async () => {
 test("token use/list/rm handle a namespace named like an Object.prototype key", async () => {
   await withTempXdg(async (xdg) => {
     const p = tokenStorePath({ XDG_CONFIG_HOME: xdg });
-    writeTokenStore(p, { namespaces: { constructor: { ADMIN_TOKEN: "c" }, acme: { ADMIN_TOKEN: "a" } } });
+    writeTokenStore(p, {
+      namespaces: { constructor: { ADMIN_TOKEN: "c" }, acme: { ADMIN_TOKEN: "a" } },
+    });
 
     await runTokenCommand(["use", "constructor"], deps(xdg).deps);
     assert.equal(readTokenStore(p).defaultNs, "constructor");

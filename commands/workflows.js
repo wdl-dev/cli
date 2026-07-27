@@ -1,24 +1,25 @@
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import {
-  escapeTerminalText,
-  writeJsonOr,
-  writeResult,
-  writeStatusLine,
-} from "../lib/output.js";
-import {
-  formatInstanceList,
-  formatInstanceStatus,
-  formatWorkflowList,
-} from "../lib/workflows-format.js";
+import { escapeTerminalText, writeJsonOr, writeResult, writeStatusLine } from "../lib/output.js";
+import { formatInstanceList, formatInstanceStatus, formatWorkflowList } from "../lib/workflows-format.js";
 
 const LIFECYCLE_ACTIONS = new Set(["pause", "resume", "restart", "terminate"]);
 const WORKFLOW_OPTIONS = [
   defineCliOption("limit", { type: "string" }, "--limit <n>", "Instance page size (default 100, max 1000)."),
   defineCliOption("cursor", { type: "string" }, "--cursor <cursor>", "Opaque instances pagination cursor."),
-  defineCliOption("include-steps", { type: "boolean" }, "--include-steps", "Include bounded step history in status output."),
-  defineCliOption("step-limit", { type: "string" }, "--step-limit <n>", "Step history page size (default 100, max 1000)."),
+  defineCliOption(
+    "include-steps",
+    { type: "boolean" },
+    "--include-steps",
+    "Include bounded step history in status output."
+  ),
+  defineCliOption(
+    "step-limit",
+    { type: "string" },
+    "--step-limit <n>",
+    "Step history page size (default 100, max 1000)."
+  ),
   defineCliOption("yes", { type: "boolean" }, "--yes", "Confirm restart or terminate."),
   "ns",
   "control",
@@ -62,9 +63,10 @@ async function runWorkflows({ values, positionals, context }) {
     const url = new URL(context.nsUrl("workflows", worker, workflow, "instances"));
     if (values.limit) url.searchParams.set("limit", values.limit);
     if (values.cursor) url.searchParams.set("cursor", values.cursor);
-    const body = /** @type {{ instances?: import("../lib/workflows-format.js").WorkflowInstance[], cursor?: string }} */ (
-      await context.fetchJson(url.href, { headers }, "list workflow instances")
-    );
+    const body =
+      /** @type {{ instances?: import("../lib/workflows-format.js").WorkflowInstance[], cursor?: string }} */ (
+        await context.fetchJson(url.href, { headers }, "list workflow instances")
+      );
     writeResult(Boolean(values.json), body, () => formatInstanceList(body), stdout);
     return;
   }
@@ -97,11 +99,13 @@ async function runWorkflows({ values, positionals, context }) {
         action: `${subcommand} workflow instance "${ns}/${worker}/${workflow}/${instanceId}"`,
       });
     }
-    const body = /** @type {{ id?: string, status?: string }} */ (await context.fetchJson(
-      context.nsUrl("workflows", worker, workflow, "instances", instanceId, subcommand),
-      { method: "POST", headers },
-      `${subcommand} workflow instance`,
-    ));
+    const body = /** @type {{ id?: string, status?: string }} */ (
+      await context.fetchJson(
+        context.nsUrl("workflows", worker, workflow, "instances", instanceId, subcommand),
+        { method: "POST", headers },
+        `${subcommand} workflow instance`
+      )
+    );
     if (writeJsonOr(Boolean(values.json), body, stdout)) return;
     writeStatusLine(
       stdout,

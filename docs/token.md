@@ -97,10 +97,10 @@ stored token to a host it chose.
 `wdl deploy` runs the project's local Wrangler dry-run and any build commands or
 dependency hooks **as your OS user**, before uploading. Scrubbing `ADMIN_TOKEN`
 and the control-plane variables from that child's environment only closes the
-*environment* path — it is not a sandbox. The on-disk store at
+_environment_ path — it is not a sandbox. The on-disk store at
 `~/.config/wdl/credentials` stays readable by that code, the same way
-`~/.aws/credentials` or `~/.npmrc` would. So a malicious project can read it, and
-because the store can hold tokens for **several namespaces**, one untrusted
+`~/.aws/credentials` or `~/.npmrc` would. So a malicious project can read it,
+and because the store can hold tokens for **several namespaces**, one untrusted
 deploy can exfiltrate tokens for namespaces unrelated to that project.
 
 - Only run `wdl deploy` on projects you trust.
@@ -108,11 +108,11 @@ deploy can exfiltrate tokens for namespaces unrelated to that project.
   ephemeral `ADMIN_TOKEN` / `CONTROL_URL` from your shell or `--token` /
   `--control-url` scoped to that one namespace, and ideally use a dedicated OS
   user or a container.
-- `--no-token-store` (or `WDL_TOKEN_STORE=off`) makes the CLI resolve credentials
-  from flags / env / `.env` only and never read the store. This is a resolution
-  opt-out, **not** protection for the file — the bytes on disk are still readable
-  by project code. The protection comes from not having a store present, not from
-  the flag.
+- `--no-token-store` (or `WDL_TOKEN_STORE=off`) makes the CLI resolve
+  credentials from flags / env / `.env` only and never read the store. This is a
+  resolution opt-out, **not** protection for the file — the bytes on disk are
+  still readable by project code. The protection comes from not having a store
+  present, not from the flag.
 
 ## Anti-patterns
 

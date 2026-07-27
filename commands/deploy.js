@@ -4,8 +4,23 @@
 import { execFileSync } from "node:child_process";
 import { LONG_CONTROL_TIMEOUT_MS } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, formatHttpError, isMain, optionHelp, readJsonOrFail, unexpectedArgument } from "../lib/common.js";
-import { escapeTerminalText, formatDiagnosticValue, formatKnownWarning, shellArgForDisplay, writeStatusLine } from "../lib/output.js";
+import {
+  CliError,
+  defineCliOption,
+  formatHelp,
+  formatHttpError,
+  isMain,
+  optionHelp,
+  readJsonOrFail,
+  unexpectedArgument,
+} from "../lib/common.js";
+import {
+  escapeTerminalText,
+  formatDiagnosticValue,
+  formatKnownWarning,
+  shellArgForDisplay,
+  writeStatusLine,
+} from "../lib/output.js";
 import { isLocalDevHost } from "../lib/credentials.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
@@ -69,7 +84,11 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   writeStatusLine(stdout, `[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
   // `version` comes from the control response; keep the raw value for the
   // promote request body — display sites escape via writeStatusLine.
-  const { version, warnings, workersDev: deployedWorkersDev } = /** @type {{ version: unknown, warnings?: DeployWarning[], workersDev?: unknown }} */ (
+  const {
+    version,
+    warnings,
+    workersDev: deployedWorkersDev,
+  } = /** @type {{ version: unknown, warnings?: DeployWarning[], workersDev?: unknown }} */ (
     await fetchDeployJson({
       context,
       url: context.nsUrl("worker", workerName, "deploy"),
@@ -89,7 +108,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   if (workersDevOptOutRequested && deployedWorkersDev !== false) {
     throw new CliError(
       "control did not confirm workers_dev = false; the uploaded version was retained but NOT promoted. " +
-      "Upgrade control and re-run `wdl deploy`."
+        "Upgrade control and re-run `wdl deploy`."
     );
   }
 
@@ -105,20 +124,20 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
           headers: jsonHeaders,
           body: JSON.stringify({ version }),
         },
-        "promote",
+        "promote"
       )
     );
   } catch (err) {
     stderr(
       `note: version ${escapeTerminalText(String(version))} was uploaded and retained but NOT promoted; ` +
-      `the previously active version still serves traffic. Re-run \`wdl deploy\` to retry.`
+        `the previously active version still serves traffic. Re-run \`wdl deploy\` to retry.`
     );
     throw err;
   }
   if (workersDevOptOutRequested && promoteBody.workersDev !== false) {
     throw new CliError(
       "control promoted the worker without preserving workers_dev = false; " +
-      "the platform-domain URL may still be active."
+        "the platform-domain URL may still be active."
     );
   }
   return {
@@ -139,8 +158,7 @@ function promotedWorkerUrlHints(raw, includePlatform) {
     return { platform: null, routes: [] };
   }
   const urls = /** @type {{ platform?: unknown, routes?: unknown }} */ (raw);
-  const platform =
-    includePlatform && typeof urls.platform === "string" ? urls.platform : null;
+  const platform = includePlatform && typeof urls.platform === "string" ? urls.platform : null;
   const seen = new Set(platform === null ? [] : [platform]);
   const routes = [];
   if (Array.isArray(urls.routes)) {
@@ -172,15 +190,13 @@ function displayWorkerUrl(rawUrl, controlUrl, isLocal) {
   }
   const authorityStart = rawUrl.indexOf("://") + 3;
   const suffixOffset = rawUrl.slice(authorityStart).search(/[/?#]/);
-  const authorityEnd =
-    suffixOffset === -1 ? rawUrl.length : authorityStart + suffixOffset;
+  const authorityEnd = suffixOffset === -1 ? rawUrl.length : authorityStart + suffixOffset;
   if (rawUrl.slice(0, authorityEnd) !== `${workerUrl.protocol}//${workerUrl.host}`) {
     return null;
   }
   // Normalize only the origin. URL.href would also normalize dot segments and
   // change the operator's original route pattern.
-  const suffix =
-    suffixOffset === -1 ? "" : rawUrl.slice(authorityEnd);
+  const suffix = suffixOffset === -1 ? "" : rawUrl.slice(authorityEnd);
   const protocol = isLocal ? controlUrl.protocol : workerUrl.protocol;
   const port = isLocal ? controlUrl.port : workerUrl.port;
   return `${protocol}//${workerUrl.hostname}${port ? `:${port}` : ""}${suffix}`;
@@ -205,7 +221,9 @@ async function fetchDeployJson({ context, url, init, label, ns, workerName, stde
   if (res.ok) return await readJsonOrFail(res, label);
   const text = await res.text();
   renderDeployWarningsFromErrorBody(text, { ns, workerName, stderr });
-  throw new CliError(`${label} failed: ${formatHttpError(res.status, stripRenderedWarnings(text), res.headers)}${deployErrorHint(text)}`);
+  throw new CliError(
+    `${label} failed: ${formatHttpError(res.status, stripRenderedWarnings(text), res.headers)}${deployErrorHint(text)}`
+  );
 }
 
 /**
@@ -223,9 +241,9 @@ function renderDeployWarnings(warnings, { ns, workerName, stderr }) {
       const keys = escapeTerminalText(w.missingCallerSecrets.join(", "));
       stderr(
         `warning: platform binding "${escapeTerminalText(w.binding)}" (platform="${escapeTerminalText(w.platform)}"): ` +
-        `missing caller secrets ${keys}\n` +
-        `  ns-wide:    wdl secret put --ns ${nsArg} --scope ns <KEY>\n` +
-        `  per-worker: wdl secret put --ns ${nsArg} --worker ${workerArg} <KEY>`
+          `missing caller secrets ${keys}\n` +
+          `  ns-wide:    wdl secret put --ns ${nsArg} --scope ns <KEY>\n` +
+          `  per-worker: wdl secret put --ns ${nsArg} --worker ${workerArg} <KEY>`
       );
     } else {
       stderr(`warning: ${formatKnownWarning(w, DEPLOY_WARNING_KEYS)}`);
@@ -304,21 +322,12 @@ export function serializeDeployManifest(manifest, maxBytes = DEPLOY_JSON_BODY_MA
   const body = JSON.stringify(manifest);
   const bodyBytes = Buffer.byteLength(body);
   if (bodyBytes > maxBytes) {
-    throw new CliError(
-      `deploy manifest is ${bodyBytes} bytes, exceeds ${maxBytes} byte control-plane request cap`
-    );
+    throw new CliError(`deploy manifest is ${bodyBytes} bytes, exceeds ${maxBytes} byte control-plane request cap`);
   }
   return body;
 }
 
-const DEPLOY_WARNING_KEYS = [
-  "code",
-  "message",
-  "binding",
-  "platform",
-  "className",
-  "entrypoint",
-];
+const DEPLOY_WARNING_KEYS = ["code", "message", "binding", "platform", "className", "entrypoint"];
 
 const command = defineCommand({
   name: "deploy",
@@ -382,9 +391,7 @@ async function runDeploy({ values, positionals, context: baseContext }) {
   const reportedUrlHints = promotedWorkerUrlHints(urls, workersDev !== false);
   const invalidUrlHints = [];
   const displayedPlatformUrl =
-    reportedUrlHints.platform === null
-      ? null
-      : displayWorkerUrl(reportedUrlHints.platform, parsedControlUrl, isLocal);
+    reportedUrlHints.platform === null ? null : displayWorkerUrl(reportedUrlHints.platform, parsedControlUrl, isLocal);
   if (reportedUrlHints.platform !== null && displayedPlatformUrl === null) {
     invalidUrlHints.push(reportedUrlHints.platform);
   }

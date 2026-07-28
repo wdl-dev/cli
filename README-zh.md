@@ -22,9 +22,9 @@
 
 - 差异分三类——**更强**（单区架构带来强一致 KV 和读己之写的 D1，外加 platform bindings 这类 WDL 新增能力）、**语义差异**、**未实现**——逐能力面的对照见[兼容矩阵](https://github.com/wdl-dev/cli/blob/main/GUIDE-zh.md#兼容性总结)。
 
-## 托管平台（预告）
+## 托管预览
 
-WDL 首先是开源基础设施：运维方自建平台（[wdl-dev/wdl](https://github.com/wdl-dev/wdl)，开源），租户用本 CLI 部署。WDL Team 也在运营一个实验性的托管平台——控制面在 `api.wdl.dev`，worker 通过 `*.wdl.sh` 提供服务——wdl.dev 自身已经以 worker 形式跑在这个平台上，平台迭代公开可见。目前仍是预览、尚未开放注册；想成为种子用户，欢迎发邮件到 <hi@wdl.dev> 联系我们。
+WDL 首先是开源基础设施：运维方自建平台（[wdl-dev/wdl](https://github.com/wdl-dev/wdl)，开源），租户用本 CLI 部署。WDL Team 也运行着一个托管预览——控制面在 `api.wdl.dev`，worker 入口是 `*.wdl.sh`——wdl.dev 自身已经以 worker 形式跑在这个平台上，平台迭代公开可见。这个预览会一直作为 demo 存在，不是一项商业服务：它会随平台迭代随时滚动更新，可能不稳定，也不提供任何承诺——但它展示的就是 WDL 的真实能力。WDL Team 无意把它变成对外提供承诺服务的公共 FaaS。预览目前可用；想在上面测试，欢迎发邮件到 <hi@wdl.dev> 联系我们。
 
 ## 功能
 

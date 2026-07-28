@@ -40,15 +40,18 @@ registered trademarks of Cloudflare, Inc.**
   mapped surface by surface in the
   [compatibility matrix](https://github.com/wdl-dev/cli/blob/main/GUIDE.md#compatibility-summary).
 
-## The hosted platform (preview)
+## The hosted preview
 
 WDL is open infrastructure first: operators run their own platform
 ([wdl-dev/wdl](https://github.com/wdl-dev/wdl), open source) and tenants deploy
-to it with this CLI. The WDL Team also runs an experimental hosted platform —
-the control plane at `api.wdl.dev`, workers serving from `*.wdl.sh` — where
-wdl.dev itself already runs as workers, so platform iteration happens in the
-open. It is still a preview and not open for general signups; if you want to be
-a seed user, email <hi@wdl.dev>.
+to it with this CLI. The WDL Team also runs a hosted preview — the control plane
+at `api.wdl.dev`, workers serving from `*.wdl.sh` — where wdl.dev itself already
+runs as workers, so platform iteration happens in the open. The preview is a
+permanent demo, not a commercial service: it is redeployed at any time as the
+platform iterates, may be unstable, and comes with no commitments — but what it
+shows is exactly what WDL can do. The WDL Team has no intention of turning it
+into a public FaaS with service commitments. It is available today; to test on
+it, email <hi@wdl.dev>.
 
 ## Features
 

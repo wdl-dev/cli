@@ -48,6 +48,9 @@
     "smol-toml": "^1.7.0",
     "wrangler": "4.114.0"
   },
+  "overrides": {
+    "undici": "^7.29.0"
+  },
   "engines": {
     "node": ">=22"
   },

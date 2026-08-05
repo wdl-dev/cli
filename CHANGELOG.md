@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Added `[wdl] session_policy = "restart"` for opt-in session restarts, matching
+  Cloudflare's default deploy behavior. The default remains `preserve`; a
+  restart promotion closes the worker's open WebSockets with code `1012` and
+  aborts stale Durable Object facets on their next dispatch while keeping SQLite
+  state. `wdl deploy` refuses to promote when control does not confirm the
+  policy.
+
 ## 1.6.1
 
 ### Changed

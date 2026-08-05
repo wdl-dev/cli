@@ -99,6 +99,26 @@ export function response(body, status = 200) {
   };
 }
 
+// A deploy issues at most two control calls: deploy, then promote if the CLI
+// accepts the deploy response. Record them and answer the first call with the
+// deploy body and any later call with the promote body.
+/**
+ * @param {unknown} deployBody
+ * @param {unknown} promoteBody
+ */
+export function deployPromoteFetch(deployBody, promoteBody) {
+  /** @type {ControlCall[]} */
+  const calls = [];
+  return {
+    calls,
+    /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} [init] */
+    controlFetch: async (url, init = {}) => {
+      calls.push({ url, init });
+      return response(calls.length === 1 ? deployBody : promoteBody);
+    },
+  };
+}
+
 // Records control-plane calls and stdout lines, returning deps for a command
 // runner. env defaults to a bare admin token; pass a richer env (e.g. with
 // WDL_NS) when the command resolves the namespace from the environment.

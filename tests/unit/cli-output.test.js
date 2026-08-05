@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { maskToken, writeJsonOr, writeStatusLine } from "../../lib/output.js";
+import { formatDiagnosticValue, maskToken, writeJsonOr, writeStatusLine } from "../../lib/output.js";
 
 test("writeStatusLine escapes terminal control bytes in the assembled line", () => {
   /** @type {string[]} */
@@ -8,6 +8,21 @@ test("writeStatusLine escapes terminal control bytes in the assembled line", () 
   writeStatusLine((/** @type {string} */ l) => lines.push(l), `ok ${String.fromCharCode(27)}[2J done`);
   assert.equal(lines.length, 1);
   assert.doesNotMatch(lines[0], new RegExp(String.fromCharCode(27)), "raw ESC must not pass through");
+});
+
+test("formatDiagnosticValue renders values JSON.stringify would misrepresent", () => {
+  assert.equal(formatDiagnosticValue(Number.NaN), "NaN");
+  assert.equal(formatDiagnosticValue(Number.POSITIVE_INFINITY), "Infinity");
+  assert.equal(formatDiagnosticValue(Number.NEGATIVE_INFINITY), "-Infinity");
+  assert.equal(formatDiagnosticValue(0), "0");
+  assert.equal(formatDiagnosticValue("restart"), '"restart"');
+  assert.equal(formatDiagnosticValue(null), "null");
+  assert.equal(formatDiagnosticValue(new Date(0)), "datetime 1970-01-01T00:00:00.000Z");
+  assert.doesNotMatch(
+    formatDiagnosticValue(`bad${String.fromCharCode(27)}[2J`),
+    new RegExp(String.fromCharCode(27)),
+    "raw ESC must not pass through"
+  );
 });
 
 test("writeJsonOr emits JSON and reports handled, or defers to the human path", () => {

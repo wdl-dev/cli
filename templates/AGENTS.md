@@ -58,6 +58,10 @@ disabling the default platform-domain URL; it requires at least one `route` /
 route-pattern URL hint, preserving the trailing `*` on prefix patterns, and
 includes the platform-domain URL only while it is enabled. Cloudflare's separate
 `preview_urls` field is unsupported and rejected by the CLI.
+`[wdl] session_policy = "restart"` makes every promotion close the Worker's open
+WebSockets with `1012` and retire stale Durable Object facets on their next
+dispatch; the default `preserve` leaves facets on the version that built them
+and keeps open WebSockets draining while their backend stays healthy.
 
 ## Runnable end-to-end examples
 

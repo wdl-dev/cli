@@ -24,6 +24,7 @@ import {
 import { isLocalDevHost } from "../lib/credentials.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
+import { asRecord } from "../lib/wrangler/utils.js";
 
 export const DEPLOY_JSON_BODY_MAX_BYTES = 32 * 1024 * 1024;
 
@@ -55,6 +56,11 @@ function usageText() {
  * @property {string[]} [missingCallerSecrets]
  */
 
+/**
+ * The promote response fields the CLI reads back.
+ * @typedef {{ platformDomain?: unknown, workersDev?: unknown, sessionPolicy?: unknown, restartSequence?: unknown, urls?: unknown }} PromoteResponseBody
+ */
+
 // Upload a packed manifest to control + promote. Token rides authHeaders.
 // controlUrl is passed only for the readable upload log line; the fetch URLs
 // are built via context.nsUrl so segment encoding stays consistent.
@@ -71,10 +77,9 @@ function usageText() {
  */
 export async function postArtifactToControl({ context, ns, workerName, manifest, controlUrl, authHeaders }) {
   const { stdout, stderr } = context;
-  const workersDevOptOutRequested =
-    manifest !== null &&
-    typeof manifest === "object" &&
-    /** @type {{ workersDev?: unknown }} */ (manifest).workersDev === false;
+  const manifestRecord = asRecord(manifest);
+  const workersDevOptOutRequested = manifestRecord?.workersDev === false;
+  const sessionPolicyRestartRequested = manifestRecord?.sessionPolicy === "restart";
   const jsonHeaders = {
     "content-type": "application/json",
     ...authHeaders,
@@ -88,7 +93,8 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     version,
     warnings,
     workersDev: deployedWorkersDev,
-  } = /** @type {{ version: unknown, warnings?: DeployWarning[], workersDev?: unknown }} */ (
+    sessionPolicy: deployedSessionPolicy,
+  } = /** @type {{ version: unknown, warnings?: DeployWarning[], workersDev?: unknown, sessionPolicy?: unknown }} */ (
     await fetchDeployJson({
       context,
       url: context.nsUrl("worker", workerName, "deploy"),
@@ -111,12 +117,18 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
         "Upgrade control and re-run `wdl deploy`."
     );
   }
+  if (sessionPolicyRestartRequested && deployedSessionPolicy !== "restart") {
+    throw new CliError(
+      "control did not confirm session_policy = restart; the uploaded version was retained but NOT promoted. " +
+        "Upgrade control and re-run `wdl deploy`."
+    );
+  }
 
   writeStatusLine(stdout, `[3/3] promoting ${version}`);
-  /** @type {{ platformDomain?: unknown, workersDev?: unknown, urls?: unknown }} */
+  /** @type {PromoteResponseBody} */
   let promoteBody;
   try {
-    promoteBody = /** @type {{ platformDomain?: unknown, workersDev?: unknown, urls?: unknown }} */ (
+    promoteBody = /** @type {PromoteResponseBody} */ (
       await context.fetchJson(
         context.nsUrl("worker", workerName, "promote"),
         {
@@ -138,6 +150,18 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     throw new CliError(
       "control promoted the worker without preserving workers_dev = false; " +
         "the platform-domain URL may still be active."
+    );
+  }
+  if (
+    sessionPolicyRestartRequested &&
+    (promoteBody.sessionPolicy !== "restart" ||
+      !Number.isSafeInteger(promoteBody.restartSequence) ||
+      Number(promoteBody.restartSequence) <= 0)
+  ) {
+    throw new CliError(
+      "control promoted the worker without confirming its restart session policy; " +
+        "the new version is live, but existing sessions may still be pinned to the old version. " +
+        "Upgrade control, then redeploy."
     );
   }
   return {

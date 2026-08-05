@@ -59,7 +59,9 @@ A same-named `[vars]` entry is shadowed by both kinds of secret.
 Changing a worker-level secret creates and promotes a new version, but
 already-loaded historical versions can keep holding the old value until runtime
 eviction or recycle. When strict revocation matters, also consider disabling the
-old credential.
+old credential. Because this is an ordinary promotion, a Worker with
+`[wdl] session_policy = "restart"` also closes its open WebSockets with `1012`
+when a secret changes.
 
 Worker-level secret mutations are atomic: if the active version changes during
 the update, control returns `secret_mutation_contention` and the CLI asks you to

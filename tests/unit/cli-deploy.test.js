@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { DEPLOY_JSON_BODY_MAX_BYTES, runDeployCommand, serializeDeployManifest } from "../../commands/deploy.js";
 import {
   collectAssets,
@@ -33,6 +34,7 @@ import {
   parseQueues,
   parseR2BucketsFromCfg,
   parseServicesFromCfg,
+  parseSessionPolicy,
   parseTriggers,
   parseWorkersDev,
   parseWorkflowsFromCfg,
@@ -45,7 +47,14 @@ import {
 } from "../../lib/wrangler-pack.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
 import { checkWranglerVersion, formatWranglerFailure } from "../../lib/wrangler/command.js";
-import { ESC, MODE_BITS_ENFORCED_ONLY, assertNoRawTerminalControls, assertUnreadable, response } from "./helpers.js";
+import {
+  ESC,
+  MODE_BITS_ENFORCED_ONLY,
+  assertNoRawTerminalControls,
+  assertUnreadable,
+  deployPromoteFetch,
+  response,
+} from "./helpers.js";
 
 /**
  * @param {() => unknown} fn
@@ -81,12 +90,7 @@ function assertThrowsNoRawTerminalControls(fn, expected, target) {
  * @property {ExecFileOpts} opts
  */
 
-/**
- * A recorded controlFetch invocation captured by a fake.
- * @typedef {object} RecordedFetch
- * @property {string} url
- * @property {import("../../lib/control-fetch.js").ControlFetchInit} init
- */
+/** @typedef {import("./helpers.js").ControlCall} RecordedFetch */
 
 // Shared happy-path execFile stub: answers the version probe and writes the
 // bundled entry the deploy pipeline expects in --outdir.
@@ -723,6 +727,11 @@ test("wrangler binding parser diagnostics escape terminal controls", () => {
     () => parseServicesFromCfg({ services: [{ binding: bad, service: 123 }] }),
     /service must be a non-empty string/,
     "service diagnostics"
+  );
+  assertThrowsNoRawTerminalControls(
+    () => parseSessionPolicy({ wdl: { [bad]: true } }, badConfigRel),
+    /\[wdl\] has unsupported field/,
+    "session policy diagnostics"
   );
   assertThrowsNoRawTerminalControls(
     () =>
@@ -1558,6 +1567,7 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
     ],
     exports: [{ entrypoint: "Auth", allowed_callers: ["acme"] }],
     platform_bindings: [{ binding: "PAYMENT", platform: "STRIPE" }],
+    wdl: { session_policy: "restart" },
     env: {
       staging: {
         define: { BUILD_ENV: '"staging"' },
@@ -1568,6 +1578,7 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
         services: [{ binding: "API", service: "api-worker", ns: "backend", remote: false }],
         exports: [{ entrypoint: "default", allowed_callers: ["*"] }],
         platform_bindings: [{ binding: "SEARCH", platform: "SEARCH" }],
+        wdl: { session_policy: "preserve" },
       },
     },
   };
@@ -1579,6 +1590,7 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
   assert.equal(projected.name, "wdl-bundle-tmp");
   assert.equal(projected.exports, undefined);
   assert.equal(projected.platform_bindings, undefined);
+  assert.equal(projected.wdl, undefined);
   assert.deepEqual(projected.build, { command: "npm run build" });
   assert.deepEqual(projected.vars, { MODE: "top" });
   assert.deepEqual(projected.triggers, { crons: ["*/5 * * * *"] });
@@ -1597,6 +1609,80 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
   assert.deepEqual(projectedEnv.staging.services, [{ binding: "API", service: "api-worker", remote: false }]);
   assert.equal(projectedEnv.staging.exports, undefined);
   assert.equal(projectedEnv.staging.platform_bindings, undefined);
+  assert.equal(projectedEnv.staging.wdl, undefined);
+});
+
+test("parseSessionPolicy validates the [wdl] session policy", () => {
+  assert.equal(parseSessionPolicy({}), "preserve");
+  assert.equal(parseSessionPolicy({ wdl: {} }), "preserve");
+  assert.equal(parseSessionPolicy({ wdl: { session_policy: "restart" } }), "restart");
+  assert.throws(() => parseSessionPolicy({ wdl: [] }), /\[wdl\] must be a table/);
+  assert.throws(() => parseSessionPolicy({ wdl: { session_policy: "replace" } }), /must be "preserve" or "restart"/);
+  assert.throws(
+    () => parseSessionPolicy({ wdl: { session_policy: "restart", typo: true } }),
+    /\[wdl\] has unsupported field "typo"/
+  );
+  // An explicit null is rejected at the field and at the table boundary.
+  assert.throws(() => parseSessionPolicy({ wdl: { session_policy: null } }), /must be "preserve" or "restart"/);
+  assert.throws(() => parseSessionPolicy({ wdl: null }), /\[wdl\] must be a table/);
+  assert.throws(() => parseSessionPolicy({ wdl: { session_policy: Number.NaN } }), /got NaN/);
+  // smol-toml parses bare dates into TomlDate, an object with no own keys: it
+  // is neither a table nor a string value.
+  const tomlDate = parseToml("v = 2026-08-04").v;
+  assert.throws(() => parseSessionPolicy({ wdl: tomlDate }), /\[wdl\] must be a table/);
+  assert.throws(() => parseSessionPolicy({ wdl: { session_policy: tomlDate } }), /got datetime 2026-08-04/);
+});
+
+test("a bare TOML datetime is never mistaken for a table", () => {
+  const tomlDate = parseToml("v = 2026-08-04").v;
+  assert.throws(() => parseTriggers(tomlDate), /\[triggers\] must be a table/);
+  assert.throws(() => parseDurableObjectsFromCfg({ durable_objects: tomlDate }), /\[durable_objects\] must be a table/);
+  assert.throws(
+    () => resolveWranglerConfig({ name: "a", main: "i.js", env: { prod: tomlDate } }, "prod"),
+    /env\.prod must be an object/
+  );
+});
+
+test("validateUnsupportedWranglerConfig: rejects session_policy hoisted out of [wdl]", () => {
+  assert.throws(
+    () =>
+      validateUnsupportedWranglerConfig(
+        { name: "demo", main: "src/index.js", session_policy: "restart" },
+        null,
+        "wrangler.toml"
+      ),
+    /top-level session_policy.*\[wdl\]/
+  );
+  assert.throws(
+    () =>
+      validateUnsupportedWranglerConfig(
+        { name: "demo", main: "src/index.js", env: { prod: { session_policy: "restart" } } },
+        "prod",
+        "wrangler.toml"
+      ),
+    /env\.prod uses top-level session_policy/
+  );
+});
+
+test("[wdl] resolves per environment like the policies beside it", () => {
+  const topLevelWdl = {
+    name: "demo",
+    main: "src/index.js",
+    wdl: { session_policy: "restart" },
+    durable_objects: { bindings: [{ name: "ROOMS", class_name: "Room" }] },
+    env: { prod: { vars: { STAGE: "prod" } } },
+  };
+  // Inherited when the env declares none, unlike the bindings beside it.
+  const inherited = resolveWranglerConfig(topLevelWdl, "prod", "wrangler.toml").cfg;
+  assert.equal(parseSessionPolicy(inherited), "restart");
+  assert.equal(inherited.durable_objects, undefined);
+  // An env-level table replaces the top-level one whole, contents and all.
+  const overridden = resolveWranglerConfig(
+    { ...topLevelWdl, wdl: { typo: 1 }, env: { prod: { wdl: { session_policy: "preserve" } } } },
+    "prod",
+    "wrangler.toml"
+  ).cfg;
+  assert.equal(parseSessionPolicy(overridden), "preserve");
 });
 
 test("validateUnsupportedWranglerConfig: workflows are supported at top-level and selected env", () => {
@@ -2442,8 +2528,10 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
 
     /** @type {RecordedExec[]} */
     const execCalls = [];
-    /** @type {RecordedFetch[]} */
-    const fetchCalls = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v1", warnings: [] },
+      { platformDomain: "workers.example" }
+    );
     /** @type {string[]} */
     const lines = [];
     await runDeployCommand(["sub", "--control-url", "http://ctl.test"], {
@@ -2469,16 +2557,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
         mkdirSync(outDir, { recursive: true });
         writeFileSync(path.join(outDir, "index.js"), 'export default { fetch() { return new Response("ok"); } };');
       },
-      controlFetch: async (
-        /** @type {string} */ url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-      ) => {
-        fetchCalls.push({ url, init });
-        if (fetchCalls.length === 1) {
-          return response({ version: "v1", warnings: [] });
-        }
-        return response({ platformDomain: "workers.example" });
-      },
+      controlFetch,
     });
 
     assert.equal(execCalls.length, 2);
@@ -2587,8 +2666,10 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
     let tmpConfigSeen = null;
     let tmpConfigContentAtExec =
       /** @type {{ name?: string, main?: string, vars?: unknown, exports?: unknown } | null} */ (null);
-    /** @type {RecordedFetch[]} */
-    const fetchCalls = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v1", warnings: [] },
+      { platformDomain: "workers.example" }
+    );
     /** @type {string[]} */
     const warnings = [];
     await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
@@ -2608,14 +2689,7 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
         mkdirSync(outDir, { recursive: true });
         writeFileSync(path.join(outDir, "index.js"), "export default {}");
       },
-      controlFetch: async (
-        /** @type {string} */ url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-      ) => {
-        fetchCalls.push({ url, init });
-        if (fetchCalls.length === 1) return response({ version: "v1", warnings: [] });
-        return response({ platformDomain: "workers.example" });
-      },
+      controlFetch,
     });
 
     assert.ok(
@@ -2736,21 +2810,16 @@ test("runDeployCommand preserves prototype-shaped binding keys for control valid
       })
     );
 
-    /** @type {RecordedFetch[]} */
-    const fetchCalls = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v1", warnings: [] },
+      { platformDomain: "workers.example" }
+    );
     await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdout: () => {},
       stderr: () => {},
       execFile: fakeWranglerExecFile,
-      controlFetch: async (
-        /** @type {string} */ url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-      ) => {
-        fetchCalls.push({ url, init });
-        if (fetchCalls.length === 1) return response({ version: "v1", warnings: [] });
-        return response({ platformDomain: "workers.example" });
-      },
+      controlFetch,
     });
 
     const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
@@ -2786,6 +2855,34 @@ test("runDeployCommand rejects a non-table [assets] before bundling", async () =
           },
         }),
       { message: "wrangler.json: [assets] must be a table" }
+    );
+    assert.equal(execCalled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand rejects a malformed [wdl] before bundling", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-session-policy-invalid-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(
+      path.join(dir, "wrangler.json"),
+      JSON.stringify({ name: "api", main: "src/index.js", wdl: { session_policy: "replace" } })
+    );
+
+    let execCalled = false;
+    await assert.rejects(
+      () =>
+        runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+          env: { ADMIN_TOKEN: "tok" },
+          execFile: () => {
+            execCalled = true;
+            throw new Error("execFile should not be called");
+          },
+        }),
+      { message: 'wrangler.json: [wdl].session_policy must be "preserve" or "restart", got "replace"' }
     );
     assert.equal(execCalled, false);
   } finally {
@@ -3000,26 +3097,20 @@ test("runDeployCommand sends workers_dev opt-out and prints only route-pattern U
     ]) {
       /** @type {string[]} */
       const lines = [];
-      /** @type {RecordedFetch[]} */
-      const fetchCalls = [];
+      const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+        { version: "v1", warnings: [], workersDev: false },
+        {
+          platformDomain,
+          workersDev: false,
+          urls: { routes: ["https://app.example/a/../b/*"] },
+        }
+      );
       await runDeployCommand([dir, "--ns", "demo", "--control-url", controlUrl], {
         env: { ADMIN_TOKEN: "tok" },
         stdout: (/** @type {string} */ line) => lines.push(/** @type {string} */ line),
         stderr: () => {},
         execFile: fakeWranglerExecFile,
-        controlFetch: async (
-          /** @type {string} */ url,
-          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-        ) => {
-          fetchCalls.push({ url, init });
-          return fetchCalls.length === 1
-            ? response({ version: "v1", warnings: [], workersDev: false })
-            : response({
-                platformDomain,
-                workersDev: false,
-                urls: { routes: ["https://app.example/a/../b/*"] },
-              });
-        },
+        controlFetch,
       });
 
       const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
@@ -3085,30 +3176,24 @@ test("runDeployCommand fails when promote does not preserve the workers_dev opt-
       ['name = "api"', 'main = "src/index.js"', "workers_dev = false", 'route = "app.example/*"'].join("\n")
     );
 
-    /** @type {RecordedFetch[]} */
-    const fetchCalls = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v1", warnings: [], workersDev: false },
+      {
+        platformDomain: "workers.example",
+        workersDev: true,
+        urls: {
+          platform: "https://demo.workers.example/api/",
+          routes: ["https://app.example/*"],
+        },
+      }
+    );
     await assert.rejects(
       runDeployCommand([dir, "--ns", "demo", "--control-url", "https://control.example"], {
         env: { ADMIN_TOKEN: "tok" },
         stdout: () => {},
         stderr: () => {},
         execFile: fakeWranglerExecFile,
-        controlFetch: async (
-          /** @type {string} */ url,
-          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-        ) => {
-          fetchCalls.push({ url, init });
-          return fetchCalls.length === 1
-            ? response({ version: "v1", warnings: [], workersDev: false })
-            : response({
-                platformDomain: "workers.example",
-                workersDev: true,
-                urls: {
-                  platform: "https://demo.workers.example/api/",
-                  routes: ["https://app.example/*"],
-                },
-              });
-        },
+        controlFetch,
       }),
       /control promoted the worker without preserving workers_dev = false/
     );
@@ -3462,21 +3547,16 @@ test("runDeployCommand treats an empty assets directory as an implicit ASSETS bi
       })
     );
 
-    /** @type {RecordedFetch[]} */
-    const fetchCalls = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v1", warnings: [] },
+      { platformDomain: "wdl.sh" }
+    );
     await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdout: () => {},
       stderr: () => {},
       execFile: fakeWranglerExecFile,
-      controlFetch: async (
-        /** @type {string} */ url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-      ) => {
-        fetchCalls.push({ url, init });
-        if (fetchCalls.length === 1) return response({ version: "v1", warnings: [] });
-        return response({ platformDomain: "wdl.sh" });
-      },
+      controlFetch,
     });
 
     const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
@@ -4181,6 +4261,231 @@ test("runDeployCommand explains a failed promote after upload", async () => {
   }
 });
 
+const RESTART_SESSION_POLICY_TOML = [
+  'name = "api"',
+  'main = "src/index.js"',
+  "[wdl]",
+  'session_policy = "restart"',
+].join("\n");
+
+test("runDeployCommand sends the restart session policy", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-session-policy-wire-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), RESTART_SESSION_POLICY_TOML);
+
+    /** @type {string[]} */
+    const lines = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v3", warnings: [], sessionPolicy: "restart" },
+      {
+        platformDomain: "workers.example",
+        sessionPolicy: "restart",
+        restartSequence: 7,
+        urls: {},
+      }
+    );
+    await runDeployCommand([dir, "--ns", "demo", "--control-url", "https://control.example"], {
+      env: { ADMIN_TOKEN: "tok" },
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      stderr: () => {},
+      execFile: fakeWranglerExecFile,
+      controlFetch,
+    });
+
+    const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
+    assert.equal(manifest.sessionPolicy, "restart");
+    assert.match(fetchCalls[1].url, /\/promote$/);
+    assert.ok(lines.includes("✓ demo/api@v3 live"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand inherits a top-level [wdl] into an --env deploy", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-session-policy-env-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(
+      path.join(dir, "wrangler.toml"),
+      [
+        'name = "api"',
+        'main = "src/index.js"',
+        "[wdl]",
+        'session_policy = "restart"',
+        "[env.prod.vars]",
+        'STAGE = "prod"',
+      ].join("\n")
+    );
+
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v3", warnings: [], sessionPolicy: "restart" },
+      {
+        platformDomain: "workers.example",
+        sessionPolicy: "restart",
+        restartSequence: 3,
+        urls: {},
+      }
+    );
+    await runDeployCommand([dir, "--ns", "demo", "--env", "prod", "--control-url", "https://control.example"], {
+      env: { ADMIN_TOKEN: "tok" },
+      stdout: () => {},
+      stderr: () => {},
+      execFile: fakeWranglerExecFile,
+      controlFetch,
+    });
+
+    // The env declares no [wdl] of its own, so the policy must survive env
+    // resolution and reach the wire.
+    const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
+    assert.equal(manifest.sessionPolicy, "restart");
+    assert.match(fetchCalls[1].url, /\/promote$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand sends the env's own [wdl] instead of the top-level one", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-session-policy-env-override-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(
+      path.join(dir, "wrangler.toml"),
+      [
+        'name = "api"',
+        'main = "src/index.js"',
+        "[wdl]",
+        'session_policy = "restart"',
+        "[env.prod.wdl]",
+        'session_policy = "preserve"',
+      ].join("\n")
+    );
+
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v3", warnings: [] },
+      { platformDomain: "workers.example", urls: {} }
+    );
+    await runDeployCommand([dir, "--ns", "demo", "--env", "prod", "--control-url", "https://control.example"], {
+      env: { ADMIN_TOKEN: "tok" },
+      stdout: () => {},
+      stderr: () => {},
+      execFile: fakeWranglerExecFile,
+      controlFetch,
+    });
+
+    // The env overrides the top-level restart with preserve, so nothing about
+    // the policy may reach the wire.
+    const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
+    assert.equal(manifest.sessionPolicy, undefined);
+    assert.match(fetchCalls[1].url, /\/promote$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand does not promote when control omits the restart session policy acknowledgement", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-session-policy-skew-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), RESTART_SESSION_POLICY_TOML);
+
+    /** @type {RecordedFetch[]} */
+    const fetchCalls = [];
+    await assert.rejects(
+      runDeployCommand([dir, "--ns", "demo", "--control-url", "https://control.example"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: () => {},
+        stderr: () => {},
+        execFile: fakeWranglerExecFile,
+        controlFetch: async (
+          /** @type {string} */ url,
+          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+        ) => {
+          fetchCalls.push({ url, init });
+          return response({ version: "v3", warnings: [] });
+        },
+      }),
+      /control did not confirm session_policy = restart.*NOT promoted/
+    );
+    assert.equal(fetchCalls.length, 1);
+    assert.match(fetchCalls[0].url, /\/deploy$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+for (const { label, promoteBody } of [
+  { label: "a non-positive sequence", promoteBody: { sessionPolicy: "restart", restartSequence: 0 } },
+  { label: "no policy echo", promoteBody: { restartSequence: 7 } },
+  { label: "no sequence", promoteBody: { sessionPolicy: "restart" } },
+]) {
+  test(`runDeployCommand fails when the promote response carries ${label}`, async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-session-policy-promote-skew-"));
+    try {
+      mkdirSync(path.join(dir, "src"), { recursive: true });
+      writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+      writeFileSync(path.join(dir, "wrangler.toml"), RESTART_SESSION_POLICY_TOML);
+
+      const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+        { version: "v3", warnings: [], sessionPolicy: "restart" },
+        { platformDomain: "workers.example", urls: {}, ...promoteBody }
+      );
+      await assert.rejects(
+        runDeployCommand([dir, "--ns", "demo", "--control-url", "https://control.example"], {
+          env: { ADMIN_TOKEN: "tok" },
+          stdout: () => {},
+          stderr: () => {},
+          execFile: fakeWranglerExecFile,
+          controlFetch,
+        }),
+        /without confirming its restart session policy/
+      );
+      assert.equal(fetchCalls.length, 2);
+      assert.match(fetchCalls[1].url, /\/promote$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("runDeployCommand keeps the default policy off the wire", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-preserve-summary-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), ['name = "api"', 'main = "src/index.js"'].join("\n"));
+
+    /** @type {string[]} */
+    const lines = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v4", warnings: [] },
+      {
+        platformDomain: "workers.example",
+        sessionPolicy: "preserve",
+        restartSequence: 5,
+        urls: {},
+      }
+    );
+    await runDeployCommand([dir, "--ns", "demo", "--control-url", "https://control.example"], {
+      env: { ADMIN_TOKEN: "tok" },
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      stderr: () => {},
+      execFile: fakeWranglerExecFile,
+      controlFetch,
+    });
+
+    const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
+    assert.equal(manifest.sessionPolicy, undefined, "the default policy must stay off the wire");
+    assert.ok(lines.includes("✓ demo/api@v4 live"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runDeployCommand warns that DO named entrypoints must be declared exports", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-do-warning-"));
   try {
@@ -4318,21 +4623,16 @@ test("runDeployCommand maps a .mts main to the bundled .js entry", async () => {
     writeFileSync(path.join(dir, "src", "index.mts"), "export default {}");
     writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.mts"\n');
 
-    /** @type {RecordedFetch[]} */
-    const fetchCalls = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v1", warnings: [] },
+      { platformDomain: "wdl.sh" }
+    );
     await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdout: () => {},
       stderr: () => {},
       execFile: fakeWranglerExecFile,
-      controlFetch: async (
-        /** @type {string} */ url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-      ) => {
-        fetchCalls.push({ url, init });
-        if (fetchCalls.length === 1) return response({ version: "v1", warnings: [] });
-        return response({ platformDomain: "wdl.sh" });
-      },
+      controlFetch,
     });
 
     const manifest = JSON.parse(/** @type {string} */ (fetchCalls[0].init.body));
@@ -4357,21 +4657,16 @@ test("runDeployCommand notes skipped asset entries on stderr", async () => {
 
     /** @type {string[]} */
     const stderrLines = [];
-    /** @type {RecordedFetch[]} */
-    const fetchCalls = [];
+    const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
+      { version: "v1", warnings: [] },
+      { platformDomain: "wdl.sh" }
+    );
     await runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
       env: { ADMIN_TOKEN: "tok" },
       stdout: () => {},
       stderr: (/** @type {string} */ line) => stderrLines.push(/** @type {string} */ line),
       execFile: fakeWranglerExecFile,
-      controlFetch: async (
-        /** @type {string} */ url,
-        /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
-      ) => {
-        fetchCalls.push({ url, init });
-        if (fetchCalls.length === 1) return response({ version: "v1", warnings: [] });
-        return response({ platformDomain: "wdl.sh" });
-      },
+      controlFetch,
     });
 
     const note = stderrLines.find((line) => line.startsWith("note: assets: skipped"));

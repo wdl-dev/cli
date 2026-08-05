@@ -25,7 +25,8 @@ Open the relevant doc before answering:
   credential resolution.
 - `docs/d1.md` — `[[d1_databases]]` config, `wdl d1` commands, migrations.
 - `docs/durable-objects.md` — `[[durable_objects.bindings]]`, migration class
-  declarations, the DO runtime surface.
+  declarations, the DO runtime surface, and what a restart session policy does
+  to facets and alarms.
 - `docs/r2.md` — `[[r2_buckets]]` config, `wdl r2` commands, R2 cleanup after
   worker deletion.
 - `docs/queues.md` — `[[queues.producers]]` / `[[queues.consumers]]` config,
@@ -65,18 +66,23 @@ and is not inferred. The deploy summary prints every active route-pattern URL
 hint, preserving the trailing `*` on prefix patterns, and includes the
 platform-domain URL only while it is enabled. Cloudflare's separate
 `preview_urls` field is unsupported and rejected by the CLI. WDL-only
-`[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`, and
-`[[services]].ns` are parsed by the CLI and removed from Wrangler's temporary
-bundle config; other fields retain their existing Wrangler passthrough behavior.
-Wrangler's object-shaped declarative `exports` config is unsupported. The
-dry-run child hides Wrangler's banner (and its normal update check) and disables
-anonymous telemetry. Wrangler may still consult the configured npm registry when
-reporting an unknown configuration field; project build hooks retain their
-normal network access. For `[[services]]` and `[[exports]]`, read
-`docs/deploy.md`: tenant JSRPC may delegate service or Durable Object class
-stubs as opaque capabilities, but the receiver cannot rewrite their
-host-authored caller properties. Keep delegated stubs in memory; long-term
-irrevocable stub storage is unsupported.
+`[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
+`[[services]].ns`, and `[wdl]` are parsed by the CLI and removed from Wrangler's
+temporary bundle config; other fields retain their existing Wrangler passthrough
+behavior. `[wdl] session_policy` accepts `preserve` or `restart`. The default
+`preserve` leaves loaded Durable Object facets on the version that built them
+until the host actor restarts or the facet is deleted, and keeps established
+WebSockets draining while their backend stays healthy. `restart` closes the
+worker's open WebSockets with code `1012` at promotion and retires stale facets
+on their next dispatch, preserving SQLite state. Wrangler's object-shaped
+declarative `exports` config is unsupported. The dry-run child hides Wrangler's
+banner (and its normal update check) and disables anonymous telemetry. Wrangler
+may still consult the configured npm registry when reporting an unknown
+configuration field; project build hooks retain their normal network access. For
+`[[services]]` and `[[exports]]`, read `docs/deploy.md`: tenant JSRPC may
+delegate service or Durable Object class stubs as opaque capabilities, but the
+receiver cannot rewrite their host-authored caller properties. Keep delegated
+stubs in memory; long-term irrevocable stub storage is unsupported.
 
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
 overrides the TCP target the admin token connects to (Host header + TLS SNI

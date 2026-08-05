@@ -158,7 +158,7 @@ Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在�
 | `worker_code_invalid` | 按 control plane 返回的原因修正 Worker bundle 形状，包括 WDL 保留注入模块名。 |
 | `wrangler build failed` | 在项目里跑 `npx wrangler deploy --dry-run` 然后在那边修。 |
 | 部署成功但 promote 失败 | 自定义主机或服务绑定的目标校验问题；检查绑定目标。 |
-| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy`；version 已上传但未 promote。需要升级 control——重跑同一条 deploy 无济于事。 |
+| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy`；version 已上传但未 promote。升级 control 前重跑没有意义；先升级 control，再重新部署。 |
 | `control promoted the worker without confirming its restart session policy` | 新 version 已经生效，但其 session policy 未被确认；升级 control 后重新部署以获得确认的 restart。 |
 | Worker URL 返回 404 | URL 缺了 `/<worker-name>` 这一段。 |
 | `wdl tail` 没有历史日志 | tail 是 live-only；先打开 `wdl tail <worker>` 再触发请求。 |

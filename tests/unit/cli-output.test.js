@@ -18,6 +18,7 @@ test("formatDiagnosticValue renders values JSON.stringify would misrepresent", (
   assert.equal(formatDiagnosticValue("restart"), '"restart"');
   assert.equal(formatDiagnosticValue(null), "null");
   assert.equal(formatDiagnosticValue(new Date(0)), "datetime 1970-01-01T00:00:00.000Z");
+  assert.equal(formatDiagnosticValue(new Date(Number.NaN)), "datetime invalid");
   assert.doesNotMatch(
     formatDiagnosticValue(`bad${String.fromCharCode(27)}[2J`),
     new RegExp(String.fromCharCode(27)),

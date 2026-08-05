@@ -853,7 +853,7 @@ wdl tail hello
 | Worker URL 返回 404 | URL 形态或 worker name 不对 | 使用 `https://<namespace>.<platform-domain>/<worker-name>/`，不要漏掉 worker name 这一段路径 |
 | Worker URL 返回 `502 runtime_error` | Worker `fetch()` handler 在产生响应前抛错 | 用 `wdl tail <worker>` 和请求日志排查；异常细节不会复制到客户端响应体 |
 | namespace-level secret 没有立刻变化 | namespace secret 不会给所有 Worker 自动 bump 版本 | 重新部署该 Worker，或等待自然 cold-load；需要立即发布时使用 worker-level secret |
-| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy` | 升级 control；version 已上传但未 promote，重跑同一条 deploy 无济于事 |
+| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy` | version 已上传但未 promote；升级 control 前重跑没有意义，先升级 control 再重新部署 |
 | `control promoted the worker without confirming its restart session policy` | control 完成了 promote，但没有回显策略或可用的 restart 序号 | 升级 control 后重新部署；新 version 已生效，但会话可能仍固定在旧 version |
 | service binding 仍调用旧目标行为 | binding 在调用方部署时固定版本 | 重新部署调用方 Worker |
 | `wdl tail` 没有历史日志 | tail 是 live-only；首次连接只看之后的新事件 | 先打开 `wdl tail <worker>`，再触发请求；需要手动续读时使用单 worker 的 `--since <stream-id>` |

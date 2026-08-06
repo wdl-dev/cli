@@ -466,7 +466,7 @@ export default {
 session_policy = "restart"
 ```
 
-此时 active WebSocket 会在 promotion 时立即以 `1012` 关闭，stale facet 则在下一次 dispatch 时中止；client 必须重连并重新执行应用握手。部署即重启是 Cloudflare 的默认行为，WDL 将其作为可选项；该策略并非 Durable Object 专属——包括纯 WebSocket worker 在内的任何 worker 都可以设置它。
+此时 active WebSocket 会在 promotion 时以 `1012` 关闭，stale facet 则在下一次 dispatch 时中止；client 必须重连并重新执行应用握手。部署即重启是 Cloudflare 的默认行为，WDL 将其作为可选项；该策略并非 Durable Object 专属——包括纯 WebSocket worker 在内的任何 worker 都可以设置它。
 
 当前支持 `stub.fetch()`、JSON-structured `stub.method(...args)` RPC、native `ctx.storage`、同步 `ctx.storage.sql`、alarm、普通 WebSocket upgrade 以及 native WebSocket hibernation API surface。跨 script binding、rename/delete migration、平台级 WebSocket session/cursor 恢复暂未实现。
 
@@ -853,8 +853,9 @@ wdl tail hello
 | Worker URL 返回 404 | URL 形态或 worker name 不对 | 使用 `https://<namespace>.<platform-domain>/<worker-name>/`，不要漏掉 worker name 这一段路径 |
 | Worker URL 返回 `502 runtime_error` | Worker `fetch()` handler 在产生响应前抛错 | 用 `wdl tail <worker>` 和请求日志排查；异常细节不会复制到客户端响应体 |
 | namespace-level secret 没有立刻变化 | namespace secret 不会给所有 Worker 自动 bump 版本 | 重新部署该 Worker，或等待自然 cold-load；需要立即发布时使用 worker-level secret |
-| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy` | version 已上传但未 promote；升级 control 前重跑没有意义，先升级 control 再重新部署 |
-| `control promoted the worker without confirming its restart session policy` | control 完成了 promote，但没有回显策略或可用的 restart 序号 | 升级 control 后重新部署；新 version 已生效，但会话可能仍固定在旧 version |
+| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy` | version 已上传并被保留，但没有 promote；先升级 control 再重新部署 |
+| `control promoted the worker without confirming its restart session policy` | control 完成了 promote，但没有回显策略或可用的 restart 序号 | version 已生效，但会话可能没有重启；让必须运行新版本的 client 重连，或在 control 能确认该策略后重新部署 |
+| `the promotion outcome is unknown` | promote 遇到 timeout、传输失败、3xx/5xx，或 2xx 未确认 | 重试前先用 `wdl workers` 确认 active version；重跑 deploy 会再上传一个版本并可能再次重启会话 |
 | service binding 仍调用旧目标行为 | binding 在调用方部署时固定版本 | 重新部署调用方 Worker |
 | `wdl tail` 没有历史日志 | tail 是 live-only；首次连接只看之后的新事件 | 先打开 `wdl tail <worker>`，再触发请求；需要手动续读时使用单 worker 的 `--since <stream-id>` |
 | 多 worker `wdl tail` 重连后可能少日志 | 一个连接无法同时保存多个 worker 的独立续读位置 | 对关键 worker 单独运行 `wdl tail <worker>` |

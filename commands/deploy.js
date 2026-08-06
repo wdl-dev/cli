@@ -56,6 +56,16 @@ function usageText() {
  * @property {string[]} [missingCallerSecrets]
  */
 
+/** @param {boolean} restartRequested */
+function unknownPromoteNote(restartRequested) {
+  const restarted = restartRequested ? " and closed existing sessions" : "";
+  return `note: the promotion outcome is unknown; control may have promoted this version already${restarted}.`;
+}
+
+const REJECTED_PROMOTE_NOTE =
+  "note: control rejected the promotion, so this version was not activated and traffic is unchanged; " +
+  "it may still be retained.";
+
 /**
  * The promote response fields the CLI reads back.
  * @typedef {{ platformDomain?: unknown, workersDev?: unknown, sessionPolicy?: unknown, restartSequence?: unknown, urls?: unknown }} PromoteResponseBody
@@ -73,7 +83,7 @@ function usageText() {
  *   controlUrl: string,
  *   authHeaders: Record<string, string>,
  * }} arg
- * @returns {Promise<{ version: unknown, platformDomain: unknown, workersDev: unknown, urls: unknown }>}
+ * @returns {Promise<{ version: string, platformDomain: unknown, workersDev: unknown, urls: unknown }>}
  */
 export async function postArtifactToControl({ context, ns, workerName, manifest, controlUrl, authHeaders }) {
   const { stdout, stderr } = context;
@@ -87,14 +97,8 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   const deployBody = serializeDeployManifest(manifest);
 
   writeStatusLine(stdout, `[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
-  // `version` comes from the control response; keep the raw value for the
-  // promote request body — display sites escape via writeStatusLine.
-  const {
-    version,
-    warnings,
-    workersDev: deployedWorkersDev,
-    sessionPolicy: deployedSessionPolicy,
-  } = /** @type {{ version: unknown, warnings?: DeployWarning[], workersDev?: unknown, sessionPolicy?: unknown }} */ (
+  // `version` is the body of the promote request, so the response must carry one.
+  const deployed = asRecord(
     await fetchDeployJson({
       context,
       url: context.nsUrl("worker", workerName, "deploy"),
@@ -110,40 +114,49 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
       stderr,
     })
   );
-  renderDeployWarnings(warnings, { ns, workerName, stderr });
+  renderDeployWarnings(/** @type {DeployWarning[] | undefined} */ (deployed?.warnings), { ns, workerName, stderr });
+  const version = deployed?.version;
+  if (typeof version !== "string" || !version) {
+    throw new CliError(
+      "deploy failed: control's response named no version, so nothing was promoted; " +
+        "any version it retained cannot be identified from here."
+    );
+  }
+  const deployedWorkersDev = deployed.workersDev;
+  const deployedSessionPolicy = deployed.sessionPolicy;
   if (workersDevOptOutRequested && deployedWorkersDev !== false) {
     throw new CliError(
-      "control did not confirm workers_dev = false; the uploaded version was retained but NOT promoted. " +
-        "Upgrade control and re-run `wdl deploy`."
+      "control did not confirm workers_dev = false, so nothing was promoted; the uploaded version was retained."
     );
   }
   if (sessionPolicyRestartRequested && deployedSessionPolicy !== "restart") {
     throw new CliError(
-      "control did not confirm session_policy = restart; the uploaded version was retained but NOT promoted. " +
-        "Upgrade control and re-run `wdl deploy`."
+      "control did not confirm session_policy = restart, so nothing was promoted; the uploaded version was retained."
     );
   }
 
   writeStatusLine(stdout, `[3/3] promoting ${version}`);
   /** @type {PromoteResponseBody} */
   let promoteBody;
+  let promoteRejected = false;
   try {
-    promoteBody = /** @type {PromoteResponseBody} */ (
-      await context.fetchJson(
-        context.nsUrl("worker", workerName, "promote"),
-        {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({ version }),
-        },
-        "promote"
-      )
-    );
+    const res = await context.controlFetch(context.nsUrl("worker", workerName, "promote"), {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ version }),
+      env: context.env,
+    });
+    // A 3xx or 5xx can come from a proxy in front of control, after control
+    // committed the route flip and, under a restart policy, closed sessions.
+    promoteRejected = res.status !== undefined && res.status >= 400 && res.status < 500;
+    const body = asRecord(await readJsonOrFail(res, "promote"));
+    // Whoever produced this answer, only control's own acknowledgement counts.
+    if (body?.active !== true || body.version !== version) {
+      throw new CliError(`promote failed: response did not confirm ${escapeTerminalText(version)} is active`);
+    }
+    promoteBody = /** @type {PromoteResponseBody} */ (body);
   } catch (err) {
-    stderr(
-      `note: version ${escapeTerminalText(String(version))} was uploaded and retained but NOT promoted; ` +
-        `the previously active version still serves traffic. Re-run \`wdl deploy\` to retry.`
-    );
+    stderr(promoteRejected ? REJECTED_PROMOTE_NOTE : unknownPromoteNote(sessionPolicyRestartRequested));
     throw err;
   }
   if (workersDevOptOutRequested && promoteBody.workersDev !== false) {
@@ -160,8 +173,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   ) {
     throw new CliError(
       "control promoted the worker without confirming its restart session policy; " +
-        "the new version is live, but existing sessions may still be pinned to the old version. " +
-        "Upgrade control, then redeploy."
+        "the new version is live, but existing sessions may not have restarted."
     );
   }
   return {
@@ -178,7 +190,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
  * @returns {{ platform: string | null, routes: string[] }}
  */
 function promotedWorkerUrlHints(raw, includePlatform) {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+  if (!asRecord(raw)) {
     return { platform: null, routes: [] };
   }
   const urls = /** @type {{ platform?: unknown, routes?: unknown }} */ (raw);
@@ -295,7 +307,7 @@ function stripRenderedWarnings(text) {
   } catch {
     return text;
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return text;
+  if (!asRecord(body)) return text;
   const record = /** @type {Record<string, unknown>} */ (body);
   if (!Array.isArray(record.warnings)) return text;
   const { warnings: _warnings, ...rest } = record;
@@ -311,7 +323,7 @@ function deployErrorHint(text) {
   } catch {
     return "";
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+  if (!asRecord(body)) return "";
   const error = /** @type {{ error?: unknown }} */ (body).error;
   if (error === "worker_env_too_large") {
     return "; reduce [vars], secrets, or binding metadata. If the error names a retained version, redeploy/delete that version.";

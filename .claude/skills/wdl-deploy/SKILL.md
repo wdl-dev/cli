@@ -16,8 +16,8 @@ Open the relevant doc before answering:
 - `docs/README.md` — main docs entry, GUIDE/docs division, picking the topic doc
   by task.
 - `docs/deploy.md` — `wdl deploy` / `wdl tail`, credentials, the Worker URL
-  shape, supported/unsupported wrangler config, common errors, destructive
-  commands.
+  shape, supported/unsupported wrangler config, `[wdl] session_policy`, what a
+  failed deploy leaves behind, common errors, destructive commands.
 - `docs/secrets.md` — `wdl secret` (worker-level vs namespace-level), runtime
   secret precedence, `--json` automation output, anti-patterns.
 - `docs/token.md` — `wdl token set/list/use/rm`, the local credential store

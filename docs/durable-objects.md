@@ -54,10 +54,9 @@ version instead; `preserve` keeps them on the version that scheduled them.
 
 Promotion commits the policy atomically with the route change; a later
 `preserve` promotion supersedes restart work that has not been observed yet, but
-cannot undo a close or a facet abort that already happened. If `wdl deploy`
-fails before promotion, the previous version keeps serving; re-run the same
-`wdl deploy` to retry — unless it failed because control did not confirm the
-policy, which needs a control upgrade first.
+cannot undo a close or a facet abort that already happened. What a failed deploy
+leaves behind, and how to recover from it, is in
+[deploy.md](./deploy.md#common-errors).
 
 ## Worker code
 

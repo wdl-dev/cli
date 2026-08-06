@@ -153,6 +153,17 @@ changes only the control socket target and never a printed Worker origin.
 7. **Deploy:** `wdl deploy .`. The CLI prints the upload, the promote, and the
    runtime URL — show that URL to the user.
 
+A deploy is two requests: upload, then promote. The upload must name the version
+it retained, and a promotion counts as done only when control answers with the
+version it activated. Anything else — a timeout, a transport failure, a 3xx or
+5xx from whatever answered, an unreadable body, or an acknowledgement for
+another version — leaves the outcome unknown, and the CLI reports it as unknown:
+control may already have promoted the version. Only a 4xx says control rejected
+the promotion, in which case the version was not activated and traffic is
+unchanged. The CLI reports what happened and stops; it never attempts recovery.
+Check the active version with `wdl workers` before deploying again, since
+another deploy uploads another version.
+
 The manifest JSON that deploy uploads to control is capped at 32 MiB. Assets are
 embedded in that JSON request at deploy time; a large static file set can hit
 the control request cap first. Put bulk or frequently changing files in R2, not
@@ -167,7 +178,10 @@ or redeploy/delete the retained version named in the error when one is shown.
 
 `[wdl] session_policy` decides what a promotion does to the worker's established
 sessions. It accepts `preserve` (default) or `restart` and inherits into
-`[env.<name>]` like `workers_dev`:
+`[env.<name>]` like `workers_dev`; an env's own `[wdl]` replaces the top-level
+table whole. Under `preserve`, open WebSockets keep draining on the version they
+connected to while that backend stays healthy, and loaded Durable Object facets
+stay on the version that built them. To opt out of that:
 
 ```toml
 [wdl]
@@ -181,12 +195,11 @@ reconnect and repeat their application handshake. Every promotion counts,
 including the one a worker-level secret change performs; namespace secrets do
 not promote, so they do not restart sessions.
 
-The CLI checks that control applied the policy. When the deploy response does
-not echo it, the version is retained and never promoted. When the promote
-response does not confirm it, the promotion has already happened — the new
-version is live, its sessions may still be pinned to the old one, and the CLI
-fails so the discrepancy is not silent. Both cases mean the control plane is
-older than this CLI.
+A `restart` deploy is verified twice. If the deploy response does not echo the
+policy, the control plane predates it: the version stays retained and is never
+promoted. If the promotion itself does not confirm the policy, the version is
+already live and its sessions may not have restarted, so the CLI fails rather
+than let that pass silently.
 
 ## Environment overrides
 
@@ -276,29 +289,30 @@ Deleting a worker does **not** delete R2 data — see [r2.md](./r2.md).
 
 ## Common errors
 
-| Symptom                                                                     | Cause / fix                                                                                                                                                                        |
-| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wdl: command not found`                                                    | The CLI is not on PATH. Inside the wdl-cli repo use `node <repo>/bin/wdl.js`; otherwise run `npm i -g @wdl-dev/cli`.                                                               |
-| `Missing admin token`                                                       | No token resolved. Run `wdl token set --ns <ns> --control-url <url>` (recommended), or set `ADMIN_TOKEN` / pass `--token` / use the `[<ns>]` section of `.env`.                    |
-| `401 unknown_token: unauthorized`                                           | The token is invalid for this control plane / namespace. Re-check `ADMIN_TOKEN`.                                                                                                   |
-| `[vars] must be an object`                                                  | Use a `[vars]` table/object; arrays are invalid.                                                                                                                                   |
-| `[vars] <NAME>: only string/number/boolean values are supported`            | Remove nested values; move sensitive strings to a secret.                                                                                                                          |
-| `binding name collision: <NAME>`                                            | `[vars]`, explicit bindings, or the implicit `ASSETS` binding reused a runtime env name. Rename one of them.                                                                       |
-| `experimental_compat_flag_unsupported`                                      | Remove the experimental workerd compatibility flag.                                                                                                                                |
-| `compatibility_flag_unsupported`                                            | Remove the unsupported compatibility flag named by control.                                                                                                                        |
-| `python_workers_unsupported`                                                | Python Workers are not supported by WDL; remove Python Worker modules. The CLI also fails fast on local `.py` modules.                                                             |
-| `worker_env_too_large`                                                      | Reduce `[vars]`, secrets, or binding metadata; redeploy/delete any retained version named in the error.                                                                            |
-| `worker_code_too_large`                                                     | Reduce generated Worker code size or split the worker.                                                                                                                             |
-| `worker_code_invalid`                                                       | Fix the Worker bundle shape reported by the control plane, including WDL-reserved injected module names.                                                                           |
-| `wrangler build failed`                                                     | Run `npx wrangler deploy --dry-run` inside the project and fix it there.                                                                                                           |
-| Deploy succeeds but promote fails                                           | Custom host or service-binding target validation issue; check the binding targets.                                                                                                 |
-| `control did not confirm session_policy = restart`                          | The control plane predates `[wdl] session_policy`; the version was uploaded but not promoted. Re-running before upgrading control cannot help; upgrade control, then deploy again. |
-| `control promoted the worker without confirming its restart session policy` | The new version is live but its session policy is unconfirmed; upgrade control, then redeploy to obtain a confirmed restart.                                                       |
-| Worker URL returns 404                                                      | The URL is missing the `/<worker-name>` segment.                                                                                                                                   |
-| `wdl tail` has no history                                                   | Tail is live-only; open `wdl tail <worker>` before triggering the request.                                                                                                         |
-| `tail session_idle` / `tail session_expired`                                | Control reclaimed the live-tail stream; the CLI reconnects automatically unless the reconnect cap is reached.                                                                      |
-| Namespace secret did not take effect                                        | NS-level secrets do not force-bump workers; redeploy once or use a worker-level secret.                                                                                            |
-| Service binding still hits the old target                                   | Bindings are pinned at caller deploy time; redeploy the caller.                                                                                                                    |
+| Symptom                                                                     | Cause / fix                                                                                                                                                     |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wdl: command not found`                                                    | The CLI is not on PATH. Inside the wdl-cli repo use `node <repo>/bin/wdl.js`; otherwise run `npm i -g @wdl-dev/cli`.                                            |
+| `Missing admin token`                                                       | No token resolved. Run `wdl token set --ns <ns> --control-url <url>` (recommended), or set `ADMIN_TOKEN` / pass `--token` / use the `[<ns>]` section of `.env`. |
+| `401 unknown_token: unauthorized`                                           | The token is invalid for this control plane / namespace. Re-check `ADMIN_TOKEN`.                                                                                |
+| `[vars] must be an object`                                                  | Use a `[vars]` table/object; arrays are invalid.                                                                                                                |
+| `[vars] <NAME>: only string/number/boolean values are supported`            | Remove nested values; move sensitive strings to a secret.                                                                                                       |
+| `binding name collision: <NAME>`                                            | `[vars]`, explicit bindings, or the implicit `ASSETS` binding reused a runtime env name. Rename one of them.                                                    |
+| `experimental_compat_flag_unsupported`                                      | Remove the experimental workerd compatibility flag.                                                                                                             |
+| `compatibility_flag_unsupported`                                            | Remove the unsupported compatibility flag named by control.                                                                                                     |
+| `python_workers_unsupported`                                                | Python Workers are not supported by WDL; remove Python Worker modules. The CLI also fails fast on local `.py` modules.                                          |
+| `worker_env_too_large`                                                      | Reduce `[vars]`, secrets, or binding metadata; redeploy/delete any retained version named in the error.                                                         |
+| `worker_code_too_large`                                                     | Reduce generated Worker code size or split the worker.                                                                                                          |
+| `worker_code_invalid`                                                       | Fix the Worker bundle shape reported by the control plane, including WDL-reserved injected module names.                                                        |
+| `wrangler build failed`                                                     | Run `npx wrangler deploy --dry-run` inside the project and fix it there.                                                                                        |
+| `the promotion outcome is unknown`                                          | A timeout, transport failure, 3xx/5xx or unconfirmed 2xx answered the promote. Check the active version with `wdl workers` before deploying again.              |
+| `control rejected the promotion`                                            | Control refused this version — often a custom host or service-binding target that failed validation. Fix what it reported, then deploy again.                   |
+| `control did not confirm session_policy = restart`                          | The control plane predates `[wdl] session_policy`; the version was uploaded and retained but not promoted. Upgrade control, then deploy again.                  |
+| `control promoted the worker without confirming its restart session policy` | The version is live but its sessions may not have restarted. Reconnect clients that must run it, or deploy again once control confirms the policy.              |
+| Worker URL returns 404                                                      | The URL is missing the `/<worker-name>` segment.                                                                                                                |
+| `wdl tail` has no history                                                   | Tail is live-only; open `wdl tail <worker>` before triggering the request.                                                                                      |
+| `tail session_idle` / `tail session_expired`                                | Control reclaimed the live-tail stream; the CLI reconnects automatically unless the reconnect cap is reached.                                                   |
+| Namespace secret did not take effect                                        | NS-level secrets do not force-bump workers; redeploy once or use a worker-level secret.                                                                         |
+| Service binding still hits the old target                                   | Bindings are pinned at caller deploy time; redeploy the caller.                                                                                                 |
 
 ## Anti-patterns
 

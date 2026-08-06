@@ -730,7 +730,7 @@ test("wrangler binding parser diagnostics escape terminal controls", () => {
   );
   assertThrowsNoRawTerminalControls(
     () => parseSessionPolicy({ wdl: { [bad]: true } }, badConfigRel),
-    /\[wdl\] has unsupported field/,
+    /\[wdl\] contains unknown field\(s\)/,
     "session policy diagnostics"
   );
   assertThrowsNoRawTerminalControls(
@@ -1620,7 +1620,7 @@ test("parseSessionPolicy validates the [wdl] session policy", () => {
   assert.throws(() => parseSessionPolicy({ wdl: { session_policy: "replace" } }), /must be "preserve" or "restart"/);
   assert.throws(
     () => parseSessionPolicy({ wdl: { session_policy: "restart", typo: true } }),
-    /\[wdl\] has unsupported field "typo"/
+    /\[wdl\] contains unknown field\(s\): "typo"/
   );
   // An explicit null is rejected at the field and at the table boundary.
   assert.throws(() => parseSessionPolicy({ wdl: { session_policy: null } }), /must be "preserve" or "restart"/);
@@ -1631,6 +1631,62 @@ test("parseSessionPolicy validates the [wdl] session policy", () => {
   const tomlDate = parseToml("v = 2026-08-04").v;
   assert.throws(() => parseSessionPolicy({ wdl: tomlDate }), /\[wdl\] must be a table/);
   assert.throws(() => parseSessionPolicy({ wdl: { session_policy: tomlDate } }), /got datetime 2026-08-04/);
+});
+
+test("runDeployCommand rejects a bare TOML datetime where a table belongs", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-datetime-table-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(
+      path.join(dir, "wrangler.toml"),
+      ['name = "api"', 'main = "src/index.js"', "assets = 2026-08-04"].join("\n")
+    );
+
+    let execCalled = false;
+    await assert.rejects(
+      () =>
+        runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+          env: { ADMIN_TOKEN: "tok" },
+          execFile: () => {
+            execCalled = true;
+            throw new Error("execFile should not be called");
+          },
+        }),
+      /\[assets\] must be a table/
+    );
+    assert.equal(execCalled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand rejects a bare TOML datetime where [vars] belongs", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-datetime-vars-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(
+      path.join(dir, "wrangler.toml"),
+      ['name = "api"', 'main = "src/index.js"', "vars = 2026-08-04"].join("\n")
+    );
+
+    let execCalled = false;
+    await assert.rejects(
+      () =>
+        runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+          env: { ADMIN_TOKEN: "tok" },
+          execFile: () => {
+            execCalled = true;
+            throw new Error("execFile should not be called");
+          },
+        }),
+      /\[vars\] must be an object/
+    );
+    assert.equal(execCalled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a bare TOML datetime is never mistaken for a table", () => {
@@ -2862,6 +2918,116 @@ test("runDeployCommand rejects a non-table [assets] before bundling", async () =
   }
 });
 
+for (const { label, body } of [
+  { label: "a null body", body: null },
+  { label: "no version", body: { warnings: [] } },
+  { label: "a non-string version", body: { version: 7 } },
+]) {
+  test(`runDeployCommand refuses to promote when the deploy response has ${label}`, async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-unnamed-version-"));
+    try {
+      mkdirSync(path.join(dir, "src"), { recursive: true });
+      writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+      writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+
+      let calls = 0;
+      await assert.rejects(
+        () =>
+          runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+            env: { ADMIN_TOKEN: "tok" },
+            stdout: () => {},
+            stderr: () => {},
+            execFile: fakeWranglerExecFile,
+            controlFetch: async () => {
+              calls += 1;
+              return response(body);
+            },
+          }),
+        /deploy failed: control's response named no version/
+      );
+      assert.equal(calls, 1, "nothing may reach promote");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("runDeployCommand reports an unknown promotion the way it was requested", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-unknown-restart-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), RESTART_SESSION_POLICY_TOML);
+
+    /** @type {string[]} */
+    const stderrLines = [];
+    /** @type {RecordedFetch[]} */
+    const calls = [];
+    await assert.rejects(
+      () =>
+        runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+          env: { ADMIN_TOKEN: "tok" },
+          stdout: () => {},
+          stderr: (/** @type {string} */ line) => stderrLines.push(line),
+          execFile: fakeWranglerExecFile,
+          controlFetch: async (
+            /** @type {string} */ url,
+            /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+          ) => {
+            calls.push({ url, init });
+            if (calls.length === 1) return response({ version: "v9", sessionPolicy: "restart" }, 201);
+            throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+          },
+        }),
+      /socket hang up/
+    );
+
+    assert.equal(
+      stderrLines.join(""),
+      "note: the promotion outcome is unknown; control may have promoted this version already " +
+        "and closed existing sessions."
+    );
+    assert.equal(calls.length, 2);
+    assert.match(calls[1].url, /\/promote$/);
+    // The promote leg carries the credentials the upload used.
+    assert.deepEqual(calls[1].init.headers, calls[0].init.headers);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runDeployCommand escapes a control-supplied version in the promote confirmation error", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-confirm-escaping-"));
+  try {
+    mkdirSync(path.join(dir, "src"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+
+    let calls = 0;
+    await assert.rejects(
+      () =>
+        runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+          env: { ADMIN_TOKEN: "tok" },
+          stdout: () => {},
+          stderr: () => {},
+          execFile: fakeWranglerExecFile,
+          controlFetch: async () => {
+            calls += 1;
+            if (calls === 1) return response({ version: `v9${ESC}[2J` }, 201);
+            return response({ active: true, version: "v8" }, 200);
+          },
+        }),
+      (/** @type {Error} */ err) => {
+        assertNoRawTerminalControls(err.message, "promote confirmation error");
+        assert.match(err.message, /did not confirm v9\\u001b\[2J is active/);
+        return true;
+      }
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runDeployCommand rejects a malformed [wdl] before bundling", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-session-policy-invalid-"));
   try {
@@ -2952,6 +3118,8 @@ test("runDeployCommand preserves the local control scheme and port in the Worker
         return fetchCount === 1
           ? response({ version: "v1", warnings: [] })
           : response({
+              active: true,
+              version: "v1",
               platformDomain: "workers.local",
               workersDev: true,
               urls: {
@@ -3000,6 +3168,8 @@ test("runDeployCommand preserves canonical URL authorities and route-pattern suf
         return fetchCount === 1
           ? response({ version: "v1", warnings: [], workersDev: true })
           : response({
+              active: true,
+              version: "v1",
               platformDomain: "workers.example",
               workersDev: true,
               urls: {
@@ -3055,6 +3225,8 @@ test("runDeployCommand omits non-canonical URL hints without failing a promoted 
         return fetchCount === 1
           ? response({ version: "v1", warnings: [], workersDev: true })
           : response({
+              active: true,
+              version: "v1",
               platformDomain: "workers.example",
               workersDev: true,
               urls: {
@@ -3157,7 +3329,11 @@ test("runDeployCommand does not promote when control omits the workers_dev opt-o
           return response({ version: "v1", warnings: [] });
         },
       }),
-      /control did not confirm workers_dev = false.*NOT promoted/
+      (/** @type {Error} */ err) => {
+        assert.match(err.message, /control did not confirm workers_dev = false, so nothing was promoted/);
+        assert.match(err.message, /the uploaded version was retained/);
+        return true;
+      }
     );
     assert.equal(fetchCalls.length, 1);
     assert.match(fetchCalls[0].url, /\/deploy$/);
@@ -3230,7 +3406,7 @@ test("runDeployCommand detects local control by hostname only", async () => {
         fetchCount += 1;
         return fetchCount === 1
           ? response({ version: "v1", warnings: [] })
-          : response({ platformDomain: "workers.example" });
+          : response({ active: true, version: "v1", platformDomain: "workers.example" });
       },
     });
 
@@ -3270,7 +3446,7 @@ test("runDeployCommand uses the default port from a local control URL", async ()
         fetchCount += 1;
         return fetchCount === 1
           ? response({ version: "v1", warnings: [] })
-          : response({ platformDomain: "workers.local" });
+          : response({ active: true, version: "v1", platformDomain: "workers.local" });
       },
     });
 
@@ -3483,7 +3659,7 @@ test("runDeployCommand rejects vars that collide with the implicit assets bindin
           execFile: fakeWranglerExecFile,
           controlFetch: async () => {
             fetched = true;
-            return response({});
+            return response({ active: true, version: "v2" });
           },
         }),
       /binding name collision: ASSETS/
@@ -3521,7 +3697,7 @@ test("runDeployCommand rejects explicit bindings that collide with the implicit 
           execFile: fakeWranglerExecFile,
           controlFetch: async () => {
             fetched = true;
-            return response({});
+            return response({ active: true, version: "v2" });
           },
         }),
       /binding name collision: ASSETS/
@@ -3592,7 +3768,7 @@ test("runDeployCommand rejects vars that collide with empty declared assets", as
           execFile: fakeWranglerExecFile,
           controlFetch: async () => {
             fetched = true;
-            return response({});
+            return response({ active: true, version: "v2" });
           },
         }),
       /binding name collision: ASSETS/
@@ -3717,7 +3893,7 @@ test("runDeployCommand passes through wrangler output in verbose mode", async ()
         mkdirSync(outDir, { recursive: true });
         writeFileSync(path.join(outDir, "index.js"), "export default {}");
       },
-      controlFetch: async () => response({ version: "v1", warnings: [] }),
+      controlFetch: async () => response({ active: true, version: "v1", warnings: [] }),
     });
 
     assert.equal(execCalls.length, 2);
@@ -3827,7 +4003,7 @@ test("runDeployCommand warns with wdl secret hints for missing caller secrets", 
             ],
           });
         }
-        return response({});
+        return response({ active: true, version: "v2" });
       },
     });
 
@@ -4209,7 +4385,7 @@ test("runDeployCommand projects unknown deploy warnings before printing", async 
             ],
           });
         }
-        return response({});
+        return response({ active: true, version: "v2" });
       },
     });
 
@@ -4228,38 +4404,100 @@ test("serializeDeployManifest enforces the control request body cap", () => {
   );
 });
 
-test("runDeployCommand explains a failed promote after upload", async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-promote-fail-"));
-  try {
-    mkdirSync(path.join(dir, "src"), { recursive: true });
-    writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
-    writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
+for (const { label, promote, rejected, expected } of [
+  {
+    label: "a 4xx rejection",
+    promote: () => response({ error: "version_not_found" }, 404),
+    rejected: true,
+    expected: /promote failed: 404 version_not_found/,
+  },
+  {
+    label: "an acknowledgement without active",
+    promote: () => response({ version: "v9", platformDomain: "workers.example", urls: {} }, 200),
+    rejected: false,
+    expected: /promote failed: response did not confirm v9 is active/,
+  },
+  {
+    label: "an acknowledgement for a different version",
+    promote: () => response({ active: true, version: "v8", platformDomain: "workers.example", urls: {} }, 200),
+    rejected: false,
+    expected: /promote failed: response did not confirm v9 is active/,
+  },
+  {
+    label: "a 3xx redirect",
+    promote: () => response("", 302),
+    rejected: false,
+    expected: /promote failed: 302/,
+  },
+  {
+    label: "a 2xx body that is not an object",
+    promote: () => response(null, 200),
+    rejected: false,
+    expected: /promote failed: response did not confirm v9 is active/,
+  },
+  {
+    label: "a 5xx response",
+    promote: () => response({ error: "promote_failed", message: "routing unavailable" }, 503),
+    rejected: false,
+    expected: /promote failed: 503 promote_failed: routing unavailable/,
+  },
+  {
+    label: "a transport failure",
+    promote: () => {
+      throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+    },
+    rejected: false,
+    expected: /socket hang up/,
+  },
+  {
+    label: "an unreadable 2xx body",
+    promote: () => response("<html>truncated", 200),
+    rejected: false,
+    expected: /promote failed: response is not valid JSON/,
+  },
+]) {
+  test(`runDeployCommand reports the promotion outcome after ${label}`, async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-promote-outcome-"));
+    try {
+      mkdirSync(path.join(dir, "src"), { recursive: true });
+      writeFileSync(path.join(dir, "src", "index.js"), "export default {}");
+      writeFileSync(path.join(dir, "wrangler.toml"), 'name = "api"\nmain = "src/index.js"\n');
 
-    /** @type {string[]} */
-    const stderrLines = [];
-    let fetchCount = 0;
-    await assert.rejects(
-      () =>
-        runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
-          env: { ADMIN_TOKEN: "tok" },
-          stdout: () => {},
-          stderr: (/** @type {string} */ line) => stderrLines.push(/** @type {string} */ line),
-          execFile: fakeWranglerExecFile,
-          controlFetch: async () => {
-            fetchCount += 1;
-            if (fetchCount === 1) return response({ version: "v9", warnings: [] });
-            return response({ error: "promote_failed", message: "routing unavailable" }, 503);
-          },
-        }),
-      /promote failed: 503 promote_failed: routing unavailable/
-    );
+      /** @type {string[]} */
+      const stderrLines = [];
+      let fetchCount = 0;
+      await assert.rejects(
+        () =>
+          runDeployCommand([dir, "--ns", "demo", "--control-url", "http://ctl.test"], {
+            env: { ADMIN_TOKEN: "tok" },
+            stdout: () => {},
+            stderr: (/** @type {string} */ line) => stderrLines.push(line),
+            execFile: fakeWranglerExecFile,
+            controlFetch: async () => {
+              fetchCount += 1;
+              if (fetchCount === 1) return response({ version: "v9", warnings: [] });
+              return promote();
+            },
+          }),
+        expected
+      );
 
-    assert.equal(fetchCount, 2);
-    assert.ok(stderrLines.some((line) => /version v9 was uploaded and retained but NOT promoted/.test(line)));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+      assert.equal(fetchCount, 2);
+      const note = stderrLines.join("");
+      // The note states the outcome and nothing else: no command, no name the
+      // CLI assembled, no advice.
+      assert.equal(
+        note,
+        rejected
+          ? "note: control rejected the promotion, so this version was not activated and traffic is unchanged; " +
+              "it may still be retained."
+          : "note: the promotion outcome is unknown; control may have promoted this version already."
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
 
 const RESTART_SESSION_POLICY_TOML = [
   'name = "api"',
@@ -4409,7 +4647,11 @@ test("runDeployCommand does not promote when control omits the restart session p
           return response({ version: "v3", warnings: [] });
         },
       }),
-      /control did not confirm session_policy = restart.*NOT promoted/
+      (/** @type {Error} */ err) => {
+        assert.match(err.message, /control did not confirm session_policy = restart, so nothing was promoted/);
+        assert.match(err.message, /the uploaded version was retained/);
+        return true;
+      }
     );
     assert.equal(fetchCalls.length, 1);
     assert.match(fetchCalls[0].url, /\/deploy$/);
@@ -4524,7 +4766,7 @@ new_classes = ["Room"]
       },
       controlFetch: async () => {
         fetchCount += 1;
-        return fetchCount === 1 ? response({ version: "v1" }) : response({});
+        return fetchCount === 1 ? response({ version: "v1" }) : response({ active: true, version: "v1" });
       },
     });
 
@@ -4697,7 +4939,7 @@ test("runDeployCommand escapes a control-supplied version before printing", asyn
       controlFetch: async () => {
         fetchCount += 1;
         if (fetchCount === 1) return response({ version: "v1\u001b[2J", warnings: [] });
-        return response({ platformDomain: "wdl.sh" });
+        return response({ active: true, version: "v1\u001b[2J", platformDomain: "wdl.sh" });
       },
     });
 

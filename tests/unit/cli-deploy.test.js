@@ -1619,8 +1619,8 @@ test("parseSessionPolicy validates the [wdl] session policy", () => {
   assert.throws(() => parseSessionPolicy({ wdl: [] }), /\[wdl\] must be a table/);
   assert.throws(() => parseSessionPolicy({ wdl: { session_policy: "replace" } }), /must be "preserve" or "restart"/);
   assert.throws(
-    () => parseSessionPolicy({ wdl: { session_policy: "restart", typo: true } }),
-    /\[wdl\] contains unknown field\(s\): "typo"/
+    () => parseSessionPolicy({ wdl: { session_policy: "restart", typo: true, other: 1 } }),
+    /\[wdl\] contains unknown field\(s\): typo, other/
   );
   // An explicit null is rejected at the field and at the table boundary.
   assert.throws(() => parseSessionPolicy({ wdl: { session_policy: null } }), /must be "preserve" or "restart"/);

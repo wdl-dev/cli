@@ -165,11 +165,13 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
         "the platform-domain URL may still be active."
     );
   }
+  const restartSequence = promoteBody.restartSequence;
   if (
     sessionPolicyRestartRequested &&
     (promoteBody.sessionPolicy !== "restart" ||
-      !Number.isSafeInteger(promoteBody.restartSequence) ||
-      Number(promoteBody.restartSequence) <= 0)
+      typeof restartSequence !== "number" ||
+      !Number.isSafeInteger(restartSequence) ||
+      restartSequence <= 0)
   ) {
     throw new CliError(
       "control promoted the worker without confirming its restart session policy; " +

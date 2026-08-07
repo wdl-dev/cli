@@ -2,36 +2,28 @@
 
 ## Unreleased
 
+## 1.7.0
+
 ### Added
 
 - `[wdl] session_policy = "restart"` opts a Worker into session restarts,
-  matching Cloudflare's default deploy behavior. The default remains `preserve`;
-  a restart promotion closes the worker's open WebSockets with code `1012` and
-  aborts stale Durable Object facets on their next dispatch while keeping SQLite
-  state. `wdl deploy` refuses to promote when control does not confirm the
-  policy.
+  matching Cloudflare's default deploy behavior. The default remains `preserve`.
+  `wdl deploy` refuses to promote when control does not confirm the policy.
 
 ### Fixed
 
-- Reject a bare TOML datetime where a config table is expected — `[wdl]`,
-  `[vars]`, `[assets]`, `[triggers]`, `[queues]`, `[durable_objects]`,
-  `[env.<name>]` and the like — instead of reading it as an empty table and
-  silently dropping the section.
+- Reject a bare TOML datetime where a config table is expected, instead of
+  reading it as an empty table and silently dropping the section.
 - Report an unknown promotion outcome when a timeout, transport failure, 3xx/5xx
   or unconfirmed response answers the promote, instead of claiming the version
-  was not promoted. Only a 4xx now says control rejected it, and a deploy that
-  stops before promoting says the uploaded version was retained.
+  was not promoted.
 
 ### Security
 
 - Override `undici` to `^7.29.0` and refresh `brace-expansion` to 5.0.9,
-  clearing five undici advisories and GHSA-rgw5-rvv9-x895. The `miniflare`
-  releases the pinned `wrangler` depends on pin undici 7.28.0 exactly, so an
-  override is the only way this repository's install tree takes the patch; npm
-  honours `overrides` for the root project only, so installs of the published
-  CLI keep resolving miniflare's pin until it moves. Neither package is on a CLI
-  code path: undici is reachable only through the miniflare dev server the CLI
-  never runs, and brace-expansion only through ESLint.
+  clearing five undici advisories and GHSA-rgw5-rvv9-x895. Both reach this
+  repository's install tree only, through the miniflare dev server the CLI never
+  runs and through ESLint.
 
 ## 1.6.1
 

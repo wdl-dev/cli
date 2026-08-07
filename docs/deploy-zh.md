@@ -84,9 +84,24 @@ Cloudflare 用 `workers_dev` 控制 Worker 的 `*.workers.dev` route；版本化
 6. **应用 D1 迁移**，如果设置了 `migrations_dir` —— 见 [d1-zh.md](./d1-zh.md)。
 7. **部署：** `wdl deploy .`。CLI 会打印上传、提升、运行时 URL —— 把这个 URL 给用户看。
 
+一次 deploy 是两个请求：上传，然后 promote。上传必须回报它保留的 version；只有当 control 回应它所激活的 version 时，promotion 才算完成。其余情况——timeout、传输失败、来自任何一方的 3xx/5xx、无法解析的 body，或者确认了另一个 version——都让结果不确定：control 可能已经完成了 promote。这时 CLI 会如实报告结果未知。只有 4xx 表示 control 拒绝了这次 promotion：version 没有被激活，流量不变。CLI 只报告发生了什么然后停下，不会尝试自动恢复。再次部署前请用 `wdl workers` 确认 active version，因为再跑一次 deploy 会再上传一个版本。
+
 Deploy 上传给 control 的 manifest JSON 最大 32 MiB。Assets 在部署时会嵌进这个 JSON 请求；如果静态文件集合较大，可能先撞到 control request cap。大体积或频繁变化的文件用 R2，不要放进 assets。
 
 Control plane 会按留有 headroom 的 workerd 1 MiB `workerLoader` environment 预算校验（可用 1,040,384 bytes）。过大的 `[vars]`、secrets、binding metadata 或 retained versions 可能触发 `worker_env_too_large`；减少 env payload，或在错误点名已有版本时 redeploy/delete 该 retained version。
+
+## 会话策略
+
+`[wdl] session_policy` 决定 promotion 如何处理该 worker 的既有会话。它接受 `preserve`（默认）或 `restart`，并像 `workers_dev` 一样继承进 `[env.<name>]`。env 自己的 `[wdl]` 会整表覆盖顶层那张表。`preserve` 下，已打开的 WebSocket 会在 backend 仍健康时继续在原 version 上 drain，已加载的 Durable Object facet 也留在构造它的 version 上。要选择相反的行为：
+
+```toml
+[wdl]
+session_policy = "restart"
+```
+
+`restart` 下，promote 会以 `1012` 关闭该 worker 打开的 WebSocket，并让 stale Durable Object facet 在下一次 dispatch 时退役，同时保留 SQLite state（[facet 细节](./durable-objects-zh.md#会话策略与-facet)）；client 需要重连并重新执行应用握手。每一次 promotion 都算，包括 worker 级 secret 变更触发的那一次；namespace secret 不会 promote，因此也不会重启会话。
+
+`restart` 部署会被校验两次：deploy 响应没有回显该策略，说明 control 版本早于它，此时 version 保持 retained 且不会 promote；promotion 本身没有确认该策略时，version 已经生效而会话可能没有重启，CLI 会失败而不是让它悄悄过去。
 
 ## 环境覆盖
 
@@ -107,9 +122,9 @@ wdl deploy . --env production
 
 新项目应继续使用 `2026-06-17` compatibility date，除非具体功能需要更新日期。Control 会拒绝早于 `2026-04-01` 的显式日期、无效或未来日期，以及超出 bundled workerd 支持范围的日期。上游 experimental enable flags、`legacy_error_serialization` 和 `allow_irrevocable_stub_storage` 不受支持。
 
-**支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[env.<name>]`。
+**支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[wdl] session_policy`、`[env.<name>]`。
 
-WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]` 和 `[[services]].ns`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
+WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]` 本身，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
 ### Service bindings 与 capability delegation
 
@@ -144,7 +159,10 @@ Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在�
 | `worker_code_too_large` | 减少生成的 Worker code 大小，或拆分 worker。 |
 | `worker_code_invalid` | 按 control plane 返回的原因修正 Worker bundle 形状，包括 WDL 保留注入模块名。 |
 | `wrangler build failed` | 在项目里跑 `npx wrangler deploy --dry-run` 然后在那边修。 |
-| 部署成功但 promote 失败 | 自定义主机或服务绑定的目标校验问题；检查绑定目标。 |
+| `the promotion outcome is unknown` | promote 遇到 timeout、传输失败、3xx/5xx 或未确认的 2xx。再次部署前先用 `wdl workers` 确认 active version。 |
+| `control rejected the promotion` | control 拒绝了这个 version——常见于自定义 host 或 service binding 目标校验失败。按它报告的原因修复后重新部署。 |
+| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy`；version 已上传并被保留，但没有 promote。先升级 control 再重新部署。 |
+| `control promoted the worker without confirming its restart session policy` | version 已经生效，但会话可能没有重启。让必须运行新版本的 client 重连，或在 control 能确认该策略后重新部署。 |
 | Worker URL 返回 404 | URL 缺了 `/<worker-name>` 这一段。 |
 | `wdl tail` 没有历史日志 | tail 是 live-only；先打开 `wdl tail <worker>` 再触发请求。 |
 | `tail session_idle` / `tail session_expired` | control 回收了 live-tail stream；CLI 会自动重连，除非达到重连上限。 |

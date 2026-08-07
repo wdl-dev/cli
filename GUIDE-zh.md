@@ -257,11 +257,12 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | `[env.<name>]` | 支持；用 `--env <name>` 或 `CLOUDFLARE_ENV` 选择；见下面的环境覆盖说明 |
 | `[[r2_buckets]]` | 支持常用 R2 object API，包括条件请求、range GET 和 `list({ include })`；对象存储在平台本地 R2，并按 namespace + `bucket_name` 隔离 |
 | Durable Objects | 支持本 worker 内 class，要求 class 列在 `[[migrations]].new_classes` 或 `[[migrations]].new_sqlite_classes`；两种写法在 WDL 都映射到 SQLite-backed DO storage。`script_name`、rename/delete migration 暂未实现。`stub.fetch()`、JSON-structured `stub.method(...args)` DO RPC、同步 `ctx.storage.sql`、alarm shim、普通 WebSocket upgrade 和 native WebSocket hibernation API surface 可用；平台级 session/cursor 恢复仍由应用自己处理 |
+| `[wdl]` | WDL 平台扩展表，当前含 `session_policy = "preserve" \| "restart"`（默认 `preserve`）；`restart` 下 promotion 会以 `1012` 关闭该 worker 打开的 WebSocket，stale Durable Object facet 在下一次 dispatch 时中止。与 `workers_dev` 一样会被 `[env.<name>]` 继承，除非该 env 自己声明了 `[wdl]` |
 | `[[workflows]]` | 支持当前 Worker 内定义的 workflow class。可用 `WorkflowEntrypoint`、`env.<BINDING>.create()`、`createBatch()`、`get()`、`status()`、`pause()`/`resume()`/`restart()`/`terminate()`、`sendEvent()`、`step.do()`/`sleep()`/`sleepUntil()`/`waitForEvent()`、retry、`NonRetryableError`、same-worker DO progress callback 和 runtime-observed parallel/DAG step。这是 WDL Workflows 支持，不是完整 Cloudflare Workflows parity。Instance payload、单 turn step fan-out 和并行 step 顺序都有上限；已启动的 step 必须 await。不支持 `script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer |
 | Analytics Engine | 暂不支持，部署时会拒绝 |
 | 其他未映射的 Wrangler 绑定/配置/策略段（例如 `ai`、`vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
 
-WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]` 和 `[[services]].ns`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
+WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
 
 Cron triggers 和 queue consumers 是运行时 dispatch 能力。除非管理方明确给了 reserved namespace，否则只应声明在 tenant namespace 里的可路由 Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是公开/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 
@@ -275,7 +276,7 @@ R2 object key 可以包含开头、结尾或连续的 `/` 分隔符；CLI 会保
 
 ### 环境覆盖
 
-如果 Wrangler 配置里有 `[env.<name>]`，必须通过 `--env <name>` 或 `CLOUDFLARE_ENV` 显式选择；CLI 不会自动挑一个默认环境。和 Cloudflare Workers / Wrangler 不同，WDL 不会把环境名追加到 worker / script 名后面：`wdl deploy . --env preview` 仍然更新顶层 `name` 指定的 worker。`vars` 和大部分 bindings 仍是 env-scoped / non-inheritable：选中 env 后，顶层 `[vars]`、KV、D1、R2、queues、services、workflows 等不会自动进入该 env。需要同时跑 staging / production 时，默认用不同 namespace 区分，除非管理方另有约定。
+如果 Wrangler 配置里有 `[env.<name>]`，必须通过 `--env <name>` 或 `CLOUDFLARE_ENV` 显式选择；CLI 不会自动挑一个默认环境。和 Cloudflare Workers / Wrangler 不同，WDL 不会把环境名追加到 worker / script 名后面：`wdl deploy . --env preview` 仍然更新顶层 `name` 指定的 worker。`vars` 和大部分 bindings 仍是 env-scoped / non-inheritable：选中 env 后，顶层 `[vars]`、KV、D1、R2、queues、services、workflows 都不会自动进入该 env。策略类配置则会继承：`workers_dev`、`route` / `routes` 和 `[wdl]` 在 env 没有自己声明时继续生效。需要同时跑 staging / production 时，默认用不同 namespace 区分，除非管理方另有约定。
 
 ### KV
 
@@ -458,6 +459,15 @@ export default {
 };
 ```
 
+默认情况下，promotion 会让已加载的 facet 停留在构造它的 version 上，直到 host actor 重启或 facet 被删除；已打开的 WebSocket 也会在 backend 仍健康时继续 drain。backend 丢失后不会重连已不活跃的 version，WebSocket 以 `1012` 关闭。若希望每次 promotion 都关闭打开的 WebSocket 并让旧 version facet 退役、同时保留 SQLite storage，可增加：
+
+```toml
+[wdl]
+session_policy = "restart"
+```
+
+此时 active WebSocket 会在 promotion 时以 `1012` 关闭，stale facet 则在下一次 dispatch 时中止；client 必须重连并重新执行应用握手。部署即重启是 Cloudflare 的默认行为，WDL 将其作为可选项；该策略并非 Durable Object 专属——包括纯 WebSocket worker 在内的任何 worker 都可以设置它。
+
 当前支持 `stub.fetch()`、JSON-structured `stub.method(...args)` RPC、native `ctx.storage`、同步 `ctx.storage.sql`、alarm、普通 WebSocket upgrade 以及 native WebSocket hibernation API surface。跨 script binding、rename/delete migration、平台级 WebSocket session/cursor 恢复暂未实现。
 
 DO fetch 请求体上限是 1 MiB。RPC method name 必须符合 JavaScript identifier grammar，且最多 256 ASCII bytes。RPC arguments 最多 1 MiB，只接受 structural JSON：finite value、dense array 和 plain object；序列化不会调用 `toJSON()`。Object name 和 id 必须是 well-formed Unicode；DO class name 使用 ASCII JavaScript class-name grammar，最多 468 bytes。
@@ -528,7 +538,7 @@ printf '%s' "$DATABASE_URL" | wdl secret put --scope ns DATABASE_URL
 
 生效时机：
 
-- 已有线上版本的 Worker 修改 worker-level secret 时，平台会自动创建并 promote 一个新版本，因此新流量会 cold-load 更新后的 secret。已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。
+- 已有线上版本的 Worker 修改 worker-level secret 时，平台会自动创建并 promote 一个新版本，因此新流量会 cold-load 更新后的 secret。已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。由于这就是一次普通 promotion，配置了 `[wdl] session_policy = "restart"` 的 Worker 在 secret 变更时同样会以 `1012` 关闭已打开的 WebSocket。
 - worker-level secret 修改是原子的。如果 mutation 期间 active version 变化，control 会返回 `secret_mutation_contention`，CLI 会要求重试，而不是留下"已存储但未 promote"的半成功状态。
 - `secret_encryption_unconfigured`、`secret_decrypt_failed`、`invalid_envelope`、`unsupported_envelope`、`unknown_kid` 或 `secret_not_encrypted` 这类 secret-envelope 错误表示 mutation 没有写入；等运维侧修复 envelope 配置或已存储数据后再重试。
 - worker-level secret 可以在第一次部署前设置；第一次部署会读取这些 secret。
@@ -843,6 +853,9 @@ wdl tail hello
 | Worker URL 返回 404 | URL 形态或 worker name 不对 | 使用 `https://<namespace>.<platform-domain>/<worker-name>/`，不要漏掉 worker name 这一段路径 |
 | Worker URL 返回 `502 runtime_error` | Worker `fetch()` handler 在产生响应前抛错 | 用 `wdl tail <worker>` 和请求日志排查；异常细节不会复制到客户端响应体 |
 | namespace-level secret 没有立刻变化 | namespace secret 不会给所有 Worker 自动 bump 版本 | 重新部署该 Worker，或等待自然 cold-load；需要立即发布时使用 worker-level secret |
+| `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy` | version 已上传并被保留，但没有 promote；先升级 control 再重新部署 |
+| `control promoted the worker without confirming its restart session policy` | control 完成了 promote，但没有回显策略或可用的 restart 序号 | version 已生效，但会话可能没有重启；让必须运行新版本的 client 重连，或在 control 能确认该策略后重新部署 |
+| `the promotion outcome is unknown` | promote 遇到 timeout、传输失败、3xx/5xx，或 2xx 未确认 | 重试前先用 `wdl workers` 确认 active version；重跑 deploy 会再上传一个版本并可能再次重启会话 |
 | service binding 仍调用旧目标行为 | binding 在调用方部署时固定版本 | 重新部署调用方 Worker |
 | `wdl tail` 没有历史日志 | tail 是 live-only；首次连接只看之后的新事件 | 先打开 `wdl tail <worker>`，再触发请求；需要手动续读时使用单 worker 的 `--since <stream-id>` |
 | 多 worker `wdl tail` 重连后可能少日志 | 一个连接无法同时保存多个 worker 的独立续读位置 | 对关键 worker 单独运行 `wdl tail <worker>` |
@@ -858,14 +871,14 @@ wdl tail hello
 | 能力面 | 状态 | 更强 / 新增 | 语义差异 | 未实现 |
 | --- | --- | --- | --- | --- |
 | Module Workers（`fetch` / `scheduled` / `queue`） | 支持 | — | 未捕获异常返回平台 `502 runtime_error`；异常详情进 `wdl tail` 和日志，不进响应体 | — |
-| WebSocket 升级 | 支持 | — | — | 平台重启后的会话自动恢复；客户端应重连 |
+| WebSocket 升级 | 支持 | 只要 pinned version 的 backend 仍健康，连接可以跨 promotion 存活（worker 选择 `session_policy = "restart"` 时除外） | Cloudflare 部署即断开全部 WebSocket；WDL 在丢失 backend 的版本已不活跃时、或 `session_policy = "restart"` 下的 promotion 时发送 `1012`，客户端重连到活跃版本 | 自动重连——重连由应用负责，且 gateway rolling 重启仍会断开物理 client socket |
 | 流式响应、出站 TCP（`cloudflare:sockets`） | 支持 | — | 租户 worker 只能连公网端点；平台内网地址被阻断 | — |
 | `compatibility_date` / `compatibility_flags` | 部分 | — | 平台运行单一 workerd 配置；不按 worker 逐个模拟 Cloudflare 的历史行为变更 | — |
 | KV | 支持 | 写入立即可见——Cloudflare 的边缘复制是最终一致，这里是强一致 | `cacheTtl` 可接受但不是新鲜度契约 | — |
 | R2 | 支持 | — | 单区对象存储 | Multipart 上传、`preview_bucket_name`、`jurisdiction` |
 | 静态资源 | 部分 | `env.ASSETS.url(path)` 发放带 token 的 CDN URL——WDL 新增能力 | — | Cloudflare Pages 式资源管线、fetch 形态的 assets binding |
 | D1 | 部分 | 单主库——默认读己之写，没有复制延迟和 bookmark 语义需要操心 | 请求/结果有大小上限；生命周期和迁移用 `wdl d1` 管理，`[[d1_databases]]` 只作为 binding 声明 | 读副本复制、Time Travel / bookmarks |
-| Durable Objects | 部分 | — | 仅同 worker 内 class；`new_classes` 与 `new_sqlite_classes` 在 WDL 等价 | `script_name`（跨 script binding）、rename/delete migration、WebSocket 会话/游标恢复 |
+| Durable Objects | 部分 | `[wdl] session_policy` 决定 promotion 保留还是退役既有会话（默认 `preserve`；Cloudflare 总是 restart） | 仅同 worker 内 class；`new_classes` 与 `new_sqlite_classes` 在 WDL 等价 | `script_name`（跨 script binding）、rename/delete migration、WebSocket 会话/游标恢复 |
 | Queues | 部分 | — | 按 batch 大小驱动派发；`max_batch_timeout` 为配置兼容而保存，不是聚合窗口 | `max_concurrency`（显式拒绝）、`contentType: "v8"` |
 | Cron 触发器 | 支持 | — | Cloudflare 兼容表达式，按 UTC 执行；best-effort 分钟槽——错过的槽跳过不补发，失败不重试 | — |
 | Workflows | 部分 | 并行 / DAG step 在运行时实测捕获，包括 `Promise.all` 并行分支 | WDL 自有的 payload 语义；payload 与单 turn step fan-out 有上限；严格 await 顺序；`step.do` 永久失败即终止运行（即使被 catch） | 完整 Cloudflare Workflows 对等、`script_name` / 跨 worker workflow 与 callback、source-AST 可视化 |

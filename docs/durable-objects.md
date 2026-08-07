@@ -22,6 +22,42 @@ tag = "v1"
 new_classes = ["Room"]
 ```
 
+## Session policy and facets
+
+By default, promoting a new Worker version leaves already constructed DO facets
+on the version that built them until the host actor restarts or the facet is
+deleted. Open WebSockets keep draining on that version too, but only while their
+backend stays healthy: once a backend is lost, WDL does not reconnect a version
+that is no longer active — the WebSocket closes with code `1012`, and the client
+must reconnect to reach the active version. Applications that want each
+promotion to retire old-version sessions, and old-version facets on their next
+dispatch, can opt in:
+
+```toml
+[wdl]
+session_policy = "restart"
+```
+
+`session_policy` accepts `preserve` or `restart`; the default is `preserve`. It
+applies when a new version is promoted, not while a bundle is only uploaded. The
+policy is not Durable-Object-specific: it governs the worker's established
+sessions, so a pure WebSocket worker without Durable Objects may also set it.
+
+With `restart`, WDL aborts old-version facets on their next dispatch without
+deleting SQLite state. Active HTTP/RPC calls may fail, and existing WebSockets
+close with code `1012` at promotion instead of waiting for backend loss; clients
+must reconnect and repeat their application handshake. The next invocation
+constructs the active class version against the same persisted storage. This
+matches Cloudflare's default behavior, where deploying new code restarts every
+Durable Object. Alarms scheduled by a superseded version fire on the active
+version instead; `preserve` keeps them on the version that scheduled them.
+
+Promotion commits the policy atomically with the route change; a later
+`preserve` promotion supersedes restart work that has not been observed yet, but
+cannot undo a close or a facet abort that already happened. What a failed deploy
+leaves behind, and how to recover from it, is in
+[deploy.md](./deploy.md#common-errors).
+
 ## Worker code
 
 ```js

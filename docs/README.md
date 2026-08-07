@@ -26,6 +26,7 @@ English set.
 | Object / attachment / blob storage                      | [r2.md](./r2.md)                           |
 | SQL / relational state and migrations                   | [d1.md](./d1.md)                           |
 | Durable Object local classes, SQLite-backed state       | [durable-objects.md](./durable-objects.md) |
+| Session policy on promotion (`[wdl] session_policy`)    | [deploy.md](./deploy.md)                   |
 | Workflow instances, durable steps, event waits          | [workflows.md](./workflows.md)             |
 | Queue producer / consumer background work               | [queues.md](./queues.md)                   |
 | Cron / scheduled jobs                                   | [cron-triggers.md](./cron-triggers.md)     |

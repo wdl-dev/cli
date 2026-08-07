@@ -46,7 +46,7 @@ worker 级 secret  >  命名空间级 secret  >  [vars]
 
 同名 key 的 worker 级 secret 会盖过命名空间级。`[vars]` 里的同名条目会被两种 secret 都遮蔽。
 
-修改 worker 级 secret 会创建并 promote 新版本，但已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。需要严格撤销时，应同时考虑禁用旧凭据。
+修改 worker 级 secret 会创建并 promote 新版本，但已经加载的历史版本可能继续持有旧值，直到 runtime eviction 或 recycle。需要严格撤销时，应同时考虑禁用旧凭据。由于这就是一次普通 promotion，配置了 `[wdl] session_policy = "restart"` 的 Worker 在 secret 变更时同样会以 `1012` 关闭已打开的 WebSocket。
 
 Worker 级 secret mutation 是原子的：如果更新期间 active version 变化，control 会返回 `secret_mutation_contention`，CLI 会要求重试，而不是留下"已存储但未 promote"的半成功状态。Namespace secret mutation 在 retained worker metadata 持续变化时也可能返回 `namespace_secret_mutation_contention`。
 

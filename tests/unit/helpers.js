@@ -99,6 +99,41 @@ export function response(body, status = 200) {
   };
 }
 
+// A deploy issues at most two control calls: deploy, then promote if the CLI
+// accepts the deploy response. Record both, answer them in that order, and
+// reject anything further.
+// Control acknowledges a promotion with the version it activated, so that shape
+// is the default; a case that needs a different one overrides it.
+/**
+ * @param {unknown} deployBody
+ * @param {unknown} promoteBody
+ */
+export function deployPromoteFetch(deployBody, promoteBody) {
+  const acknowledged = {
+    active: true,
+    version: /** @type {{ version?: unknown }} */ (deployBody)?.version,
+    .../** @type {Record<string, unknown>} */ (promoteBody ?? {}),
+  };
+  /** @type {ControlCall[]} */
+  const calls = [];
+  return {
+    calls,
+    /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} [init] */
+    controlFetch: async (url, init = {}) => {
+      calls.push({ url, init });
+      if (calls.length === 1) {
+        assert.match(url, /\/deploy$/);
+        return response(deployBody, 201);
+      }
+      if (calls.length === 2) {
+        assert.match(url, /\/promote$/);
+        return response(acknowledged);
+      }
+      throw new Error(`unexpected control call #${calls.length}: ${url}`);
+    },
+  };
+}
+
 // Records control-plane calls and stdout lines, returning deps for a command
 // runner. env defaults to a bare admin token; pass a richer env (e.g. with
 // WDL_NS) when the command resolves the namespace from the environment.

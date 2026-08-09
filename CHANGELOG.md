@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.7.1
+
 ### Changed
 
 - Bump the bundled Wrangler to 4.120.0, which includes undici 7.29.0 without the

@@ -9,6 +9,7 @@ import {
   defineCliOption,
   formatHelp,
   formatHttpError,
+  formatHttpErrorBody,
   isMain,
   optionHelp,
   readJsonOrFail,
@@ -24,7 +25,6 @@ import {
 import { isLocalDevHost } from "../lib/credentials.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 import { packWranglerProject } from "../lib/wrangler-pack.js";
-import { asRecord } from "../lib/wrangler/utils.js";
 
 export const DEPLOY_JSON_BODY_MAX_BYTES = 32 * 1024 * 1024;
 
@@ -44,18 +44,6 @@ function usageText() {
   });
 }
 
-/**
- * One platform-binding deploy warning surfaced by control.
- * @typedef {object} DeployWarning
- * @property {string} [code]
- * @property {string} [message]
- * @property {string} [binding]
- * @property {string} [platform]
- * @property {string} [className]
- * @property {string} [entrypoint]
- * @property {string[]} [missingCallerSecrets]
- */
-
 /** @param {boolean} restartRequested */
 function unknownPromoteNote(restartRequested) {
   const restarted = restartRequested ? " and closed existing sessions" : "";
@@ -67,9 +55,14 @@ const REJECTED_PROMOTE_NOTE =
   "it may still be retained.";
 
 /**
- * The promote response fields the CLI reads back.
- * @typedef {{ platformDomain?: unknown, workersDev?: unknown, sessionPolicy?: unknown, restartSequence?: unknown, urls?: unknown }} PromoteResponseBody
+ * @param {unknown} value
+ * @returns {Record<string, unknown> | null}
  */
+function asJsonRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? /** @type {Record<string, unknown>} */ (value)
+    : null;
+}
 
 // Upload a packed manifest to control + promote. Token rides authHeaders.
 // controlUrl is passed only for the readable upload log line; the fetch URLs
@@ -87,7 +80,7 @@ const REJECTED_PROMOTE_NOTE =
  */
 export async function postArtifactToControl({ context, ns, workerName, manifest, controlUrl, authHeaders }) {
   const { stdout, stderr } = context;
-  const manifestRecord = asRecord(manifest);
+  const manifestRecord = asJsonRecord(manifest);
   const workersDevOptOutRequested = manifestRecord?.workersDev === false;
   const sessionPolicyRestartRequested = manifestRecord?.sessionPolicy === "restart";
   const jsonHeaders = {
@@ -98,7 +91,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
 
   writeStatusLine(stdout, `[2/3] uploading ${workerName} → ${controlUrl}/ns/${ns}`);
   // `version` is the body of the promote request, so the response must carry one.
-  const deployed = asRecord(
+  const deployed = asJsonRecord(
     await fetchDeployJson({
       context,
       url: context.nsUrl("worker", workerName, "deploy"),
@@ -114,7 +107,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
       stderr,
     })
   );
-  renderDeployWarnings(/** @type {DeployWarning[] | undefined} */ (deployed?.warnings), { ns, workerName, stderr });
+  renderDeployWarnings(deployed?.warnings, { ns, workerName, stderr });
   const version = deployed?.version;
   if (typeof version !== "string" || !version) {
     throw new CliError(
@@ -136,7 +129,7 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
   }
 
   writeStatusLine(stdout, `[3/3] promoting ${version}`);
-  /** @type {PromoteResponseBody} */
+  /** @type {Record<string, unknown>} */
   let promoteBody;
   let promoteRejected = false;
   try {
@@ -149,12 +142,12 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
     // A 3xx or 5xx can come from a proxy in front of control, after control
     // committed the route flip and, under a restart policy, closed sessions.
     promoteRejected = res.status !== undefined && res.status >= 400 && res.status < 500;
-    const body = asRecord(await readJsonOrFail(res, "promote"));
+    const body = asJsonRecord(await readJsonOrFail(res, "promote"));
     // Whoever produced this answer, only control's own acknowledgement counts.
     if (body?.active !== true || body.version !== version) {
       throw new CliError(`promote failed: response did not confirm ${escapeTerminalText(version)} is active`);
     }
-    promoteBody = /** @type {PromoteResponseBody} */ (body);
+    promoteBody = body;
   } catch (err) {
     stderr(promoteRejected ? REJECTED_PROMOTE_NOTE : unknownPromoteNote(sessionPolicyRestartRequested));
     throw err;
@@ -192,10 +185,8 @@ export async function postArtifactToControl({ context, ns, workerName, manifest,
  * @returns {{ platform: string | null, routes: string[] }}
  */
 function promotedWorkerUrlHints(raw, includePlatform) {
-  if (!asRecord(raw)) {
-    return { platform: null, routes: [] };
-  }
-  const urls = /** @type {{ platform?: unknown, routes?: unknown }} */ (raw);
+  const urls = asJsonRecord(raw);
+  if (!urls) return { platform: null, routes: [] };
   const platform = includePlatform && typeof urls.platform === "string" ? urls.platform : null;
   const seen = new Set(platform === null ? [] : [platform]);
   const routes = [];
@@ -258,10 +249,13 @@ async function fetchDeployJson({ context, url, init, label, ns, workerName, stde
   const res = await context.controlFetch(url, { ...init, env: init.env ?? context.env });
   if (res.ok) return await readJsonOrFail(res, label);
   const text = await res.text();
-  renderDeployWarningsFromErrorBody(text, { ns, workerName, stderr });
-  throw new CliError(
-    `${label} failed: ${formatHttpError(res.status, stripRenderedWarnings(text), res.headers)}${deployErrorHint(text)}`
-  );
+  const parsed = parseDeployErrorBody(text);
+  const body = parsed?.record ?? null;
+  renderDeployWarnings(body?.warnings, { ns, workerName, stderr });
+  const formattedError = parsed
+    ? formatHttpErrorBody(res.status, stripRenderedWarnings(parsed.value, body), res.headers)
+    : formatHttpError(res.status, text, res.headers);
+  throw new CliError(`${label} failed: ${formattedError}${deployErrorHint(body?.error)}`);
 }
 
 /**
@@ -291,42 +285,30 @@ function renderDeployWarnings(warnings, { ns, workerName, stderr }) {
 
 /**
  * @param {string} text
- * @param {{ ns: string, workerName: string, stderr: (line: string) => void }} arg
+ * @returns {{ value: unknown, record: Record<string, unknown> | null } | null}
  */
-function renderDeployWarningsFromErrorBody(text, arg) {
+function parseDeployErrorBody(text) {
   try {
-    const body = /** @type {{ warnings?: unknown }} */ (JSON.parse(text));
-    renderDeployWarnings(body.warnings, arg);
-  } catch {}
+    const value = JSON.parse(text);
+    return { value, record: asJsonRecord(value) };
+  } catch {
+    return null;
+  }
 }
 
-/** @param {string} text */
-function stripRenderedWarnings(text) {
-  /** @type {unknown} */
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    return text;
-  }
-  if (!asRecord(body)) return text;
-  const record = /** @type {Record<string, unknown>} */ (body);
-  if (!Array.isArray(record.warnings)) return text;
-  const { warnings: _warnings, ...rest } = record;
-  return JSON.stringify(rest);
+/**
+ * @param {unknown} value
+ * @param {Record<string, unknown> | null} body
+ * @returns {unknown}
+ */
+function stripRenderedWarnings(value, body) {
+  if (!body || !Array.isArray(body.warnings)) return value;
+  const { warnings: _warnings, ...rest } = body;
+  return rest;
 }
 
-/** @param {string} text */
-function deployErrorHint(text) {
-  /** @type {unknown} */
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    return "";
-  }
-  if (!asRecord(body)) return "";
-  const error = /** @type {{ error?: unknown }} */ (body).error;
+/** @param {unknown} error */
+function deployErrorHint(error) {
   if (error === "worker_env_too_large") {
     return "; reduce [vars], secrets, or binding metadata. If the error names a retained version, redeploy/delete that version.";
   }

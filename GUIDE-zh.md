@@ -251,6 +251,7 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | `workers_dev` | 可选 boolean，仅用于至少有一条 `route` / `routes` pattern 的 Worker；`false` 关闭默认 WDL platform-domain URL，省略或设为 `true` 时保持启用 |
 | `[triggers] crons` | 支持；Cloudflare 兼容写法，按 UTC 执行 |
 | `[[triggers.schedules]]` | 平台扩展；每条 cron 可单独指定 `timezone`，不属于 Cloudflare 标准配置 |
+| `triggers.events` | 不支持；Cloudflare Artifacts event subscription 没有对应的 WDL control/runtime 映射，CLI 会在打包前拒绝 |
 | `[[queues.producers]]` / `[[queues.consumers]]` | 支持生产和消费；`delivery_delay` 和 `retry_delay` 生效，`max_concurrency` 会被拒绝 |
 | `[[services]]` | 支持 Worker 调 Worker；同 namespace 可直接绑定，跨 namespace 需要目标方授权 |
 | `[[platform_bindings]]` | 支持平台提供的第一方能力，例如平台封装的共享服务 |
@@ -634,6 +635,8 @@ timezone = "America/Los_Angeles"
 
 `[[triggers.schedules]]` 不是 Cloudflare 标准配置；如果同一份项目也要部署到 Cloudflare，请使用 `[triggers] crons`，不要依赖这个扩展。
 
+Wrangler 4.118+ 还支持用 `triggers.events` 声明 Cloudflare Artifacts Workflow subscription。WDL 没有实现对应的 control/runtime 契约，因此 deploy 会拒绝该字段，而不是静默丢弃 subscription。
+
 Cron triggers 是 runtime dispatch 目标。把它声明在可路由的 tenant Worker 上，不要声明在 platform binding target Worker 上。
 
 代码：
@@ -875,12 +878,12 @@ wdl tail hello
 | 流式响应、出站 TCP（`cloudflare:sockets`） | 支持 | — | 租户 worker 只能连公网端点；平台内网地址被阻断 | — |
 | `compatibility_date` / `compatibility_flags` | 部分 | — | 平台运行单一 workerd 配置；不按 worker 逐个模拟 Cloudflare 的历史行为变更 | — |
 | KV | 支持 | 写入立即可见——Cloudflare 的边缘复制是最终一致，这里是强一致 | `cacheTtl` 可接受但不是新鲜度契约 | — |
-| R2 | 支持 | — | 单区对象存储 | Multipart 上传、`preview_bucket_name`、`jurisdiction` |
+| R2 | 支持 | — | 单区对象存储 | Multipart 上传、`preview_bucket_name`、`jurisdiction`、`local_dev.experimental_s3_credentials` |
 | 静态资源 | 部分 | `env.ASSETS.url(path)` 发放带 token 的 CDN URL——WDL 新增能力 | — | Cloudflare Pages 式资源管线、fetch 形态的 assets binding |
 | D1 | 部分 | 单主库——默认读己之写，没有复制延迟和 bookmark 语义需要操心 | 请求/结果有大小上限；生命周期和迁移用 `wdl d1` 管理，`[[d1_databases]]` 只作为 binding 声明 | 读副本复制、Time Travel / bookmarks |
 | Durable Objects | 部分 | `[wdl] session_policy` 决定 promotion 保留还是退役既有会话（默认 `preserve`；Cloudflare 总是 restart） | 仅同 worker 内 class；`new_classes` 与 `new_sqlite_classes` 在 WDL 等价 | `script_name`（跨 script binding）、rename/delete migration、WebSocket 会话/游标恢复 |
 | Queues | 部分 | — | 按 batch 大小驱动派发；`max_batch_timeout` 为配置兼容而保存，不是聚合窗口 | `max_concurrency`（显式拒绝）、`contentType: "v8"` |
-| Cron 触发器 | 支持 | — | Cloudflare 兼容表达式，按 UTC 执行；best-effort 分钟槽——错过的槽跳过不补发，失败不重试 | — |
+| Cron 触发器 | 支持 | — | Cloudflare 兼容表达式，按 UTC 执行；best-effort 分钟槽——错过的槽跳过不补发，失败不重试 | Cloudflare Artifacts `triggers.events` subscription |
 | Workflows | 部分 | 并行 / DAG step 在运行时实测捕获，包括 `Promise.all` 并行分支 | WDL 自有的 payload 语义；payload 与单 turn step fan-out 有上限；严格 await 顺序；`step.do` 永久失败即终止运行（即使被 catch） | 完整 Cloudflare Workflows 对等、`script_name` / 跨 worker workflow 与 callback、source-AST 可视化 |
 | Service bindings | 支持 | — | — | — |
 | Platform bindings | 支持 | WDL 新增、Cloudflare 无对应物：运维方管控的平台能力经 `[[platform_bindings]]` 注入 `env` | — | — |

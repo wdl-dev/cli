@@ -40,6 +40,8 @@ timezone = "Asia/Shanghai"
 
 `[triggers]` 和 `[[triggers.schedules]]` 都支持；选一种用。
 
+Wrangler 4.118+ 还支持用 `triggers.events` 声明 Cloudflare Artifacts Workflow subscription。WDL 没有实现对应的 control/runtime 契约，因此 deploy 会拒绝该字段，而不是静默丢弃 subscription。
+
 Cron triggers 是 runtime dispatch 能力。除非管理方明确给了 reserved namespace，否则只应声明在 tenant namespace 里的可路由 Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是公开/runtime dispatch 目标，不能声明 cron triggers。
 
 ## Handler 签名

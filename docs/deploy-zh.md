@@ -126,6 +126,8 @@ wdl deploy . --env production
 
 WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]` 本身，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
+WDL 还会拒绝 Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；这两个字段都没有对应的 WDL deploy manifest 或 runtime 映射。
+
 ### Service bindings 与 capability delegation
 
 Tenant JSRPC 可以序列化 `Blob` value，并把 service 或 Durable Object class stub 作为 opaque capability argument 传递。接收方可以调用被委托的目标，但不能改写 stub 携带的 host-authored caller properties。Delegated stub 只应留在内存中；WDL 不支持长期 irrevocable stub storage。

@@ -69,16 +69,19 @@ platform-domain URL only while it is enabled. Cloudflare's separate
 `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
 `[[services]].ns`, and `[wdl]` are parsed by the CLI and removed from Wrangler's
 temporary bundle config; other fields retain their existing Wrangler passthrough
-behavior. `[wdl] session_policy` accepts `preserve` or `restart`. The default
-`preserve` leaves loaded Durable Object facets on the version that built them
-until the host actor restarts or the facet is deleted, and keeps established
-WebSockets draining while their backend stays healthy. `restart` closes the
-worker's open WebSockets with code `1012` at promotion and retires stale facets
-on their next dispatch, preserving SQLite state. Wrangler's object-shaped
-declarative `exports` config is unsupported. The dry-run child hides Wrangler's
-banner (and its normal update check) and disables anonymous telemetry. Wrangler
-may still consult the configured npm registry when reporting an unknown
-configuration field; project build hooks retain their normal network access. For
+behavior. Specific nested fields that WDL cannot represent are rejected rather
+than silently dropped, including Cloudflare Artifacts `triggers.events`
+subscriptions and R2 `local_dev.experimental_s3_credentials`.
+`[wdl] session_policy` accepts `preserve` or `restart`. The default `preserve`
+leaves loaded Durable Object facets on the version that built them until the
+host actor restarts or the facet is deleted, and keeps established WebSockets
+draining while their backend stays healthy. `restart` closes the worker's open
+WebSockets with code `1012` at promotion and retires stale facets on their next
+dispatch, preserving SQLite state. Wrangler's object-shaped declarative
+`exports` config is unsupported. The dry-run child hides Wrangler's banner (and
+its normal update check) and disables anonymous telemetry. Wrangler may still
+consult the configured npm registry when reporting an unknown configuration
+field; project build hooks retain their normal network access. For
 `[[services]]` and `[[exports]]`, read `docs/deploy.md`: tenant JSRPC may
 delegate service or Durable Object class stubs as opaque capabilities, but the
 receiver cannot rewrite their host-authored caller properties. Keep delegated

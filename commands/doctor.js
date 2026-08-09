@@ -14,12 +14,7 @@ import {
   namespaceFromPrincipal,
   summarizeWhoami,
 } from "../lib/whoami.js";
-import {
-  MIN_WRANGLER_MAJOR,
-  parseWranglerMajorVersion,
-  resolveWranglerCommand,
-  wranglerChildEnv,
-} from "../lib/wrangler/command.js";
+import { MIN_WRANGLER_MAJOR, probeWranglerVersion, resolveWranglerCommand } from "../lib/wrangler/command.js";
 import { selectWranglerConfigFiles } from "../lib/wrangler/config.js";
 
 const DOCTOR_OPTIONS = [
@@ -143,18 +138,16 @@ function checkWrangler({ cwd, env, execFile }) {
     });
   }
   try {
-    const output = execFile(wrangler.command, [...wrangler.args, "--version"], {
+    const { version, major } = probeWranglerVersion({
+      execFile,
       cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-      maxBuffer: 1024 * 1024,
-      env: wranglerChildEnv(env),
+      env,
+      wrangler,
+      fallbackVersion: () => readInstalledWranglerVersion(cwd),
     });
-    const version = formatWranglerVersion(output) || readInstalledWranglerVersion(cwd);
     // Mirror the gate `wdl deploy` enforces so doctor can't green-light a
     // Wrangler major that deploy will reject.
-    const major = parseWranglerMajorVersion(version);
-    const meetsMinimum = major != null && major >= MIN_WRANGLER_MAJOR;
+    const meetsMinimum = major >= MIN_WRANGLER_MAJOR;
     return check({
       ok: meetsMinimum,
       label: `Wrangler ${version || "(unknown)"}`,
@@ -359,13 +352,6 @@ function satisfiesNodeEngine(version, engine) {
   const min = /^>=\s*(\d+)/.exec(engine);
   if (!min) return true;
   return Number(version.split(".")[0]) >= Number(min[1]);
-}
-
-/** @param {unknown} output */
-function formatWranglerVersion(output) {
-  const text = String(output).trim();
-  const match = text.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/);
-  return match ? match[0] : "";
 }
 
 /** @param {string} cwd */

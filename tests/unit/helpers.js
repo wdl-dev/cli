@@ -2,6 +2,7 @@
 // runner only globs cli-*.test.js).
 
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -77,6 +78,54 @@ export function assertNoRawTerminalControls(text, target = "output") {
   assert.doesNotMatch(text, /\nFORGED|\rBAD/, `raw line controls must not reach ${target}`);
 }
 
+/**
+ * @param {() => unknown} fn
+ * @param {RegExp} expected
+ * @param {string} target
+ */
+export function assertThrowsNoRawTerminalControls(fn, expected, target) {
+  assert.throws(fn, (err) => {
+    const message = /** @type {Error} */ (err).message;
+    assertNoRawTerminalControls(message, target);
+    assert.match(message, expected);
+    return true;
+  });
+}
+
+/** @param {string} value */
+export function stdinFrom(value) {
+  const stdin = Object.assign(new EventEmitter(), {
+    /** @param {string} _encoding */
+    setEncoding(_encoding) {},
+  });
+  queueMicrotask(() => {
+    stdin.emit("data", value);
+    stdin.emit("end");
+  });
+  return stdin;
+}
+
+/** @param {string} value */
+export function ttyStdinLine(value) {
+  const stdin = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    paused: false,
+    /** @param {string} _encoding */
+    setEncoding(_encoding) {},
+    // Hidden-input code requires the real TTY surface even when the test does
+    // not need to observe mode changes.
+    /** @param {boolean} _mode */
+    setRawMode(_mode) {},
+    pause() {
+      this.paused = true;
+    },
+  });
+  queueMicrotask(() => {
+    stdin.emit("data", value);
+  });
+  return stdin;
+}
+
 // A minimal fetch Response stand-in. Accepts an object (JSON) or string body
 // and exposes json()/text()/arrayBuffer() so it works for control-plane JSON
 // responses and R2 streaming/byte tests alike. json() parses the text
@@ -96,41 +145,6 @@ export function response(body, status = 200) {
     json: async () => JSON.parse(text),
     text: async () => text,
     arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-  };
-}
-
-// A deploy issues at most two control calls: deploy, then promote if the CLI
-// accepts the deploy response. Record both, answer them in that order, and
-// reject anything further.
-// Control acknowledges a promotion with the version it activated, so that shape
-// is the default; a case that needs a different one overrides it.
-/**
- * @param {unknown} deployBody
- * @param {unknown} promoteBody
- */
-export function deployPromoteFetch(deployBody, promoteBody) {
-  const acknowledged = {
-    active: true,
-    version: /** @type {{ version?: unknown }} */ (deployBody)?.version,
-    .../** @type {Record<string, unknown>} */ (promoteBody ?? {}),
-  };
-  /** @type {ControlCall[]} */
-  const calls = [];
-  return {
-    calls,
-    /** @param {string} url @param {import("../../lib/control-fetch.js").ControlFetchInit} [init] */
-    controlFetch: async (url, init = {}) => {
-      calls.push({ url, init });
-      if (calls.length === 1) {
-        assert.match(url, /\/deploy$/);
-        return response(deployBody, 201);
-      }
-      if (calls.length === 2) {
-        assert.match(url, /\/promote$/);
-        return response(acknowledged);
-      }
-      throw new Error(`unexpected control call #${calls.length}: ${url}`);
-    },
   };
 }
 

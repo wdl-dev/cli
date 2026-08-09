@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
 import {
   existsSync,
   lstatSync,
@@ -15,7 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runTokenCommand } from "../../commands/token.js";
 import { readTokenStore, tokenStorePath, writeTokenStore } from "../../lib/token-store.js";
-import { ESC, POSIX_ONLY, assertNoRawTerminalControls, response } from "./helpers.js";
+import { ESC, POSIX_ONLY, assertNoRawTerminalControls, response, stdinFrom } from "./helpers.js";
 
 /**
  * @template T
@@ -29,16 +28,6 @@ async function withTempXdg(fn) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}
-
-/** @param {string} value @returns {import("../../lib/stdin.js").StdinLike} */
-function stdinFrom(value) {
-  const stdin = Object.assign(new EventEmitter(), { setEncoding() {} });
-  queueMicrotask(() => {
-    stdin.emit("data", value);
-    stdin.emit("end");
-  });
-  return stdin;
 }
 
 /**

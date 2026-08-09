@@ -34,6 +34,8 @@ bucket_name = "inspection-images"
 
 R2 bucket 是**惰性**的 —— 不需要预创建。绑定首次使用时即可工作；worker 写入第一个对象时 bucket 就出现了。
 
+Wrangler 的 `local_dev.experimental_s3_credentials` 用来通过本地 S3-compatible endpoint 暴露 R2 bucket。WDL deploy 不运行该本地服务，会拒绝这个字段，而不是静默丢弃凭据。
+
 读取时 custom metadata key 会按 HTTP header 语义归一成小写。`head()` 会暴露 HTTP metadata 和 custom metadata，所以鉴权上与读取对象 body 同级。
 
 ## Worker 端读写

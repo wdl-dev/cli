@@ -57,7 +57,9 @@ disabling the default platform-domain URL; it requires at least one `route` /
 `routes` pattern and is not inferred. The deploy summary prints every active
 route-pattern URL hint, preserving the trailing `*` on prefix patterns, and
 includes the platform-domain URL only while it is enabled. Cloudflare's separate
-`preview_urls` field is unsupported and rejected by the CLI.
+`preview_urls` field is unsupported and rejected by the CLI. Cloudflare
+Artifacts `triggers.events` subscriptions and R2
+`local_dev.experimental_s3_credentials` are also unsupported and rejected.
 `[wdl] session_policy = "restart"` makes every promotion close the Worker's open
 WebSockets with `1012` and retire stale Durable Object facets on their next
 dispatch; the default `preserve` leaves facets on the version that built them

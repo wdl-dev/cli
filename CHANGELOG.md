@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- Bump the bundled Wrangler to 4.120.0, which includes undici 7.29.0 without the
+  package-level override.
+
+### Fixed
+
+- Reject unsupported Wrangler `triggers.events` subscriptions before bundling
+  instead of silently dropping them from the WDL deploy manifest.
+
 ## 1.7.0
 
 ### Added

@@ -244,6 +244,10 @@ existing Wrangler passthrough behavior. Wrangler's object-shaped declarative
 `exports` configuration is not supported by WDL. `[wdl] session_policy` has its
 own section above.
 
+WDL also rejects Cloudflare Artifacts `triggers.events` subscriptions and R2
+`local_dev.experimental_s3_credentials`: neither field has a WDL deploy-manifest
+or runtime mapping.
+
 ### Service bindings and delegated capabilities
 
 Tenant JSRPC can serialize `Blob` values and pass service or Durable Object

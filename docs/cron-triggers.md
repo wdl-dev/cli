@@ -44,6 +44,10 @@ timezone = "Asia/Shanghai"
 
 Both `[triggers]` and `[[triggers.schedules]]` are supported; pick one.
 
+Wrangler 4.118+ also recognizes `triggers.events` for Cloudflare Artifacts
+Workflow subscriptions. WDL does not implement that control/runtime contract, so
+deploy rejects the field instead of silently dropping its subscriptions.
+
 Cron triggers are a runtime dispatch capability. Unless your operator has
 explicitly given you a reserved namespace, declare them only on routeable
 Workers in tenant namespaces. Workers selected through `[[platform_bindings]]`

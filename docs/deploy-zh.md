@@ -81,6 +81,7 @@ Cloudflare 用 `workers_dev` 控制 Worker 的 `*.workers.dev` route；版本化
    - `[[d1_databases]]` → 对每个 `database_name`，先 `wdl d1 list` 检查；缺的用 `wdl d1 create <name>` 创建。见 [d1-zh.md](./d1-zh.md)。
    - `[[r2_buckets]]` 和 `[[kv_namespaces]]` 是惰性的 —— 不需要预创建；首次使用时绑定即生效。见 [r2-zh.md](./r2-zh.md) 和 [kv-zh.md](./kv-zh.md)。
    - `[[queues.*]]` —— 见 [queues-zh.md](./queues-zh.md)；不确定队列归属时再找运维方确认。
+   - `[ai]` —— 测试推理前先用 `wdl ai` 配置 provider 元数据和凭据。见 [ai-zh.md](./ai-zh.md)。
 6. **应用 D1 迁移**，如果设置了 `migrations_dir` —— 见 [d1-zh.md](./d1-zh.md)。
 7. **部署：** `wdl deploy .`。CLI 会打印上传、提升、运行时 URL —— 把这个 URL 给用户看。
 
@@ -122,9 +123,9 @@ wdl deploy . --env production
 
 新项目应继续使用 `2026-06-17` compatibility date，除非具体功能需要更新日期。Control 会拒绝早于 `2026-04-01` 的显式日期、无效或未来日期，以及超出 bundled workerd 支持范围的日期。上游 experimental enable flags、`legacy_error_serialization` 和 `allow_irrevocable_stub_storage` 不受支持。
 
-**支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[wdl] session_policy`、`[env.<name>]`。
+**支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[ai]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[wdl] session_policy`、`[env.<name>]`。
 
-WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]` 本身，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
+WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]` 本身，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
 WDL 还会拒绝 Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；这两个字段都没有对应的 WDL deploy manifest 或 runtime 映射。
 

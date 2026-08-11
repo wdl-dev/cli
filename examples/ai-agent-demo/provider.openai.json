@@ -1,0 +1,20 @@
+{
+  "kind": "openai",
+  "models": {
+    "primary": {
+      "upstreamModel": "gpt-5",
+      "protocol": "responses",
+      "transports": ["http", "sse", "responses_websocket"],
+      "inputModalities": ["image", "text"],
+      "outputModalities": ["text"],
+      "capabilities": {
+        "functionTools": true,
+        "structuredOutput": true,
+        "reasoning": true,
+        "previousResponseId": true,
+        "providerTools": true,
+        "binaryFrames": false
+      }
+    }
+  }
+}

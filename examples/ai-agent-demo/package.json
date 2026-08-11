@@ -1,0 +1,8 @@
+{
+  "name": "ai-agent-demo",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^4.100.0"
+  }
+}

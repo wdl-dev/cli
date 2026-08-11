@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  parseAiBindingFromCfg,
   parseD1DatabasesFromCfg,
   parseDurableObjectsFromCfg,
   parseExportsFromCfg,
@@ -13,6 +14,17 @@ import {
   parseWorkflowsFromCfg,
 } from "../../lib/wrangler/bindings.js";
 import { ESC, assertThrowsNoRawTerminalControls } from "./helpers.js";
+
+test("parseAiBindingFromCfg accepts the singleton binding and rejects unsupported fields", () => {
+  assert.equal(parseAiBindingFromCfg({}), null);
+  assert.deepEqual(parseAiBindingFromCfg({ ai: { binding: "AI" } }), { binding: "AI" });
+  assert.deepEqual(parseAiBindingFromCfg({ ai: { binding: " AI " } }), { binding: "AI" });
+  assert.throws(() => parseAiBindingFromCfg({ ai: [] }), /\[ai\] must be a table/);
+  assert.throws(() => parseAiBindingFromCfg({ ai: {} }), /\[ai\]\.binding is required/);
+  assert.throws(() => parseAiBindingFromCfg({ ai: { binding: "AI", remote: true } }), /unsupported field.*remote/);
+  assert.throws(() => parseAiBindingFromCfg({ ai: { binding: "__WDL_AI__" } }), /runtime-internal/);
+  assert.throws(() => parseAiBindingFromCfg({ ai: { binding: " __WDL_AI__ " } }), /runtime-internal/);
+});
 
 test("parseTriggers: missing/empty yields []", () => {
   assert.deepEqual(parseTriggers(undefined), []);

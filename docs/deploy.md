@@ -149,6 +149,8 @@ changes only the control socket target and never a printed Worker origin.
      the binding works on first use. See [r2.md](./r2.md) and [kv.md](./kv.md).
    - `[[queues.*]]` — see [queues.md](./queues.md); when queue ownership is
      unclear, confirm with the operator.
+   - `[ai]` — configure provider metadata and its credential with `wdl ai`
+     before testing inference. See [ai.md](./ai.md).
 6. **Apply D1 migrations** if `migrations_dir` is set — see [d1.md](./d1.md).
 7. **Deploy:** `wdl deploy .`. The CLI prints the upload, the promote, and the
    runtime URL — show that URL to the user.
@@ -231,18 +233,18 @@ control. Upstream experimental enable flags, `legacy_error_serialization`, and
 
 **Supported:** `name`, `main`, `compatibility_date` / `compatibility_flags`,
 `[vars]`, `[[kv_namespaces]]`, `[[d1_databases]]`,
-`[[durable_objects.bindings]]`, `[[workflows]]`, `[[r2_buckets]]`,
+`[[durable_objects.bindings]]`, `[[workflows]]`, `[[r2_buckets]]`, `[ai]`,
 `[assets] directory`, `[triggers] crons`, `[[triggers.schedules]]` (with
 timezone, a platform extension), `[[queues.producers]]` /
 `[[queues.consumers]]`, `[[services]]`, `[[platform_bindings]]`, `[[exports]]`,
 `route` / `routes`, `workers_dev`, `[wdl] session_policy`, `[env.<name>]`.
 
-WDL parses `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`, and
-`[[services]].ns` plus `[wdl]` itself and removes these private extensions from
-the temporary config passed to the Wrangler bundler. Other fields retain their
-existing Wrangler passthrough behavior. Wrangler's object-shaped declarative
-`exports` configuration is not supported by WDL. `[wdl] session_policy` has its
-own section above.
+WDL parses `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
+`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes these private
+extensions from the temporary config passed to the Wrangler bundler. Other
+fields retain their existing Wrangler passthrough behavior. Wrangler's
+object-shaped declarative `exports` configuration is not supported by WDL.
+`[wdl] session_policy` has its own section above.
 
 WDL also rejects Cloudflare Artifacts `triggers.events` subscriptions and R2
 `local_dev.experimental_s3_credentials`: neither field has a WDL deploy-manifest

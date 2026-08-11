@@ -75,7 +75,7 @@ wdl deploy . --env production
 
 Cloudflare Workers / Wrangler 的 `--env preview` 通常会发布带环境后缀的 worker / script 名。WDL 不会这样做：`wdl deploy . --env preview` 和 `wdl deploy . --env production` 都更新顶层 `name` 指定的同一个 worker。要部署两个独立 worker，请用两个不同的顶层 `name`、两个目录，或两个 namespace。
 
-`vars` 和大部分 bindings 仍按 Wrangler 的 non-inheritable 心智模型处理：选中 `[env.<name>]` 后，顶层 `[vars]`、KV、D1、R2、queues、services、workflows 等不会自动继承到该 env。需要某个 runtime env 变量或 binding 时，要在对应的 `[env.<name>]` 里重新声明。
+`vars` 和大部分 bindings 仍按 Wrangler 的 non-inheritable 心智模型处理：选中 `[env.<name>]` 后，顶层 `[vars]`、KV、D1、R2、queues、services、workflows、AI 等不会自动继承到该 env。需要某个 runtime env 变量或 binding 时，要在对应的 `[env.<name>]` 里重新声明。
 
 按上面的例子：
 
@@ -95,7 +95,7 @@ Cloudflare Workers / Wrangler 的 `--env preview` 通常会发布带环境后缀
 
 `[env.<name>]` 可以覆盖多类配置，但继承规则不同：
 
-- Non-inheritable：`[env.<name>].vars`、`[[env.<name>.kv_namespaces]]`、`[[env.<name>.d1_databases]]`、`[[env.<name>.r2_buckets]]`、`[[env.<name>.queues.*]]`、`[[env.<name>.services]]`、`[[env.<name>.workflows]]` 等。选中 env 后，顶层同类配置不会回退进来。
+- Non-inheritable：`[env.<name>].vars`、`[[env.<name>.kv_namespaces]]`、`[[env.<name>.d1_databases]]`、`[[env.<name>.r2_buckets]]`、`[[env.<name>.queues.*]]`、`[[env.<name>.services]]`、`[[env.<name>.workflows]]`、`[env.<name>.ai]` 等。选中 env 后，顶层同类配置不会回退进来。
 - Inheritable：`main`、`compatibility_date` / `compatibility_flags`、`route` / `routes`、`workers_dev`、`[wdl]`、`[[migrations]]`、`[assets]`、`[triggers]` 等。env 里没写时继续使用顶层值；env 里写了则覆盖顶层值。
 
 因此，共享的 `vars` 或 binding 不能只放顶层后期待所有 env 自动继承；每个 env 都需要声明自己要用的 runtime vars 和 bindings。共享的 DO migrations、assets / cron 等可放顶层，只在差异 env 下覆盖。

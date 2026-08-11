@@ -10,6 +10,7 @@ import * as d1Cmd from "../commands/d1.js";
 import * as r2Cmd from "../commands/r2.js";
 import * as tailCmd from "../commands/tail.js";
 import * as workflowsCmd from "../commands/workflows.js";
+import * as aiCmd from "../commands/ai.js";
 import * as configCmd from "../commands/config.js";
 import * as doctorCmd from "../commands/doctor.js";
 import * as whoamiCmd from "../commands/whoami.js";
@@ -34,6 +35,7 @@ const REGISTRY = [
   r2Cmd,
   tailCmd,
   workflowsCmd,
+  aiCmd,
   tokenCmd,
   configCmd,
   doctorCmd,
@@ -168,7 +170,7 @@ function usage(exitCode) {
   write(
     formatHelp({
       usage: ["wdl <command> [args] [options]", "wdl <command> --help", "wdl help <command>", "wdl --version"],
-      description: "Manage deployments, diagnostics, secrets, workers, D1, R2, and Workflows for a WDL control plane.",
+      description: "Manage deployments, diagnostics, secrets, workers, data services, AI, and Workflows for WDL.",
       commands: REGISTRY.map((c) => {
         const alias = aliasesByTarget[c.meta.name];
         const note = alias ? ` (alias: ${alias.join(", ")})` : "";

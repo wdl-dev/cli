@@ -280,6 +280,7 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
       main: "src/index.js",
       vars: { TOP: "1" },
       kv_namespaces: [{ binding: "KV", id: "top" }],
+      ai: { binding: "AI" },
       services: [{ binding: "AUTH", service: "auth" }],
       queues: { producers: [{ binding: "Q", queue: "top-q" }] },
       assets: { directory: "./top-public" },
@@ -289,6 +290,7 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
         prod: {
           vars: { ENV: "prod" },
           kv_namespaces: [{ binding: "KV", id: "prod" }],
+          ai: { binding: "PROD_AI" },
           queues: { consumers: [{ queue: "jobs" }] },
         },
       },
@@ -299,6 +301,7 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
 
   assert.deepEqual(cfg.vars, { ENV: "prod" });
   assert.deepEqual(cfg.kv_namespaces, [{ binding: "KV", id: "prod" }]);
+  assert.deepEqual(cfg.ai, { binding: "PROD_AI" });
   assert.deepEqual(cfg.queues, { consumers: [{ queue: "jobs" }] });
   assert.equal(cfg.services, undefined);
   assert.deepEqual(cfg.assets, { directory: "./top-public" });
@@ -752,7 +755,6 @@ test("validateUnsupportedWranglerConfig: empty env-scoped allowed_callers is sti
 
 test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy keys", () => {
   const objectShapeKeys = new Set([
-    "ai",
     "browser",
     "cache",
     "limits",
@@ -767,7 +769,6 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
   for (const key of [
     "addresses",
     "agent_memory",
-    "ai",
     "artifacts",
     "browser",
     "cache",

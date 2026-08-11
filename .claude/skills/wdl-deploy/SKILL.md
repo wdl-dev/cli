@@ -1,6 +1,6 @@
 ---
 name: wdl-deploy
-description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, workers, delete, d1, r2, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows bindings, manage D1 / R2 / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
+description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, workers, delete, d1, r2, ai, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows / AI bindings, manage D1 / R2 / AI providers / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
 ---
 
 # WDL CLI deploy skill
@@ -33,6 +33,8 @@ Open the relevant doc before answering:
   queue handlers, message size and retry limits.
 - `docs/workflows.md` — `[[workflows]]` config, the WDL Workflows surface,
   `wdl workflows` instance management.
+- `docs/ai.md` — `[ai]` config, namespace provider/credential management,
+  Responses/tools/SSE, OpenAI SDK use, and WebSocket inference.
 - `docs/kv.md` — `[[kv_namespaces]]`, immediately visible writes, batch reads,
   `list()` metadata / pagination differences.
 - `docs/assets.md` — `[assets]` directory + `env.ASSETS`, size caps, default
@@ -67,11 +69,11 @@ hint, preserving the trailing `*` on prefix patterns, and includes the
 platform-domain URL only while it is enabled. Cloudflare's separate
 `preview_urls` field is unsupported and rejected by the CLI. WDL-only
 `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
-`[[services]].ns`, and `[wdl]` are parsed by the CLI and removed from Wrangler's
-temporary bundle config; other fields retain their existing Wrangler passthrough
-behavior. Specific nested fields that WDL cannot represent are rejected rather
-than silently dropped, including Cloudflare Artifacts `triggers.events`
-subscriptions and R2 `local_dev.experimental_s3_credentials`.
+`[[services]].ns`, `[ai]`, and `[wdl]` are parsed by the CLI and removed from
+Wrangler's temporary bundle config; other fields retain their existing Wrangler
+passthrough behavior. Specific nested fields that WDL cannot represent are
+rejected rather than silently dropped, including Cloudflare Artifacts
+`triggers.events` subscriptions and R2 `local_dev.experimental_s3_credentials`.
 `[wdl] session_policy` accepts `preserve` or `restart`. The default `preserve`
 leaves loaded Durable Object facets on the version that built them until the
 host actor restarts or the facet is deleted, and keeps established WebSockets

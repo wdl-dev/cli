@@ -28,6 +28,7 @@ package.
 | Object storage                                        | `r2.md`              |
 | Async queues / a queue handler                        | `queues.md`          |
 | Workflows                                             | `workflows.md`       |
+| AI agent inference / provider credentials             | `ai.md`              |
 | Scheduled / cron jobs                                 | `cron-triggers.md`   |
 | WDL environment override rules (preview / production) | `env-overrides.md`   |
 | Runtime secrets                                       | `secrets.md`         |
@@ -60,6 +61,8 @@ includes the platform-domain URL only while it is enabled. Cloudflare's separate
 `preview_urls` field is unsupported and rejected by the CLI. Cloudflare
 Artifacts `triggers.events` subscriptions and R2
 `local_dev.experimental_s3_credentials` are also unsupported and rejected.
+`[ai] binding = "AI"` declares the AI facade; provider metadata and credentials
+are namespace resources managed with `wdl ai`, never ordinary Worker secrets.
 `[wdl] session_policy = "restart"` makes every promotion close the Worker's open
 WebSockets with `1012` and retire stale Durable Object facets on their next
 dispatch; the default `preserve` leaves facets on the version that built them
@@ -78,6 +81,7 @@ When a snippet is not enough and you need a complete working file tree:
 | Queue producer + consumer + KV    | `queues-demo`          |
 | Durable Object counter            | `durable-objects-demo` |
 | Workflow start / status / events  | `workflows-demo`       |
+| Responses function-tool agent     | `ai-agent-demo`        |
 | Static assets                     | `pages-assets`         |
 | WDL env overrides & worker naming | `env-overrides-demo`   |
 | R2 + D1 + KV + assets combined    | `inspection-demo`      |
@@ -85,9 +89,10 @@ When a snippet is not enough and you need a complete working file tree:
 ## Project-level anti-patterns
 
 - ❌ Hardcoding third-party API tokens or keys into code, `.env`, or Wrangler
-  config. Push them with `wdl secret put --worker <name> <KEY>` — the secret
-  value is read from stdin (type it interactively, or pipe / redirect it in,
-  e.g. `printf '%s' "$VALUE" | wdl secret put --worker <name> <KEY>`); it is
+  config. AI provider keys use `wdl ai credential put <provider>`; other APIs
+  use `wdl secret put --worker <name> <KEY>` — the secret value is read from
+  stdin (type it interactively, or pipe / redirect it in, e.g.
+  `printf '%s' "$VALUE" | wdl secret put --worker <name> <KEY>`); it is
   deliberately not a command-line argument so it stays out of shell history.
 - ❌ Testing platform bindings with `wrangler dev` — `[[platform_bindings]]`
   never resolves in any local runtime; the binding is `undefined` locally and
@@ -120,9 +125,9 @@ Wrangler in two key ways:
   named `my-worker` deployed with `--env production` is still `my-worker` on
   WDL, where standard Cloudflare Workers / Wrangler would typically produce
   `my-worker-production`.
-- `vars`, KV, D1, R2, Durable Objects, queues, services, workflows, and the like
-  are env-scoped / non-inheritable — top-level config of the same kind does not
-  flow into the selected env; redeclare it inside the `env.<name>` block.
+- `vars`, KV, D1, R2, AI, Durable Objects, queues, services, workflows, and the
+  like are env-scoped / non-inheritable — top-level config of the same kind does
+  not flow into the selected env; redeclare it inside the `env.<name>` block.
 
 Full rules are in `env-overrides.md`.
 

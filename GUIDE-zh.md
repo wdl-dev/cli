@@ -257,13 +257,14 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | `[[platform_bindings]]` | 支持平台提供的第一方能力，例如平台封装的共享服务 |
 | `[env.<name>]` | 支持；用 `--env <name>` 或 `CLOUDFLARE_ENV` 选择；见下面的环境覆盖说明 |
 | `[[r2_buckets]]` | 支持常用 R2 object API，包括条件请求、range GET 和 `list({ include })`；对象存储在平台本地 R2，并按 namespace + `bucket_name` 隔离 |
+| `[ai]` | 支持单例 `{ binding }` 声明。Provider 元数据和加密 namespace 凭据由 `wdl ai` 管理；Worker 按模型描述获得 OpenAI-compatible Responses、Chat Completions、Embeddings、SSE、Responses WebSocket 和 Realtime WebSocket 路径 |
 | Durable Objects | 支持本 worker 内 class，要求 class 列在 `[[migrations]].new_classes` 或 `[[migrations]].new_sqlite_classes`；两种写法在 WDL 都映射到 SQLite-backed DO storage。`script_name`、rename/delete migration 暂未实现。`stub.fetch()`、JSON-structured `stub.method(...args)` DO RPC、同步 `ctx.storage.sql`、alarm shim、普通 WebSocket upgrade 和 native WebSocket hibernation API surface 可用；平台级 session/cursor 恢复仍由应用自己处理 |
 | `[wdl]` | WDL 平台扩展表，当前含 `session_policy = "preserve" \| "restart"`（默认 `preserve`）；`restart` 下 promotion 会以 `1012` 关闭该 worker 打开的 WebSocket，stale Durable Object facet 在下一次 dispatch 时中止。与 `workers_dev` 一样会被 `[env.<name>]` 继承，除非该 env 自己声明了 `[wdl]` |
 | `[[workflows]]` | 支持当前 Worker 内定义的 workflow class。可用 `WorkflowEntrypoint`、`env.<BINDING>.create()`、`createBatch()`、`get()`、`status()`、`pause()`/`resume()`/`restart()`/`terminate()`、`sendEvent()`、`step.do()`/`sleep()`/`sleepUntil()`/`waitForEvent()`、retry、`NonRetryableError`、same-worker DO progress callback 和 runtime-observed parallel/DAG step。这是 WDL Workflows 支持，不是完整 Cloudflare Workflows parity。Instance payload、单 turn step fan-out 和并行 step 顺序都有上限；已启动的 step 必须 await。不支持 `script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer |
 | Analytics Engine | 暂不支持，部署时会拒绝 |
-| 其他未映射的 Wrangler 绑定/配置/策略段（例如 `ai`、`vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
+| 其他未映射的 Wrangler 绑定/配置/策略段（例如 `vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
 
-WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
+WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
 
 Cron triggers 和 queue consumers 是运行时 dispatch 能力。除非管理方明确给了 reserved namespace，否则只应声明在 tenant namespace 里的可路由 Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是公开/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 
@@ -277,7 +278,7 @@ R2 object key 可以包含开头、结尾或连续的 `/` 分隔符；CLI 会保
 
 ### 环境覆盖
 
-如果 Wrangler 配置里有 `[env.<name>]`，必须通过 `--env <name>` 或 `CLOUDFLARE_ENV` 显式选择；CLI 不会自动挑一个默认环境。和 Cloudflare Workers / Wrangler 不同，WDL 不会把环境名追加到 worker / script 名后面：`wdl deploy . --env preview` 仍然更新顶层 `name` 指定的 worker。`vars` 和大部分 bindings 仍是 env-scoped / non-inheritable：选中 env 后，顶层 `[vars]`、KV、D1、R2、queues、services、workflows 都不会自动进入该 env。策略类配置则会继承：`workers_dev`、`route` / `routes` 和 `[wdl]` 在 env 没有自己声明时继续生效。需要同时跑 staging / production 时，默认用不同 namespace 区分，除非管理方另有约定。
+如果 Wrangler 配置里有 `[env.<name>]`，必须通过 `--env <name>` 或 `CLOUDFLARE_ENV` 显式选择；CLI 不会自动挑一个默认环境。和 Cloudflare Workers / Wrangler 不同，WDL 不会把环境名追加到 worker / script 名后面：`wdl deploy . --env preview` 仍然更新顶层 `name` 指定的 worker。`vars` 和大部分 bindings 仍是 env-scoped / non-inheritable：选中 env 后，顶层 `[vars]`、KV、D1、R2、AI、queues、services、workflows 都不会自动进入该 env。策略类配置则会继承：`workers_dev`、`route` / `routes` 和 `[wdl]` 在 env 没有自己声明时继续生效。需要同时跑 staging / production 时，默认用不同 namespace 区分，除非管理方另有约定。
 
 ### KV
 
@@ -360,6 +361,37 @@ wdl r2 objects delete uploads images/logo.png --yes
 ```
 
 `examples/inspection-demo` 展示了 R2 + D1 + KV + Assets 组合使用。
+
+### AI
+
+声明单例 binding，然后分别配置 namespace provider 元数据和凭据：
+
+```toml
+[ai]
+binding = "AI"
+```
+
+```bash
+wdl ai providers put openai --file provider.openai.json
+printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai
+wdl ai models
+```
+
+Provider 元数据选择官方 adapter（`openai`、`xai` 或 `deepseek`），并把 `openai/primary` 这类有界 alias 映射到原生 model id 和 capability。更新元数据会生成新 revision 并清除旧 credential；推理前必须重新配置凭据。凭据是加密的 namespace 资源，不会进入 Worker env 或 bundle metadata。
+
+Agent 代码使用 provider 原生 Responses 形态：
+
+```js
+const response = await env.AI.run("openai/primary", {
+  input: "Choose and call the appropriate tool.",
+  tools,
+  reasoning: { effort: "medium" },
+});
+```
+
+在模型声明相应 transport 时，`run()` 还支持语义 SSE（`stream: true`）、`AbortSignal`、Chat Completions、Embeddings 和显式 WebSocket mode。`fetch()` 是原始 OpenAI-compatible transport，官方 OpenAI JavaScript SDK 可通过它完成 JSON、SSE 和取消。`models()` 返回当前 namespace 中已配置凭据的模型描述。
+
+WDL 不执行 function tool、不自动重连模型 WebSocket、不接受任意 provider endpoint，也不向租户暴露 provider 凭据。Provider JSON、SDK 配置、WebSocket 形态、边界及 `examples/ai-agent-demo` 的完整 tool loop 见 [`docs/ai-zh.md`](./docs/ai-zh.md)。
 
 ### D1
 
@@ -885,10 +917,11 @@ wdl tail hello
 | Queues | 部分 | — | 按 batch 大小驱动派发；`max_batch_timeout` 为配置兼容而保存，不是聚合窗口 | `max_concurrency`（显式拒绝）、`contentType: "v8"` |
 | Cron 触发器 | 支持 | — | Cloudflare 兼容表达式，按 UTC 执行；best-effort 分钟槽——错过的槽跳过不补发，失败不重试 | Cloudflare Artifacts `triggers.events` subscription |
 | Workflows | 部分 | 并行 / DAG step 在运行时实测捕获，包括 `Promise.all` 并行分支 | WDL 自有的 payload 语义；payload 与单 turn step fan-out 有上限；严格 await 顺序；`step.do` 永久失败即终止运行（即使被 catch） | 完整 Cloudflare Workflows 对等、`script_name` / 跨 worker workflow 与 callback、source-AST 可视化 |
+| Workers AI | 部分 | Namespace BYO 凭据不进入租户 env；提供 raw OpenAI-compatible fetch 和官方 SDK 使用路径 | `run()` 保留 provider 原生 OpenAI protocol object，而不是 Cloudflare 每模型的后处理输出；模型 id 为 `<provider>/<alias>` | 托管 catalog/凭据、usage/quota、AI Gateway、`toMarkdown()`、异步 batch、background Responses、WebRTC、SIP |
 | Service bindings | 支持 | — | — | — |
 | Platform bindings | 支持 | WDL 新增、Cloudflare 无对应物：运维方管控的平台能力经 `[[platform_bindings]]` 注入 `env` | — | — |
 | Vars 与 secrets | 支持 | — | Secrets 由平台管理（`wdl secret` 写入），不是 Cloudflare 账号 secrets | — |
 | Cache API（`caches.default`） | 不支持 | — | — | 未暴露；不要依赖它 |
-| Workers AI、Vectorize、Analytics Engine、Browser Rendering、Hyperdrive、Email | 不支持 | — | — | 无 binding；部署阶段显式拒绝这些配置段 |
+| Vectorize、Analytics Engine、Browser Rendering、Hyperdrive、Email | 不支持 | — | — | 无 binding；部署阶段显式拒绝这些配置段 |
 
 与 Cloudflare 账号资源无关：`kv_namespaces.id`、queue 名、platform binding 名都是本平台内的资源名。

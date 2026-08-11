@@ -166,6 +166,9 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
         'binding = "BUCKET"',
         'bucket_name = "uploads"',
         "",
+        "[ai]",
+        'binding = "AI"',
+        "",
         "[[durable_objects.bindings]]",
         'name = "ROOMS"',
         'class_name = "Room"',
@@ -265,6 +268,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
     assert.deepEqual(manifest.bindings, {
       DB: { type: "d1", databaseId: "cf-id" },
       BUCKET: { type: "r2", bucketName: "uploads" },
+      AI: { type: "ai" },
       ROOMS: { type: "do", className: "Room" },
       AUTH: { type: "service", service: "auth-worker", ns: "shared" },
     });
@@ -335,13 +339,14 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
         main: "src/index.js",
         vars: { GREETING: "hi" },
         exports: [{ entrypoint: "default", allowed_callers: ["*"] }],
+        ai: { binding: "AI" },
       })
     );
     writeFileSync(path.join(dir, "wrangler.toml"), 'name = "old"\nmain = "old.js"\n');
 
     let tmpConfigSeen = null;
     let tmpConfigContentAtExec =
-      /** @type {{ name?: string, main?: string, vars?: unknown, exports?: unknown } | null} */ (null);
+      /** @type {{ name?: string, main?: string, vars?: unknown, exports?: unknown, ai?: unknown } | null} */ (null);
     const { calls: fetchCalls, controlFetch } = deployPromoteFetch(
       { version: "v1", warnings: [] },
       { platformDomain: "workers.example" }
@@ -377,6 +382,7 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
     assert.equal(tmpConfigContentAtExec.main, "src/index.js");
     assert.deepEqual(tmpConfigContentAtExec.vars, { GREETING: "hi" });
     assert.equal(tmpConfigContentAtExec.exports, undefined);
+    assert.equal(tmpConfigContentAtExec.ai, undefined);
     assert.ok(tmpConfigSeen);
     assert.match(path.basename(tmpConfigSeen), /^\.wrangler\.wdl-tmp-[a-f0-9-]+\.json$/);
     assert.notEqual(tmpConfigSeen, path.join(dir, ".wrangler.wdl-tmp.json"));

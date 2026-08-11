@@ -19,6 +19,7 @@
 | Durable Object 本地 class、SQLite-backed state | [durable-objects-zh.md](./durable-objects-zh.md) |
 | Promotion 的会话策略（`[wdl] session_policy`） | [deploy-zh.md](./deploy-zh.md) |
 | Workflow 实例、durable steps、事件等待 | [workflows-zh.md](./workflows-zh.md) |
+| Agent 推理、provider 凭据、SSE、WebSocket | [ai-zh.md](./ai-zh.md) |
 | Queue producer / consumer 后台任务 | [queues-zh.md](./queues-zh.md) |
 | Cron / 定时任务 | [cron-triggers-zh.md](./cron-triggers-zh.md) |
 | 静态资源和 `env.ASSETS.url()` | [assets-zh.md](./assets-zh.md) |
@@ -42,6 +43,7 @@
 | Queue producer + consumer + KV | `queues-demo`          |
 | Durable Object 计数器          | `durable-objects-demo` |
 | Workflow 启动 / 状态 / 事件    | `workflows-demo`       |
+| Responses function-tool Agent  | `ai-agent-demo`        |
 | 静态资源                       | `pages-assets`         |
 | WDL 环境覆盖与 worker 命名差异 | `env-overrides-demo`   |
 | R2 + D1 + KV + assets 组合     | `inspection-demo`      |

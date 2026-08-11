@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Add the `[ai]` binding, namespace provider and credential management commands,
+  model discovery, OpenAI-compatible SDK guidance, and a Responses function-tool
+  agent example.
+
 ## 1.7.1
 
 ### Changed

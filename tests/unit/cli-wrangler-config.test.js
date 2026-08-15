@@ -309,6 +309,21 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
   assert.equal(cfg.workers_dev, false);
 });
 
+test("resolveWranglerConfig: a top-level AI binding does not inherit into a selected environment", () => {
+  const { cfg } = resolveWranglerConfig(
+    {
+      name: "demo",
+      main: "src/index.js",
+      ai: { binding: "AI" },
+      env: { prod: {} },
+    },
+    "prod",
+    "wrangler.toml"
+  );
+
+  assert.equal(cfg.ai, undefined);
+});
+
 test("resolveWranglerConfig: selected environment can override inherited assets", () => {
   const { cfg } = resolveWranglerConfig(
     {

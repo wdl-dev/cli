@@ -393,11 +393,14 @@ with `worker_env_too_large`.
 | Analytics Engine                                                                                                                                                                                                                                                                                       | Not currently supported; deploy fails if configured                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Other unmapped Wrangler binding/config/policy sections (for example `vectorize`, `hyperdrive`, `agent_memory`, `websearch`, `media`, `stream`, `ratelimits`, `vpc_services`, `cloudchamber`, `containers`, `wasm_modules`, `[site]`, `limits`, `placement`, `observability`, `pages_build_output_dir`) | Not supported; deploy fails loudly instead of silently dropping the binding/config. The CLI error names the rejected field; the internal rejection list tracks the bundled Wrangler schema and is not reproduced exhaustively here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-WDL parses `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
-`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes these private
-extensions from the temporary config passed to the Wrangler bundler. Other
-fields retain their existing Wrangler passthrough behavior. Wrangler's
-object-shaped declarative `exports` configuration is not supported by WDL.
+WDL consumes `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
+`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes them from the
+temporary config passed to the Wrangler bundler. `[ai]` is standard Wrangler
+configuration; WDL accepts only its `binding` field and maps that declaration
+into the WDL manifest. The tenant-facing array-shaped `[[exports]]` and the
+other listed fields are WDL extensions. Other fields retain their existing
+Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
+configuration is not supported by WDL.
 
 Cron triggers and queue consumers are dispatch features. Declare them only on
 routeable Workers in tenant namespaces unless your operator gives you an
@@ -566,9 +569,17 @@ wdl ai models
 
 Provider metadata selects one official adapter (`openai`, `xai`, or `deepseek`)
 and maps bounded aliases such as `openai/primary` to native model ids and
-capabilities. Updating metadata creates a new revision and clears the old
-credential; configure it again before inference. Credentials are encrypted
-namespace resources and never enter Worker env or bundle metadata.
+capabilities. Updating metadata creates a new revision. Same-kind updates
+preserve an existing credential; changing the adapter kind clears it and
+requires `credential put` before inference. Credentials are encrypted namespace
+resources and never enter Worker env or bundle metadata.
+
+`wdl ai providers delete <provider>` prompts by default and deletes both the
+provider metadata and its credential. It has no dry-run. First run
+`wdl config explain` to confirm the resolved namespace, then inspect the target
+with `wdl ai providers get <provider> --ns <namespace>` and use the same
+explicit `--ns` for deletion. Pass `--yes` only after that independent check and
+user confirmation.
 
 Agent code uses the provider-native Responses shape:
 
@@ -584,7 +595,10 @@ const response = await env.AI.run("openai/primary", {
 Completions, Embeddings, and explicit WebSocket mode when the model advertises
 the matching transport. `fetch()` is the raw OpenAI-compatible transport and
 works with the official OpenAI JavaScript SDK for JSON, SSE, and cancellation.
-`models()` returns the current namespace's credential-backed model descriptors.
+`wdl ai models` returns the current namespace metadata regardless of credential
+status. In Worker code, `models()` and `run()` share a catalog snapshot for the
+loaded module lifecycle; descriptor edits require a reload or redeploy, while
+credential and upstream-model changes apply to the next inference call.
 
 WDL does not execute function tools, auto-reconnect model WebSockets, accept
 arbitrary provider endpoints, or expose provider credentials. See

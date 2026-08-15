@@ -112,6 +112,17 @@ import { controlFetch } from "../../lib/control-fetch.js";
  */
 
 /**
+ * @typedef {{
+ *   name: string,
+ *   credentialConfigured: boolean,
+ *   models: Record<string, { upstreamModel: string }>,
+ * }} AiProvider
+ * @typedef {{ provider: AiProvider }} AiProviderResult
+ * @typedef {{ providers: AiProvider[] }} AiProvidersResult
+ * @typedef {{ models: Array<{ id: string }> }} AiModelsResult
+ */
+
+/**
  * @typedef {{ worker?: string }} TenantHealthBody
  * @typedef {{ name?: string }} TenantD1Body
  * @typedef {{ key?: string }} TenantR2Body
@@ -126,6 +137,9 @@ const DEFAULT_LOCAL_ADMIN_TOKEN = "local-dev-token";
 const DEFAULT_LOCAL_PLATFORM_DOMAIN = "workers.local";
 const DEFAULT_LOCAL_GATEWAY_ORIGIN = `http://localhost:${LOCAL_GATEWAY_PORT}`;
 const LIVE_WORKER_COMPATIBILITY_DATE = process.env.WDL_LIVE_COMPATIBILITY_DATE || "2026-06-17";
+// WDL's integration suite owns inference; this CLI fixture never calls an upstream AI provider.
+const LIVE_AI_CREDENTIAL = "cli-live-nonfunctional-key";
+const LIVE_AI_UPSTREAM_MODEL = "cli-live-model";
 const LIVE_TIMEOUT_MS = 20 * 60_000;
 const TENANT_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -144,10 +158,13 @@ test(
     let wfDir = "";
     let envDir = "";
     let initDir = "";
+    let aiDir = "";
     /** @type {NodeJS.ProcessEnv | null} */
     let storeEnv = null;
     const cleaned = {
       appWorker: false,
+      aiProvider: false,
+      aiWorker: false,
       d1: false,
     };
 
@@ -186,6 +203,7 @@ test(
       const doWorker = "cli-live-do";
       const wfWorker = "cli-live-wf";
       const envWorker = "cli-live-env";
+      const aiWorker = "cli-live-ai";
       const dbName = `${ns}-main`;
       const bucket = `cli-live-${ns}`;
       const kvId = `${ns}-kv`;
@@ -233,6 +251,7 @@ test(
           "delete",
           "d1",
           "r2",
+          "ai",
           "tail",
           "workflows",
           "token",
@@ -276,11 +295,12 @@ test(
         assert.ok(Array.isArray(doctor.checks));
       });
 
-      await step("write live app and workflow fixtures", () => {
+      await step("write live project fixtures", () => {
         appDir = writeAppProject(tempRoot, { worker: appWorker, dbName, bucket, kvId, queueName });
         doDir = writeDurableObjectProject(tempRoot, { worker: doWorker });
         wfDir = writeWorkflowProject(tempRoot, { worker: wfWorker });
         envDir = writeEnvProject(tempRoot, { worker: envWorker });
+        aiDir = writeAiProject(tempRoot, { worker: aiWorker });
       });
 
       cleanupStep("delete d1 database", () => {
@@ -306,6 +326,14 @@ test(
       });
       cleanupStep("delete env worker", () => {
         run(["delete", "worker", envWorker, "--yes", "--json"], { env: directTenantEnv });
+      });
+      cleanupStep("delete AI provider", () => {
+        if (!cleaned.aiProvider) {
+          run(["ai", "providers", "delete", "openai", "--yes", "--json"], { env: directTenantEnv });
+        }
+      });
+      cleanupStep("delete AI worker", () => {
+        if (!cleaned.aiWorker) run(["delete", "worker", aiWorker, "--yes", "--json"], { env: directTenantEnv });
       });
 
       await step("d1 commands create, migrate, list, execute", () => {
@@ -406,6 +434,47 @@ test(
           await tenantJson(ctx, ns, doWorker, "/do?room=live")
         );
         assert.equal(durableObjectHit.storedHits, 1);
+      });
+
+      await step("AI commands configure and deploy a binding while preserving its credential", () => {
+        const providerFile = path.join(aiDir, "provider.openai.json");
+        const created = run(["ai", "providers", "put", "openai", "--file", providerFile, "--json"], {
+          cwd: aiDir,
+          env: storeEnv,
+        });
+        const createdProvider = /** @type {AiProviderResult} */ (JSON.parse(created.stdout)).provider;
+        assert.equal(createdProvider.credentialConfigured, false);
+
+        const modelsBeforeCredential = /** @type {AiModelsResult} */ (
+          runJson(["ai", "models", "--json"], { env: storeEnv })
+        );
+        assert.deepEqual(
+          modelsBeforeCredential.models.map((model) => model.id),
+          ["openai/primary"]
+        );
+
+        const aiDeploy = run(["deploy", aiDir], { env: storeEnv, timeoutMs: 5 * 60_000 });
+        assertDeployPrintedLiveVersion(aiDeploy.stdout);
+
+        run(["ai", "credential", "put", "openai"], {
+          env: storeEnv,
+          input: `${LIVE_AI_CREDENTIAL}\n`,
+        });
+        const updated = run(["ai", "providers", "put", "openai", "--file", providerFile], {
+          cwd: aiDir,
+          env: storeEnv,
+        });
+        assert.match(updated.stdout, /existing credential preserved/);
+
+        const provider = /** @type {AiProviderResult} */ (
+          runJson(["ai", "providers", "get", "openai", "--json"], { env: storeEnv })
+        ).provider;
+        assert.equal(provider.credentialConfigured, true);
+        assert.equal(provider.models.primary.upstreamModel, LIVE_AI_UPSTREAM_MODEL);
+        const providers = /** @type {AiProvidersResult} */ (
+          runJson(["ai", "providers", "list", "--json"], { env: storeEnv })
+        );
+        assert.equal(providers.providers[0]?.credentialConfigured, true);
       });
 
       await step("r2 commands list, head, get, delete objects", () => {
@@ -522,6 +591,10 @@ test(
       });
 
       await step("explicit cleanup commands", () => {
+        runJson(["delete", "worker", aiWorker, "--yes", "--json"], { env: storeEnv });
+        cleaned.aiWorker = true;
+        runJson(["ai", "providers", "delete", "openai", "--yes", "--json"], { env: storeEnv });
+        cleaned.aiProvider = true;
         runJson(["delete", "worker", appWorker, "--yes", "--json"], { env: storeEnv });
         cleaned.appWorker = true;
         runJson(["d1", "delete", dbName, "--yes", "--json"], { env: storeEnv });
@@ -1116,6 +1189,68 @@ export default {
     return new Response(JSON.stringify({ label: env.LABEL }), {
       headers: { "content-type": "application/json; charset=utf-8" },
     });
+  },
+};
+`
+  );
+  return dir;
+}
+
+/**
+ * @param {string} root
+ * @param {{ worker: string }} fixture
+ * @returns {string}
+ */
+function writeAiProject(root, { worker }) {
+  const dir = path.join(root, "ai");
+  mkdirSync(path.join(dir, "src"), { recursive: true });
+  writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify(
+      {
+        private: true,
+        type: "module",
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  writeFileSync(
+    path.join(dir, "provider.openai.json"),
+    JSON.stringify(
+      {
+        kind: "openai",
+        models: {
+          primary: {
+            upstreamModel: LIVE_AI_UPSTREAM_MODEL,
+            protocol: "responses",
+            transports: ["http"],
+            inputModalities: ["text"],
+            outputModalities: ["text"],
+          },
+        },
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  writeFileSync(
+    path.join(dir, "wrangler.toml"),
+    `
+name = "${worker}"
+main = "src/index.js"
+compatibility_date = "${LIVE_WORKER_COMPATIBILITY_DATE}"
+
+[ai]
+binding = "AI"
+`
+  );
+  writeFileSync(
+    path.join(dir, "src", "index.js"),
+    `
+export default {
+  fetch() {
+    return new Response("AI binding fixture");
   },
 };
 `

@@ -125,7 +125,7 @@ wdl deploy . --env production
 
 **支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[ai]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[wdl] session_policy`、`[env.<name>]`。
 
-WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]` 本身，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
+WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除它们。`[ai]` 是 Wrangler 标准配置；WDL 只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。面向租户的数组形态 `[[exports]]` 和其余这些字段是 WDL 扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
 WDL 还会拒绝 Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；这两个字段都没有对应的 WDL deploy manifest 或 runtime 映射。
 
@@ -139,7 +139,7 @@ Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在�
 
 ## 破坏性命令
 
-`wdl delete worker`、`wdl delete version`、`wdl d1 delete`、`wdl secret delete` 默认会提示确认。如果有 `--dry-run`，先跑一遍（或先做只读检查），然后跟用户确认了再加 `--yes`。**不要**主动加 `--yes`。
+`wdl delete worker`、`wdl delete version`、`wdl d1 delete`、`wdl secret delete` 和 `wdl ai providers delete` 默认会提示确认。如果有 `--dry-run`，先跑一遍；否则先做只读检查。删除 AI provider 前，先运行 `wdl config explain` 确认最终解析出的 namespace，再用 `wdl ai providers get <provider> --ns <namespace>` 查看目标，并在删除时传入同一个显式 `--ns`；删除 provider 会同时删除其 metadata 和 credential。只有与用户确认后才能加 `--yes`；**不要**主动加。
 
 `wdl workers` 会显示 `workflow-defs=yes` 或 `workflow-defs=no`；`unknown` 表示旧 control 没有返回该字段，不表示没有 workflow definitions。即使 blocker 使 `wouldDelete=no`，worker delete dry-run 仍会报告 secret 和 workflow-definition 是否存在。
 

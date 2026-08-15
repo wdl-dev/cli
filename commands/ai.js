@@ -131,10 +131,11 @@ async function runAi({ values, positionals, context }) {
       )
     );
     if (writeJsonOr(values.json === true, body, stdout)) return;
-    writeStatusLine(
-      stdout,
-      `OK AI provider ${escapeTerminalText(provider)} saved; credential cleared, configure it before use`
-    );
+    const credentialStatus =
+      body.provider?.credentialConfigured === true
+        ? "existing credential preserved"
+        : "credential not configured; configure it before use";
+    writeStatusLine(stdout, `OK AI provider ${escapeTerminalText(provider)} saved; ${credentialStatus}`);
     return;
   }
 

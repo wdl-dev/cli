@@ -100,7 +100,7 @@ test("ai providers get encodes path segments and prints credential state", async
   ]);
 });
 
-test("ai providers put reads project-local JSON and warns that credentials were cleared", async () => {
+test("ai providers put reads project-local JSON and reports returned credential state", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-"));
   try {
     writeFileSync(path.join(dir, "provider.json"), JSON.stringify(PROVIDER));
@@ -119,14 +119,42 @@ test("ai providers put reads project-local JSON and warns that credentials were 
           /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
         ) => {
           calls.push({ url, init });
-          return response({ provider: { name: "openai", revision: "0".repeat(32), ...PROVIDER } });
+          return response({
+            provider: {
+              name: "openai",
+              revision: "0".repeat(32),
+              credentialConfigured: true,
+              ...PROVIDER,
+            },
+          });
         },
       }
     );
     assert.equal(calls[0].url, "http://ctl.test/ns/demo/ai/providers/openai");
     assert.equal(calls[0].init.method, "PUT");
     assert.deepEqual(JSON.parse(/** @type {string} */ (calls[0].init.body)), PROVIDER);
-    assert.deepEqual(lines, ["OK AI provider openai saved; credential cleared, configure it before use"]);
+    assert.deepEqual(lines, ["OK AI provider openai saved; existing credential preserved"]);
+
+    /** @type {string[]} */
+    const missingLines = [];
+    await runAiCommand(
+      ["providers", "put", "openai", "--file", "provider.json", "--ns", "demo", "--control-url", "http://ctl.test"],
+      {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: (/** @type {string} */ line) => missingLines.push(line),
+        controlFetch: async () =>
+          response({
+            provider: {
+              name: "openai",
+              revision: "1".repeat(32),
+              credentialConfigured: false,
+              ...PROVIDER,
+            },
+          }),
+      }
+    );
+    assert.deepEqual(missingLines, ["OK AI provider openai saved; credential not configured; configure it before use"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

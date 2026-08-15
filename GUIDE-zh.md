@@ -264,7 +264,7 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | Analytics Engine | 暂不支持，部署时会拒绝 |
 | 其他未映射的 Wrangler 绑定/配置/策略段（例如 `vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
 
-WDL 会自行解析 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些私有扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
+WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除它们。`[ai]` 是 Wrangler 标准配置；WDL 只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。面向租户的数组形态 `[[exports]]` 和其余这些字段是 WDL 扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
 
 Cron triggers 和 queue consumers 是运行时 dispatch 能力。除非管理方明确给了 reserved namespace，否则只应声明在 tenant namespace 里的可路由 Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是公开/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 
@@ -377,7 +377,9 @@ printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai
 wdl ai models
 ```
 
-Provider 元数据选择官方 adapter（`openai`、`xai` 或 `deepseek`），并把 `openai/primary` 这类有界 alias 映射到原生 model id 和 capability。更新元数据会生成新 revision 并清除旧 credential；推理前必须重新配置凭据。凭据是加密的 namespace 资源，不会进入 Worker env 或 bundle metadata。
+Provider 元数据选择官方 adapter（`openai`、`xai` 或 `deepseek`），并把 `openai/primary` 这类有界 alias 映射到原生 model id 和 capability。更新元数据会生成新 revision；同 kind 更新保留既有 credential，切换 adapter kind 才会清除 credential 并要求在推理前重新配置。凭据是加密的 namespace 资源，不会进入 Worker env 或 bundle metadata。
+
+`wdl ai providers delete <provider>` 默认会提示确认，并同时删除 provider metadata 和 credential。该命令没有 dry-run。先运行 `wdl config explain` 确认最终解析出的 namespace，再用 `wdl ai providers get <provider> --ns <namespace>` 查看目标，并在删除时传入同一个显式 `--ns`。只有完成这项独立检查并与用户确认后，才能传 `--yes`。
 
 Agent 代码使用 provider 原生 Responses 形态：
 
@@ -389,7 +391,7 @@ const response = await env.AI.run("openai/primary", {
 });
 ```
 
-在模型声明相应 transport 时，`run()` 还支持语义 SSE（`stream: true`）、`AbortSignal`、Chat Completions、Embeddings 和显式 WebSocket mode。`fetch()` 是原始 OpenAI-compatible transport，官方 OpenAI JavaScript SDK 可通过它完成 JSON、SSE 和取消。`models()` 返回当前 namespace 中已配置凭据的模型描述。
+在模型声明相应 transport 时，`run()` 还支持语义 SSE（`stream: true`）、`AbortSignal`、Chat Completions、Embeddings 和显式 WebSocket mode。`fetch()` 是原始 OpenAI-compatible transport，官方 OpenAI JavaScript SDK 可通过它完成 JSON、SSE 和取消。`wdl ai models` 返回 namespace 当前的全部模型元数据，不按 credential 状态过滤；Worker 代码中的 `models()` 与 `run()` 在已加载 module 生命周期内共享一份 catalog snapshot，descriptor 变更要等重载或重新部署后生效，credential 和 upstream model 变化则在下一次推理调用中生效。
 
 WDL 不执行 function tool、不自动重连模型 WebSocket、不接受任意 provider endpoint，也不向租户暴露 provider 凭据。Provider JSON、SDK 配置、WebSocket 形态、边界及 `examples/ai-agent-demo` 的完整 tool loop 见 [`docs/ai-zh.md`](./docs/ai-zh.md)。
 

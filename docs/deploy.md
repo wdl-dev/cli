@@ -239,12 +239,15 @@ timezone, a platform extension), `[[queues.producers]]` /
 `[[queues.consumers]]`, `[[services]]`, `[[platform_bindings]]`, `[[exports]]`,
 `route` / `routes`, `workers_dev`, `[wdl] session_policy`, `[env.<name>]`.
 
-WDL parses `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
-`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes these private
-extensions from the temporary config passed to the Wrangler bundler. Other
-fields retain their existing Wrangler passthrough behavior. Wrangler's
-object-shaped declarative `exports` configuration is not supported by WDL.
-`[wdl] session_policy` has its own section above.
+WDL consumes `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
+`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes them from the
+temporary config passed to the Wrangler bundler. `[ai]` is standard Wrangler
+configuration; WDL accepts only its `binding` field and maps that declaration
+into the WDL manifest. The tenant-facing array-shaped `[[exports]]` and the
+other listed fields are WDL extensions. Other fields retain their existing
+Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
+configuration is not supported by WDL. `[wdl] session_policy` has its own
+section above.
 
 WDL also rejects Cloudflare Artifacts `triggers.events` subscriptions and R2
 `local_dev.experimental_s3_credentials`: neither field has a WDL deploy-manifest
@@ -281,10 +284,14 @@ consumers.
 
 ## Destructive commands
 
-`wdl delete worker`, `wdl delete version`, `wdl d1 delete`, and
-`wdl secret delete` prompt for confirmation by default. If `--dry-run` exists,
-run it first (or do a read-only check), then add `--yes` only after confirming
-with the user. Do **not** add `--yes` on your own.
+`wdl delete worker`, `wdl delete version`, `wdl d1 delete`, `wdl secret delete`,
+and `wdl ai providers delete` prompt for confirmation by default. If `--dry-run`
+exists, run it first; otherwise do a read-only check. Before deleting an AI
+provider, run `wdl config explain` to confirm the resolved namespace, inspect
+the target with `wdl ai providers get <provider> --ns <namespace>`, and use the
+same explicit `--ns` for deletion. Provider deletion removes both its metadata
+and credential. Add `--yes` only after confirming with the user; do **not** add
+it on your own.
 
 `wdl workers` reports `workflow-defs=yes` or `workflow-defs=no`; `unknown` means
 an older control omitted the field, not that no definitions exist. Worker delete

@@ -19,6 +19,8 @@ binding = "AI"
 
 该表只接受 `binding`。provider 由每次调用的模型 id 选择，而不是写在 Wrangler 配置中。与其它资源 binding 一样，AI binding 按 environment 隔离。
 
+最不易误用的方式是使用 handler 或 Durable Object 的位置参数 `env`。代码可以从 `cloudflare:workers` 导入 `{ env }`，并在 invocation 内读取 `env.AI`；但不能在模块求值期间缓存 `env.AI` 后期待它具有 `run()` 或 `models()`，那个过早取得的值只有原始 `fetch()` host binding。启用 `disallow_importable_env` 时，只有位置参数 env 提供完整 facade。
+
 ## 配置 provider
 
 Provider 元数据和凭据是命名空间资源。即使命名空间暂时没有任何已部署 Worker，它们仍会保留，与 namespace secret 的生命周期一致。
@@ -57,7 +59,7 @@ wdl ai providers get openai --ns <namespace>
 wdl ai models --ns <namespace>
 ```
 
-`providers put` 会生成新的 provider revision 并清除旧凭据，防止变更后的目标或模型定义静默继承为旧 revision 批准的凭据。每次更新元数据后都要重新执行 `credential put`。凭据从隐藏 TTY 输入或 stdin 读取；CLI 不提供命令行 credential flag，list/get 也绝不返回凭据值。官方 provider credential 必须是不含空白的 visible-ASCII bearer token。
+`providers put` 会生成新的 provider revision。同一官方 adapter kind 内更新时保留既有 credential；切换 kind 时清除 credential，新建 provider 则默认没有 credential。返回的 provider 状态显示 credential 缺失时，才需要执行 `credential put`。凭据从隐藏 TTY 输入或 stdin 读取；CLI 不提供命令行 credential flag，list/get 也绝不返回凭据值。官方 provider credential 必须是不含空白的 visible-ASCII bearer token。
 
 支持的 provider kind 与规范上游范围：
 
@@ -80,7 +82,13 @@ wdl ai providers delete <provider> [--yes] [--json]
 wdl ai models [--json]
 ```
 
-删除 provider 会同时删除其凭据。CLI 有意不复制完整 descriptor grammar 和总量限制；Control 是唯一权威校验者。
+Model list 包含全部已配置的 provider metadata，不按 credential 状态过滤；所选 provider 缺少 credential 时，推理仍会 fail closed。
+
+`wdl ai models` 读取 Control 的当前权威状态。一个已加载 Worker 内，`env.AI.models()` 与 `run()` 在该 module 生命周期中共享一份延迟加载的 catalog snapshot；alias、protocol、transport、modality 和 capability 变更要等 module 重载或重新部署后才可见。Credential 变化和 upstream model 轮换会在每次推理时重新解析，无需 redeploy；补上缺失 credential 后，下一次调用也会立即生效。
+
+`providers delete` 默认会提示确认，并同时删除 provider metadata 和 credential。该命令没有 dry-run。先运行 `wdl config explain` 确认最终解析出的 namespace，再用 `wdl ai providers get <provider> --ns <namespace>` 查看目标，并在删除时传入同一个显式 `--ns`。只有完成这项独立检查并与用户确认后，才能传 `--yes`。
+
+CLI 有意不复制完整 descriptor grammar 和总量限制；Control 是唯一权威校验者。
 
 ## 使用 `run()` 构建 Agent
 
@@ -165,6 +173,22 @@ socket.send(JSON.stringify({ type: "session.update", session: {} }));
 
 应用负责 provider 协议帧、重连和 close 处理。WDL 桥接文本/二进制帧及 provider close code，但不会恢复已中断的模型会话。在 Durable Object 中保持长连接会消耗 do-runtime 自己的 AI pool，并可能让 actor 保持活跃。
 
+如果应用把 AI socket 桥接到另一个公开 `WebSocketPair`，必须把 AI upgrade headers 复制到自己的公开 `101` response。它们会让 Gateway 在 runtime 丢失时终止 session，而不是静默替换 runtime 并创建新的 provider session：
+
+```js
+const aiUpgrade = await env.AI.run("openai/realtime", null, {
+  websocket: true,
+});
+// Bridge aiUpgrade.webSocket to client.
+return new Response(null, {
+  status: 101,
+  webSocket: client,
+  headers: aiUpgrade.headers,
+});
+```
+
+Gateway 会在发送公开 response 前消费掉内部 policy header。
+
 ## 安全与运维边界
 
 - Provider 凭据加密落盘，绝不进入 bundle metadata、生成源码、租户原始 env、日志或请求参数。
@@ -187,5 +211,5 @@ printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai --ns <namespace>
 wdl deploy . --ns <namespace>
 curl -X POST -H 'content-type: application/json' \
   -d '{"prompt":"What time is it in Asia/Tokyo?"}' \
-  https://<namespace>-ai-agent-demo.<platform-domain>/
+  https://<namespace>.<platform-domain>/ai-agent-demo/
 ```

@@ -28,6 +28,13 @@ The table accepts only `binding`. Provider selection is made by the model id on
 each call, not in Wrangler config. The binding is environment-scoped like other
 resource bindings.
 
+Use the positional handler or Durable Object `env` for the least surprising
+surface. Code may import `{ env }` from `cloudflare:workers` and read `env.AI`
+during an invocation, but it must not cache `env.AI` during module evaluation
+and expect `run()` or `models()` there: that early value is the raw
+`fetch()`-only host binding. With `disallow_importable_env`, only positional env
+provides the facade.
+
 ## Configure a provider
 
 Provider metadata and credentials are namespace resources. They remain after the
@@ -67,13 +74,13 @@ wdl ai providers get openai --ns <namespace>
 wdl ai models --ns <namespace>
 ```
 
-`providers put` creates a new provider revision and clears any prior credential.
-This prevents a changed destination/model definition from silently inheriting a
-credential approved for an older revision. Run `credential put` again after
-every metadata update. Credential input is read from hidden TTY input or stdin;
-there is no command-line credential flag and credential values are never
-returned by list/get commands. Official provider credentials must be
-visible-ASCII bearer tokens without whitespace.
+`providers put` creates a new provider revision. An update that keeps the same
+official adapter kind preserves an existing credential; changing kind clears it,
+and a newly created provider has none. Run `credential put` whenever the
+returned provider state reports a missing credential. Credential input is read
+from hidden TTY input or stdin; there is no command-line credential flag and
+credential values are never returned by list/get commands. Official provider
+credentials must be visible-ASCII bearer tokens without whitespace.
 
 Supported provider kinds and canonical upstream ownership:
 
@@ -98,9 +105,26 @@ wdl ai providers delete <provider> [--yes] [--json]
 wdl ai models [--json]
 ```
 
-Deleting a provider also deletes its credential. The CLI intentionally leaves
-the complete descriptor grammar and aggregate limits to Control, which is the
-canonical validator.
+The model list contains configured provider metadata regardless of credential
+status. Inference still fails closed until the selected provider has a
+credential.
+
+`wdl ai models` reads the current Control state. Inside a loaded Worker,
+`env.AI.models()` and `run()` share one lazily loaded catalog snapshot for that
+module lifecycle. Alias, protocol, transport, modality, and capability edits
+therefore become visible after a reload or redeploy. Credential changes and
+upstream-model rotation are resolved for every inference call and take effect
+without redeploy; adding a missing credential likewise enables the next call.
+
+`providers delete` prompts by default and deletes both the provider metadata and
+its credential. It has no dry-run. First run `wdl config explain` to confirm the
+resolved namespace, then inspect the target with
+`wdl ai providers get <provider> --ns <namespace>` and use the same explicit
+`--ns` for deletion. Pass `--yes` only after that independent check and user
+confirmation.
+
+The CLI intentionally leaves the complete descriptor grammar and aggregate
+limits to Control, which is the canonical validator.
 
 ## Agent calls with `run()`
 
@@ -200,6 +224,25 @@ WDL bridges text/binary frames and provider close codes but does not resume an
 interrupted model session. Long-lived AI sockets in a Durable Object consume the
 do-runtime AI pool and can keep that actor active.
 
+If an application bridges the AI socket to a separate public `WebSocketPair`,
+copy the AI upgrade headers onto that public `101` response. They tell Gateway
+to terminate the session instead of silently replacing a lost runtime and
+creating a fresh provider session:
+
+```js
+const aiUpgrade = await env.AI.run("openai/realtime", null, {
+  websocket: true,
+});
+// Bridge aiUpgrade.webSocket to client.
+return new Response(null, {
+  status: 101,
+  webSocket: client,
+  headers: aiUpgrade.headers,
+});
+```
+
+Gateway consumes the internal policy header before sending the public response.
+
 ## Security and operational boundaries
 
 - Provider credentials are encrypted at rest and never enter bundle metadata,
@@ -231,5 +274,5 @@ printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai --ns <namespace>
 wdl deploy . --ns <namespace>
 curl -X POST -H 'content-type: application/json' \
   -d '{"prompt":"What time is it in Asia/Tokyo?"}' \
-  https://<namespace>-ai-agent-demo.<platform-domain>/
+  https://<namespace>.<platform-domain>/ai-agent-demo/
 ```

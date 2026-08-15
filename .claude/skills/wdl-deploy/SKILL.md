@@ -67,10 +67,12 @@ default platform-domain URL; it requires at least one `route` / `routes` pattern
 and is not inferred. The deploy summary prints every active route-pattern URL
 hint, preserving the trailing `*` on prefix patterns, and includes the
 platform-domain URL only while it is enabled. Cloudflare's separate
-`preview_urls` field is unsupported and rejected by the CLI. WDL-only
+`preview_urls` field is unsupported and rejected by the CLI. WDL consumes
 `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
-`[[services]].ns`, `[ai]`, and `[wdl]` are parsed by the CLI and removed from
-Wrangler's temporary bundle config; other fields retain their existing Wrangler
+`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes them from Wrangler's
+temporary bundle config. `[ai]` is standard Wrangler configuration; WDL accepts
+only its `binding` field and maps it into the WDL manifest. The other listed
+shapes are WDL extensions. Other fields retain their existing Wrangler
 passthrough behavior. Specific nested fields that WDL cannot represent are
 rejected rather than silently dropped, including Cloudflare Artifacts
 `triggers.events` subscriptions and R2 `local_dev.experimental_s3_credentials`.
@@ -102,6 +104,12 @@ they can read the on-disk token store (`~/.config/wdl/credentials`); only deploy
 trusted projects. For a less-trusted or third-party project, recommend
 `--no-token-store` (or `WDL_TOKEN_STORE=off`) with an ephemeral `--token` /
 `--control-url`, rather than relying on the global store.
+
+Treat `wdl ai providers delete` as destructive: it removes both provider
+metadata and its credential and has no dry-run. Run `wdl config explain` first
+to confirm the resolved namespace, inspect the target with
+`wdl ai providers get <provider> --ns <namespace>`, and use the same explicit
+`--ns` for deletion. Never add `--yes` without user confirmation.
 
 `templates/AGENTS.md` is the generic agent entrypoint that `wdl init` copies
 into every new project. It points at the same `docs/` through

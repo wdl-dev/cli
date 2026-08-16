@@ -75,7 +75,7 @@ wdl deploy . --env production
 
 Cloudflare Workers / Wrangler 的 `--env preview` 通常会发布带环境后缀的 worker / script 名。WDL 不会这样做：`wdl deploy . --env preview` 和 `wdl deploy . --env production` 都更新顶层 `name` 指定的同一个 worker。要部署两个独立 worker，请用两个不同的顶层 `name`、两个目录，或两个 namespace。
 
-`vars` 和大部分 bindings 仍按 Wrangler 的 non-inheritable 心智模型处理：选中 `[env.<name>]` 后，顶层 `[vars]`、KV、D1、R2、queues、services、workflows、AI 等不会自动继承到该 env。需要某个 runtime env 变量或 binding 时，要在对应的 `[env.<name>]` 里重新声明。
+`vars` 和大部分 bindings 仍按 Wrangler 的 non-inheritable 心智模型处理：选中 `[env.<name>]` 后，顶层 `[vars]`、KV、D1、R2、queues、services、workflows、AI 等不会自动继承到该 env。需要某个 runtime env 变量或 binding 时，要在对应的 `[env.<name>]` 里重新声明；如果选中的 env 没有重新声明顶层 `[ai]` binding，deploy 会明确提示。
 
 按上面的例子：
 

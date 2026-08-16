@@ -240,11 +240,12 @@ timezone, a platform extension), `[[queues.producers]]` /
 `route` / `routes`, `workers_dev`, `[wdl] session_policy`, `[env.<name>]`.
 
 WDL consumes `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
-`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes them from the
+`[[services]].ns`, and `[wdl]` itself and removes those WDL extensions from the
 temporary config passed to the Wrangler bundler. `[ai]` is standard Wrangler
-configuration; WDL accepts only its `binding` field and maps that declaration
-into the WDL manifest. The tenant-facing array-shaped `[[exports]]` and the
-other listed fields are WDL extensions. Other fields retain their existing
+configuration and stays in that temporary config for Wrangler validation. When a
+selected named environment omits its own `ai`, the CLI warns that the top-level
+binding is not inherited; WDL independently accepts only its `binding` field and
+maps that declaration into the WDL manifest. Other fields retain their existing
 Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
 configuration is not supported by WDL. `[wdl] session_policy` has its own
 section above.

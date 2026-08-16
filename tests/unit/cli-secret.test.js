@@ -2,16 +2,39 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { runSecretCommand } from "../../commands/secret.js";
-import { mockDeps, response, stdinFrom, ttyStdinLine } from "./helpers.js";
+import { ESC, assertNoRawTerminalControls, mockDeps, response, stdinFrom, ttyStdinLine } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
 
-test("secret list accepts flags before the subcommand", async () => {
+test("secret list accepts flags before the subcommand and inline command-word values", async () => {
   const { calls, deps } = mockDeps({ keys: [] });
 
   await runSecretCommand(["--ns", "demo", "--worker", "api", "--control-url", "http://ctl.test", "list"], deps);
+  await runSecretCommand(["--ns", "demo", "--worker=put", "--control-url", "http://ctl.test", "list"], deps);
+  await runSecretCommand(["--ns=list", "--scope", "ns", "--control-url", "http://ctl.test", "list"], deps);
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/worker/api/secrets");
+  assert.equal(calls[1].url, "http://ctl.test/ns/demo/worker/put/secrets");
+  assert.equal(calls[2].url, "http://ctl.test/ns/list/secrets");
+});
+
+test("secret rejects separated command-word option values before the subcommand", async () => {
+  let calls = 0;
+  const deps = {
+    env: { ADMIN_TOKEN: "tok" },
+    controlFetch: async () => {
+      calls += 1;
+      return response({ keys: [] });
+    },
+  };
+
+  for (const args of [
+    ["--ns", "demo", "--worker", "put", "--control-url", "http://ctl.test", "list"],
+    ["--ns", "list", "--scope", "ns", "--control-url", "http://ctl.test", "list"],
+  ]) {
+    await assert.rejects(() => runSecretCommand(args, deps), /put the command before its options or use --flag=value/);
+  }
+  assert.equal(calls, 0);
 });
 
 test("secret list uses encoded namespace and worker path segments", async () => {
@@ -291,21 +314,29 @@ test("secret list refuses ambiguous scope before calling control", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("secret list and delete reject unexpected positional arguments", async () => {
+test("secret list and delete reject unexpected positional arguments without echoing them", async () => {
   const deps = {
     env: { ADMIN_TOKEN: "tok" },
     controlFetch: async () => {
       throw new Error("controlFetch should not be called");
     },
   };
-  await assert.rejects(
-    () => runSecretCommand(["list", "--ns", "demo", "--scope", "ns", "extra"], deps),
-    /secret list received unexpected argument: extra/
-  );
-  await assert.rejects(
-    () => runSecretCommand(["delete", "--ns", "demo", "--scope", "ns", "KEY", "extra", "--yes"], deps),
-    /secret delete received unexpected argument: extra/
-  );
+  for (const args of [
+    ["list", "--ns", "demo", "--scope", "ns", "extra"],
+    ["delete", "--ns", "demo", "--scope", "ns", "KEY", "extra", "--yes"],
+  ]) {
+    await assert.rejects(
+      () => runSecretCommand(args, deps),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /received invalid arguments/);
+        assert.match(message, /use --help for usage/);
+        assert.doesNotMatch(message, /prompt|stdin/);
+        assert.doesNotMatch(message, /extra/);
+        return true;
+      }
+    );
+  }
 });
 
 test("secret delete calls worker endpoint and reports promoted bump", async () => {
@@ -401,22 +432,65 @@ test("secret delete ignores obsolete deferred-promote warnings", async () => {
   assert.deepEqual(lines, ["(KEY was not set)"]);
 });
 
-test("secret put rejects an unexpected VALUE positional before reading stdin", async () => {
+test("secret put rejects sensitive positional and option arguments without echoing them", async () => {
   let read = false;
-  await assert.rejects(
-    () =>
-      runSecretCommand(["put", "--ns", "demo", "--scope", "ns", "KEY", "VALUE", "--control-url", "http://ctl.test"], {
-        env: { ADMIN_TOKEN: "tok" },
-        stdin: Object.assign(new EventEmitter(), {
-          setEncoding() {
-            read = true;
+  let controlCalls = 0;
+  const secret = `sk-live-${ESC}[2J\nFORGED\rBAD`;
+  for (const value of [secret, `--${secret}`]) {
+    await assert.rejects(
+      () =>
+        runSecretCommand(["put", "--ns", "demo", "--scope", "ns", "KEY", value, "--control-url", "http://ctl.test"], {
+          env: { ADMIN_TOKEN: "tok" },
+          stdin: Object.assign(new EventEmitter(), {
+            setEncoding() {
+              read = true;
+            },
+          }),
+          controlFetch: async () => {
+            throw new Error("controlFetch should not be called");
           },
         }),
-        controlFetch: async () => {
-          throw new Error("controlFetch should not be called");
-        },
-      }),
-    /secret put received unexpected argument: VALUE/
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "secret put argument error");
+        assert.doesNotMatch(message, /sk-live|FORGED|BAD/);
+        return true;
+      }
+    );
+  }
+  for (const args of [
+    ["puts", "KEY", `--${secret}`],
+    ["--worker", "put", "KEY", `--${secret}`],
+    ["--worker", "put", "list", secret],
+    ["--worker", "put", "list", `--${secret}`],
+    ["--worker", "put", "delete", secret],
+    ["--worker", "put", "delete", secret, "--yes"],
+  ]) {
+    await assert.rejects(
+      () =>
+        runSecretCommand([...args, "--ns", "demo", "--control-url", "http://ctl.test"], {
+          env: { ADMIN_TOKEN: "tok" },
+          controlFetch: async () => {
+            controlCalls += 1;
+            return response({ deleted: true });
+          },
+        }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "ambiguous secret argument error");
+        assert.doesNotMatch(message, /sk-live|FORGED|BAD/);
+        return true;
+      }
+    );
+  }
+  await assert.rejects(
+    () =>
+      runSecretCommand(
+        ["delete", "put", "--bogus", "--scope", "ns", "--yes", "--ns", "demo", "--control-url", "http://ctl.test"],
+        { env: { ADMIN_TOKEN: "tok" } }
+      ),
+    /secret received invalid arguments/
   );
   assert.equal(read, false);
+  assert.equal(controlCalls, 0);
 });

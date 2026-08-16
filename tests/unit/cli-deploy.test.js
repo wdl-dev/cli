@@ -382,7 +382,7 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
     assert.equal(tmpConfigContentAtExec.main, "src/index.js");
     assert.deepEqual(tmpConfigContentAtExec.vars, { GREETING: "hi" });
     assert.equal(tmpConfigContentAtExec.exports, undefined);
-    assert.equal(tmpConfigContentAtExec.ai, undefined);
+    assert.deepEqual(tmpConfigContentAtExec.ai, { binding: "AI" });
     assert.ok(tmpConfigSeen);
     assert.match(path.basename(tmpConfigSeen), /^\.wrangler\.wdl-tmp-[a-f0-9-]+\.json$/);
     assert.notEqual(tmpConfigSeen, path.join(dir, ".wrangler.wdl-tmp.json"));
@@ -392,6 +392,35 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("runDeployCommand warns when a selected environment does not inherit top-level AI", async (t) => {
+  const dir = createDeployProject(
+    t,
+    ['name = "api"', 'main = "src/index.js"', "[ai]", 'binding = "AI"', "[env.prod]"].join("\n"),
+    "wdl-run-deploy-ai-env-warning-"
+  );
+  const { calls, controlFetch } = deployPromoteFetch(
+    { version: "v1", warnings: [] },
+    { platformDomain: "workers.example" }
+  );
+  /** @type {string[]} */
+  const warnings = [];
+
+  await runDeployCommand([dir, "--env", "prod", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: () => {},
+    stderr: (/** @type {string} */ line) => warnings.push(line),
+    execFile: fakeWranglerExecFile,
+    controlFetch,
+  });
+
+  assert.deepEqual(warnings, [
+    "warning: wrangler.toml: top-level [ai] is not inherited into env.prod; " +
+      "declare ai inside env.prod to bind AI in this environment",
+  ]);
+  const manifest = JSON.parse(/** @type {string} */ (calls[0].init.body));
+  assert.equal(manifest.bindings, undefined);
 });
 
 test("runDeployCommand removes the sanitized temp config when wrangler exec fails", async () => {

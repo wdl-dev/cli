@@ -91,7 +91,8 @@ use two different top-level `name` values, two directories, or two namespaces.
 once `[env.<name>]` is selected, top-level `[vars]`, KV, D1, R2, queues,
 services, workflows, AI, etc. do not inherit into that env automatically. When a
 runtime env var or binding is needed, redeclare it inside the matching
-`[env.<name>]`.
+`[env.<name>]`. Deploy emits a warning when a top-level `[ai]` binding is not
+redeclared in the selected environment.
 
 With the example above:
 

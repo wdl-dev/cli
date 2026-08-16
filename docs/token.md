@@ -55,6 +55,11 @@ wdl token use acme
 wdl token rm --ns acme
 ```
 
+Invalid `wdl token` argument details are redacted. If a string option before the
+subcommand has a separate value equal to `set`, `list`, `use`, or `rm`, put the
+subcommand first or use `--flag=value`; for example, use `--ns=list` for a
+namespace literally named `list` in that position.
+
 ## Where it sits in resolution
 
 The store is the lowest-precedence credential layer:

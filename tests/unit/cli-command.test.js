@@ -64,6 +64,61 @@ test("defineCommand direct runner escapes parseArgs errors", async () => {
   );
 });
 
+test("defineCommand redacts all parse errors for sensitive commands", async () => {
+  const secretOption = `--sk-live-${ESC}[2J\nFORGED\rBAD`;
+  const cmd = define({
+    options: ["ns", "help"],
+    sensitiveInput: {
+      commandPaths: [
+        ["credential", "put"],
+        ["providers", "get"],
+      ],
+    },
+    usage: () => "usage",
+    run: () => {
+      throw new Error("run body should not be called");
+    },
+  });
+
+  await assert.rejects(
+    () => cmd.run(["credential", "put", "openai", secretOption, "--ns", "demo"]),
+    (err) => {
+      assert(err instanceof CliError);
+      assertNoRawTerminalControls(err.message, "sensitive parse errors");
+      assert.match(err.message, /t received invalid arguments/);
+      assert.match(err.message, /argument details were redacted; use --help for usage/);
+      assert.doesNotMatch(err.message, /prompt|stdin/);
+      assert.doesNotMatch(err.message, /sk-live|FORGED|BAD/);
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => cmd.run(["providers", "get", "credential", "--bogus"]),
+    (err) => {
+      assert(err instanceof CliError);
+      assert.equal(err.message, "t received invalid arguments; argument details were redacted; use --help for usage");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => cmd.run(["--ns", "credential", "providers", "get"]),
+    /put the command before its options or use --flag=value/
+  );
+  await assert.rejects(
+    () => cmd.run(["providers", "--ns", "get", "get", "credential"]),
+    /t received invalid arguments; argument details were redacted/
+  );
+
+  /** @type {string[]} */
+  const lines = [];
+  await cmd.run(["--ns", "credential", "providers", "get", "--help"], {
+    stdout: (/** @type {string} */ line) => lines.push(line),
+  });
+  assert.deepEqual(lines, ["usage"]);
+});
+
 test("defineCommand exposes autoloadEnv metadata", () => {
   const cmd = defineCommand({
     name: "doctor",

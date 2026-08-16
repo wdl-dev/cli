@@ -9,9 +9,12 @@ import {
   isMain,
   isPathInside,
   optionHelp,
-  unexpectedArgument,
+  readJsonOrFailWithHint,
+  redactedArgumentError,
+  sensitiveInputArgumentError,
 } from "../lib/common.js";
 import { escapeTerminalText, writeJsonOr, writeStatusLine } from "../lib/output.js";
+import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 import { confirmAction, readSecretStdin } from "../lib/stdin.js";
 
 const AI_OPTIONS = [
@@ -27,6 +30,16 @@ const command = defineCommand({
   name: "ai",
   summary: "Manage AI providers, credentials, and models.",
   options: AI_OPTIONS,
+  sensitiveInput: {
+    commandPaths: [
+      ["models"],
+      ["providers", "list"],
+      ["providers", "get"],
+      ["providers", "put"],
+      ["providers", "delete"],
+      ["credential", "put"],
+    ],
+  },
   usage: usageText,
   run: runAi,
 });
@@ -51,7 +64,7 @@ async function runAi({ values, positionals, context }) {
   if (!group || !ns) throw new CliError(usageText());
 
   if (group === "models") {
-    if (action) throw unexpectedArgument("ai models", action);
+    if (action) throw redactedArgumentError("ai models");
     const { headers } = context.resolveControl();
     const body = /** @type {AiModelsResponse} */ (
       await context.fetchJson(context.nsUrl("ai", "models"), { headers }, "list AI models")
@@ -66,14 +79,14 @@ async function runAi({ values, positionals, context }) {
       const transports = Array.isArray(model.transports) ? model.transports.join(",") : "-";
       writeStatusLine(
         stdout,
-        `${escapeTerminalText(String(model.id ?? "-"))} protocol=${escapeTerminalText(String(model.protocol ?? "-"))} transports=${escapeTerminalText(transports)}`
+        `${String(model.id ?? "-")} protocol=${String(model.protocol ?? "-")} transports=${transports}`
       );
     }
     return;
   }
 
   if (group === "providers" && action === "list") {
-    if (provider) throw unexpectedArgument("ai providers list", provider);
+    if (provider) throw redactedArgumentError("ai providers list");
     const { headers } = context.resolveControl();
     const body = /** @type {AiProvidersResponse} */ (
       await context.fetchJson(context.nsUrl("ai", "providers"), { headers }, "list AI providers")
@@ -88,7 +101,7 @@ async function runAi({ values, positionals, context }) {
       const modelCount = entry.models && typeof entry.models === "object" ? Object.keys(entry.models).length : 0;
       writeStatusLine(
         stdout,
-        `${escapeTerminalText(String(entry.name ?? "-"))} kind=${escapeTerminalText(String(entry.kind ?? "-"))} models=${modelCount} credential=${entry.credentialConfigured === true ? "configured" : "missing"}`
+        `${String(entry.name ?? "-")} kind=${String(entry.kind ?? "-")} models=${modelCount} credential=${entry.credentialConfigured === true ? "configured" : "missing"}`
       );
     }
     return;
@@ -96,27 +109,27 @@ async function runAi({ values, positionals, context }) {
 
   if (group === "providers" && action === "get") {
     requireProvider(provider, "ai providers get");
-    if (extraArg) throw unexpectedArgument("ai providers get", extraArg);
+    if (extraArg) throw redactedArgumentError("ai providers get");
     const { headers } = context.resolveControl();
     const body = /** @type {AiProviderResponse} */ (
       await context.fetchJson(context.nsUrl("ai", "providers", provider), { headers }, "get AI provider")
     );
     if (writeJsonOr(values.json === true, body, stdout)) return;
     const entry = body.provider;
-    writeStatusLine(stdout, `name: ${escapeTerminalText(String(entry?.name ?? provider))}`);
-    writeStatusLine(stdout, `kind: ${escapeTerminalText(String(entry?.kind ?? "-"))}`);
-    writeStatusLine(stdout, `revision: ${escapeTerminalText(String(entry?.revision ?? "-"))}`);
+    writeStatusLine(stdout, `name: ${String(entry?.name ?? provider)}`);
+    writeStatusLine(stdout, `kind: ${String(entry?.kind ?? "-")}`);
+    writeStatusLine(stdout, `revision: ${String(entry?.revision ?? "-")}`);
     writeStatusLine(stdout, `credential: ${entry?.credentialConfigured === true ? "configured" : "missing"}`);
     for (const [alias, descriptor] of Object.entries(entry?.models ?? {})) {
       const protocol = descriptor && typeof descriptor === "object" ? descriptor.protocol : undefined;
-      writeStatusLine(stdout, `model: ${escapeTerminalText(alias)} (${escapeTerminalText(String(protocol ?? "-"))})`);
+      writeStatusLine(stdout, `model: ${alias} (${String(protocol ?? "-")})`);
     }
     return;
   }
 
   if (group === "providers" && action === "put") {
     requireProvider(provider, "ai providers put");
-    if (extraArg) throw unexpectedArgument("ai providers put", extraArg);
+    if (extraArg) throw redactedArgumentError("ai providers put");
     const providerBody = readProviderFile(values.file, context.cwd);
     const { headers } = context.resolveControl();
     const body = /** @type {AiProviderResponse} */ (
@@ -135,13 +148,13 @@ async function runAi({ values, positionals, context }) {
       body.provider?.credentialConfigured === true
         ? "existing credential preserved"
         : "credential not configured; configure it before use";
-    writeStatusLine(stdout, `OK AI provider ${escapeTerminalText(provider)} saved; ${credentialStatus}`);
+    writeStatusLine(stdout, `OK AI provider ${provider} saved; ${credentialStatus}`);
     return;
   }
 
   if (group === "providers" && action === "delete") {
     requireProvider(provider, "ai providers delete");
-    if (extraArg) throw unexpectedArgument("ai providers delete", extraArg);
+    if (extraArg) throw redactedArgumentError("ai providers delete");
     const { headers } = context.resolveControl();
     await confirmAction({
       yes: values.yes === true,
@@ -161,18 +174,24 @@ async function runAi({ values, positionals, context }) {
     writeStatusLine(
       stdout,
       body.deleted === true
-        ? `OK AI provider ${escapeTerminalText(provider)} and its credential deleted`
-        : `(AI provider ${escapeTerminalText(provider)} was not configured)`
+        ? `OK AI provider ${provider} and its credential deleted`
+        : `(AI provider ${provider} was not configured)`
     );
     return;
   }
 
   if (group === "credential" && action === "put") {
     requireProvider(provider, "ai credential put");
-    if (extraArg) throw unexpectedArgument("ai credential put", extraArg);
+    if (extraArg) throw sensitiveInputArgumentError("ai credential put");
     const { headers } = context.resolveControl();
     const providerBody = /** @type {AiProviderResponse} */ (
-      await context.fetchJson(context.nsUrl("ai", "providers", provider), { headers }, "get AI provider")
+      await fetchAiJsonWithHint(
+        context,
+        context.nsUrl("ai", "providers", provider),
+        { headers },
+        "prepare AI credential",
+        aiCredentialPreflightHint
+      )
     );
     const revision = providerBody.provider?.revision;
     if (typeof revision !== "string" || !revision) {
@@ -183,21 +202,27 @@ async function runAi({ values, positionals, context }) {
       stderr,
     });
     if (!credential) throw new CliError("AI credential must not be empty");
-    const body = await context.fetchJson(
+    const body = await fetchAiJsonWithHint(
+      context,
       context.nsUrl("ai", "providers", provider, "credential"),
       {
         method: "PUT",
         headers: { ...headers, "content-type": "application/json" },
         body: JSON.stringify({ revision, credential }),
       },
-      "put AI credential"
+      "put AI credential",
+      aiCredentialMutationHint
     );
     if (writeJsonOr(values.json === true, body, stdout)) return;
-    writeStatusLine(stdout, `OK AI credential configured for ${escapeTerminalText(provider)}`);
+    writeStatusLine(stdout, `OK AI credential configured for ${provider}`);
     return;
   }
 
-  throw new CliError(`unknown ai command: ${escapeTerminalText(positionals.join(" "))}\n${usageText()}`);
+  if (group === "credential") {
+    throw new CliError(`unknown ai credential command; expected "put"\n${usageText()}`);
+  }
+
+  throw new CliError(`unknown ai command\n${usageText()}`);
 }
 
 /** @param {string | undefined} provider @param {string} commandName */
@@ -231,6 +256,37 @@ function readProviderFile(file, cwd) {
     throw new CliError("AI provider file must contain a JSON object");
   }
   return parsed;
+}
+
+/**
+ * @param {import("../lib/command.js").CommandContext} context
+ * @param {string} url
+ * @param {import("../lib/control-fetch.js").ControlFetchInit} init
+ * @param {string} label
+ * @param {(error: unknown) => string} errorHint
+ */
+async function fetchAiJsonWithHint(context, url, init, label, errorHint) {
+  const res = await context.controlFetch(url, { ...init, env: init.env ?? context.env });
+  return await readJsonOrFailWithHint(res, label, errorHint);
+}
+
+/** @param {unknown} error */
+function aiCredentialPreflightHint(error) {
+  if (error === "ai_provider_not_found") {
+    return "; create the provider with `wdl ai providers put` before configuring its credential.";
+  }
+  return "";
+}
+
+/** @param {unknown} error */
+function aiCredentialMutationHint(error) {
+  if (error === "ai_provider_revision_mismatch") {
+    return "; credential was not written. Provider metadata changed while input was being entered; rerun this command.";
+  }
+  if (error === "ai_credential_encryption_unavailable" || isSecretEnvelopeErrorCode(error)) {
+    return "; credential was not written. Secret-envelope configuration or stored secret data needs operator repair before retrying.";
+  }
+  return "";
 }
 
 /** @typedef {{ providers?: Array<{ name?: unknown, kind?: unknown, models?: unknown, credentialConfigured?: unknown }> }} AiProvidersResponse */

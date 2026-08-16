@@ -61,6 +61,15 @@ wdl ai models --ns <namespace>
 
 `providers put` 会生成新的 provider revision。同一官方 adapter kind 内更新时保留既有 credential；切换 kind 时清除 credential，新建 provider 则默认没有 credential。返回的 provider 状态显示 credential 缺失时，才需要执行 `credential put`。凭据从隐藏 TTY 输入或 stdin 读取；CLI 不提供命令行 credential flag，list/get 也绝不返回凭据值。官方 provider credential 必须是不含空白的 visible-ASCII bearer token。
 
+`providers put` 会整条替换 provider metadata；`models` 中省略的 alias 会被删除。`--file` 必须留在当前项目目录内，并且只能包含可写的 `{ kind, models }` 形状。不要把 `providers get --json` 的结果原样回灌，因为 `name`、`revision` 和 `credentialConfigured` 是只读响应字段。编辑既有 provider 时使用：
+
+```bash
+wdl ai providers get openai --json --ns <namespace> \
+  | jq '.provider | {kind, models}' > provider.openai.json
+$EDITOR provider.openai.json
+wdl ai providers put openai --file provider.openai.json --ns <namespace>
+```
+
 支持的 provider kind 与规范上游范围：
 
 | `kind` | HTTP 协议 | WebSocket 协议 |
@@ -81,6 +90,8 @@ wdl ai credential put <provider> [--json]
 wdl ai providers delete <provider> [--yes] [--json]
 wdl ai models [--json]
 ```
+
+`wdl ai` 会脱敏无效参数的细节，因为用户可能已经把 credential 误贴进命令行。如果完整子命令路径前的 string option 使用分离式值，而该值本身也是 AI 命令词，请把完整子命令路径放到前面，或改用 `--ns=models`、`--file=put` 这类 inline 形式。
 
 Model list 包含全部已配置的 provider metadata，不按 credential 状态过滤；所选 provider 缺少 credential 时，推理仍会 fail closed。
 
@@ -202,14 +213,20 @@ WDL 当前不提供托管模型凭据、持久用量统计、消费 quota、AI G
 
 ## 端到端示例
 
-`../examples/ai-agent-demo` 展示 Responses function-tool 循环。写入 provider 文件、配置凭据并部署 Worker 后，再 POST prompt：
+`../examples/ai-agent-demo` 展示由 bearer token 保护的 Responses function-tool 循环。写入 provider 文件，配置 provider credential 和 demo 的 Worker 级访问 token 并部署 Worker 后，再 POST prompt：
 
 ```bash
 cd examples/ai-agent-demo
 wdl ai providers put openai --file provider.openai.json --ns <namespace>
 printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai --ns <namespace>
+AI_DEMO_TOKEN="$(openssl rand -hex 32)"
+printf '%s' "$AI_DEMO_TOKEN" | wdl secret put --worker ai-agent-demo AI_DEMO_TOKEN --ns <namespace>
 wdl deploy . --ns <namespace>
-curl -X POST -H 'content-type: application/json' \
-  -d '{"prompt":"What time is it in Asia/Tokyo?"}' \
-  https://<namespace>.<platform-domain>/ai-agent-demo/
+printf 'authorization: Bearer %s\n' "$AI_DEMO_TOKEN" |
+  curl -X POST -H @- \
+    -H 'content-type: application/json' \
+    -d '{"prompt":"What time is it in Asia/Tokyo?"}' \
+    https://<namespace>.<platform-domain>/ai-agent-demo/
 ```
+
+未配置 `AI_DEMO_TOKEN` 时，demo 会 fail closed。它是应用访问 token，与 namespace provider credential 相互独立；对外开放基于该示例修改的 Worker 前，应换成应用自身的正式鉴权。

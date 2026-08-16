@@ -32,6 +32,12 @@ printf '%s' "$VAL" | wdl secret put --scope ns KEY
 Use `printf '%s'` (not `echo`) to avoid a trailing newline at the end of the
 secret value.
 
+Invalid `wdl secret` argument details are redacted. If a string option before
+the subcommand has a separate value equal to `list`, `put`, or `delete`, put the
+subcommand first or use the inline form. For a worker named `put`, write
+`wdl secret list --worker put` or `wdl secret --worker=put list`; the separated
+`wdl secret --worker put list` form is rejected as ambiguous.
+
 ## List and delete
 
 ```bash

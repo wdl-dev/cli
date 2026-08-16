@@ -43,6 +43,8 @@ wdl token use acme
 wdl token rm --ns acme
 ```
 
+`wdl token` 会脱敏无效参数的细节。如果子命令前的 string option 使用分离式值，且该值是 `set`、`list`、`use` 或 `rm`，请把子命令放到前面，或改用 `--flag=value`；例如在该位置引用字面名为 `list` 的 namespace 时使用 `--ns=list`。
+
 ## 在解析链中的位置
 
 存储是优先级最低的凭证层：

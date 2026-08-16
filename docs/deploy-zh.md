@@ -125,7 +125,7 @@ wdl deploy . --env production
 
 **支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[ai]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[wdl] session_policy`、`[env.<name>]`。
 
-WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除它们。`[ai]` 是 Wrangler 标准配置；WDL 只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。面向租户的数组形态 `[[exports]]` 和其余这些字段是 WDL 扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
+WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些 WDL 扩展。`[ai]` 是 Wrangler 标准配置，会保留在临时配置中供 Wrangler 校验；如果选中的 named environment 没有自己的 `ai`，CLI 会提示顶层 binding 不会继承。WDL 另行只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
 WDL 还会拒绝 Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；这两个字段都没有对应的 WDL deploy manifest 或 runtime 映射。
 

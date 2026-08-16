@@ -63,6 +63,8 @@ Artifacts `triggers.events` subscriptions and R2
 `local_dev.experimental_s3_credentials` are also unsupported and rejected.
 `[ai] binding = "AI"` declares the AI facade; provider metadata and credentials
 are namespace resources managed with `wdl ai`, never ordinary Worker secrets.
+Like other bindings, `[ai]` is not inherited into named environments; deploy
+warns when the selected environment omits a top-level AI binding.
 `[wdl] session_policy = "restart"` makes every promotion close the Worker's open
 WebSockets with `1012` and retire stale Durable Object facets on their next
 dispatch; the default `preserve` leaves facets on the version that built them

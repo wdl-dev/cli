@@ -14,6 +14,7 @@ const TIME_TOOL = {
 };
 
 const MAX_TOOL_ROUNDS = 8;
+const encoder = new TextEncoder();
 
 function json(value, init = {}) {
   const headers = new Headers(init.headers);
@@ -29,15 +30,43 @@ function responseText(response) {
     .join("");
 }
 
+async function hasValidBearerToken(request, expected) {
+  const authorization = request.headers.get("authorization");
+  const provided = /^Bearer +([A-Za-z0-9._~+/-]+=*)$/i.exec(authorization ?? "")?.[1] ?? "";
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  return crypto.subtle.timingSafeEqual(providedHash, expectedHash);
+}
+
 function executeTool(call) {
-  if (call.name !== "get_time") throw new Error(`unsupported tool: ${call.name}`);
-  const args = JSON.parse(call.arguments);
-  const value = new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "full",
-    timeStyle: "long",
-    timeZone: args.timezone,
-  }).format(new Date());
-  return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ value }) };
+  if (typeof call.call_id !== "string" || !call.call_id) throw new Error("function call is missing call_id");
+  try {
+    if (call.name !== "get_time") throw new Error(`unsupported tool: ${call.name}`);
+    if (typeof call.arguments !== "string") throw new Error("invalid get_time arguments");
+    const args = JSON.parse(call.arguments);
+    if (
+      !args ||
+      typeof args !== "object" ||
+      Array.isArray(args) ||
+      Object.keys(args).length !== 1 ||
+      !Object.hasOwn(args, "timezone") ||
+      typeof args.timezone !== "string" ||
+      !args.timezone.trim()
+    ) {
+      throw new Error("get_time requires exactly one non-empty string timezone");
+    }
+    const value = new Intl.DateTimeFormat("en-GB", {
+      dateStyle: "full",
+      timeStyle: "long",
+      timeZone: args.timezone,
+    }).format(new Date());
+    return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ value }) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ error: message }) };
+  }
 }
 
 async function runAgent(ai, prompt) {
@@ -61,10 +90,19 @@ async function runAgent(ai, prompt) {
 
 export default {
   async fetch(request, env) {
+    if (typeof env.AI_DEMO_TOKEN !== "string" || !env.AI_DEMO_TOKEN) {
+      return json({ error: "demo_not_configured", message: "AI_DEMO_TOKEN is not configured" }, { status: 503 });
+    }
+    if (!(await hasValidBearerToken(request, env.AI_DEMO_TOKEN))) {
+      return json(
+        { error: "unauthorized" },
+        { status: 401, headers: { "www-authenticate": 'Bearer realm="ai-agent-demo"' } }
+      );
+    }
     if (request.method === "GET") {
       return json({
         worker: "ai-agent-demo",
-        usage: "POST JSON { prompt }",
+        usage: "POST JSON { prompt } with Authorization: Bearer <AI_DEMO_TOKEN>",
         models: await env.AI.models(),
       });
     }

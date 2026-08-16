@@ -26,6 +26,8 @@ printf '%s' "$VAL" | wdl secret put --scope ns KEY
 
 用 `printf '%s'`（不要用 `echo`），避免在密钥值末尾带上换行符。
 
+`wdl secret` 会脱敏无效参数的细节。如果子命令前的 string option 使用分离式值，且该值是 `list`、`put` 或 `delete`，请把子命令放到前面，或改用 inline 形式。对于名为 `put` 的 worker，写 `wdl secret list --worker put` 或 `wdl secret --worker=put list`；分离式的 `wdl secret --worker put list` 会因歧义而被拒绝。
+
 ## 列举与删除
 
 ```bash

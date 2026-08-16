@@ -341,15 +341,36 @@ test("writeTokenStore replaces a symlink instead of following it", POSIX_ONLY, a
   });
 });
 
-test("token does not accept a --token flag (the token comes from stdin)", async () => {
+test("token parse errors never echo option-shaped tokens", async () => {
   await withTempXdg(async (xdg) => {
+    const token = `sk-live-${ESC}[2J\nFORGED\rBAD`;
+    for (const args of [
+      ["set", "--ns", "acme", "--control-url", "https://api.example", "--token", token],
+      ["set", "--ns", "acme", "--control-url", "https://api.example", `--${token}`],
+      ["--control-url", "set", "--ns", "acme", `--${token}`],
+    ]) {
+      await assert.rejects(
+        () => runTokenCommand(args, deps(xdg, { stdin: stdinFrom("tok\n") }).deps),
+        (err) => {
+          const message = /** @type {Error} */ (err).message;
+          assertNoRawTerminalControls(message, "token argument error");
+          assert.match(message, /token received invalid arguments/);
+          assert.match(message, /use --help for usage/);
+          assert.doesNotMatch(message, /prompt|stdin/);
+          assert.doesNotMatch(message, /sk-live|FORGED|BAD/);
+          return true;
+        }
+      );
+    }
     await assert.rejects(
-      () =>
-        runTokenCommand(
-          ["set", "--ns", "acme", "--control-url", "https://api.example", "--token", "x"],
-          deps(xdg, { stdin: stdinFrom("tok\n") }).deps
-        ),
-      /Unknown option|--token/
+      () => runTokenCommand(["--ns", "set", "use", token], deps(xdg, { stdin: stdinFrom("tok\n") }).deps),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "ambiguous token argument error");
+        assert.match(message, /put the command before its options or use --flag=value/);
+        assert.doesNotMatch(message, /sk-live|FORGED|BAD/);
+        return true;
+      }
     );
   });
 });

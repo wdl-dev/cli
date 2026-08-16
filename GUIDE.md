@@ -137,6 +137,13 @@ shell env, and a project `.env` still win — and `wdl token list` /
 `WDL_NS`, like a project `.env`'s), so commands run without `--ns`;
 `wdl token use <ns>` switches it. See [token.md](./docs/token.md).
 
+Because `wdl ai`, `wdl secret`, and `wdl token` can receive credentials, they
+redact invalid argument details. If a string option appears before the complete
+subcommand path and its separate value is also a command word, put the
+subcommand first or use `--flag=value`; for example, write
+`wdl secret list --worker put` or `wdl secret --worker=put list`, not
+`wdl secret --worker put list`.
+
 `wdl deploy` runs the project's local Wrangler dry-run and build hooks as your
 OS user before uploading, and that code can read the on-disk store (the env
 scrub keeps WDL variables out of the Wrangler child's environment, not out of
@@ -394,11 +401,12 @@ with `worker_env_too_large`.
 | Other unmapped Wrangler binding/config/policy sections (for example `vectorize`, `hyperdrive`, `agent_memory`, `websearch`, `media`, `stream`, `ratelimits`, `vpc_services`, `cloudchamber`, `containers`, `wasm_modules`, `[site]`, `limits`, `placement`, `observability`, `pages_build_output_dir`) | Not supported; deploy fails loudly instead of silently dropping the binding/config. The CLI error names the rejected field; the internal rejection list tracks the bundled Wrangler schema and is not reproduced exhaustively here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 WDL consumes `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
-`[[services]].ns`, `[ai]`, and `[wdl]` itself and removes them from the
+`[[services]].ns`, and `[wdl]` itself and removes those WDL extensions from the
 temporary config passed to the Wrangler bundler. `[ai]` is standard Wrangler
-configuration; WDL accepts only its `binding` field and maps that declaration
-into the WDL manifest. The tenant-facing array-shaped `[[exports]]` and the
-other listed fields are WDL extensions. Other fields retain their existing
+configuration and stays in that temporary config for Wrangler validation. When a
+selected named environment omits its own `ai`, the CLI warns that the top-level
+binding is not inherited; WDL independently accepts only its `binding` field and
+maps that declaration into the WDL manifest. Other fields retain their existing
 Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
 configuration is not supported by WDL.
 
@@ -443,9 +451,10 @@ append the environment name to the worker / script name:
 `wdl deploy . --env preview` still updates the top-level `name`. `vars` and most
 bindings remain env-scoped and non-inheritable: selecting an env does not carry
 top-level `[vars]`, KV, D1, R2, AI, queues, services, or workflows into that
-env. Policies do inherit: `workers_dev`, `route` / `routes`, and `[wdl]` keep
-applying unless the env declares its own. For staging and production side by
-side, use separate namespaces unless your operator tells you otherwise.
+env. Deploy warns when a top-level `[ai]` binding is omitted from the selected
+environment. Policies do inherit: `workers_dev`, `route` / `routes`, and `[wdl]`
+keep applying unless the env declares its own. For staging and production side
+by side, use separate namespaces unless your operator tells you otherwise.
 
 ### KV
 
@@ -573,6 +582,17 @@ capabilities. Updating metadata creates a new revision. Same-kind updates
 preserve an existing credential; changing the adapter kind clears it and
 requires `credential put` before inference. Credentials are encrypted namespace
 resources and never enter Worker env or bundle metadata.
+
+`providers put` replaces the complete `{ kind, models }` metadata record, so an
+omitted alias is removed. The input file must stay inside the current project;
+extract writable fields before editing a `providers get --json` response:
+
+```bash
+wdl ai providers get openai --json \
+  | jq '.provider | {kind, models}' > provider.openai.json
+$EDITOR provider.openai.json
+wdl ai providers put openai --file provider.openai.json
+```
 
 `wdl ai providers delete <provider>` prompts by default and deletes both the
 provider metadata and its credential. It has no dry-run. First run

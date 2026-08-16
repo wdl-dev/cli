@@ -82,6 +82,19 @@ from hidden TTY input or stdin; there is no command-line credential flag and
 credential values are never returned by list/get commands. Official provider
 credentials must be visible-ASCII bearer tokens without whitespace.
 
+`providers put` replaces the complete provider metadata record; an alias omitted
+from `models` is removed. Its `--file` must stay inside the current project
+directory and must contain only the writable `{ kind, models }` shape. Do not
+pass `providers get --json` back unchanged because `name`, `revision`, and
+`credentialConfigured` are response-only fields. To edit an existing provider:
+
+```bash
+wdl ai providers get openai --json --ns <namespace> \
+  | jq '.provider | {kind, models}' > provider.openai.json
+$EDITOR provider.openai.json
+wdl ai providers put openai --file provider.openai.json --ns <namespace>
+```
+
 Supported provider kinds and canonical upstream ownership:
 
 | `kind`     | HTTP protocols                                     | WebSocket protocols                |
@@ -104,6 +117,12 @@ wdl ai credential put <provider> [--json]
 wdl ai providers delete <provider> [--yes] [--json]
 wdl ai models [--json]
 ```
+
+Invalid `wdl ai` argument details are redacted because a credential may have
+been pasted into the command line. If a string option before the complete
+subcommand path has a separate value that is also an AI command word, put the
+subcommand path first or use the inline form, such as `--ns=models` or
+`--file=put`.
 
 The model list contains configured provider metadata regardless of credential
 status. Inference still fails closed until the selected provider has a
@@ -264,15 +283,24 @@ Responses/webhooks, provider file APIs, WebRTC, or SIP.
 
 ## End-to-end example
 
-`../examples/ai-agent-demo` demonstrates a Responses function-tool loop. Put the
-provider file, configure its credential, deploy the Worker, then POST a prompt:
+`../examples/ai-agent-demo` demonstrates a Responses function-tool loop behind a
+bearer token. Put the provider file, configure its credential and the demo's
+Worker-level access token, deploy the Worker, then POST a prompt:
 
 ```bash
 cd examples/ai-agent-demo
 wdl ai providers put openai --file provider.openai.json --ns <namespace>
 printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai --ns <namespace>
+AI_DEMO_TOKEN="$(openssl rand -hex 32)"
+printf '%s' "$AI_DEMO_TOKEN" | wdl secret put --worker ai-agent-demo AI_DEMO_TOKEN --ns <namespace>
 wdl deploy . --ns <namespace>
-curl -X POST -H 'content-type: application/json' \
-  -d '{"prompt":"What time is it in Asia/Tokyo?"}' \
-  https://<namespace>.<platform-domain>/ai-agent-demo/
+printf 'authorization: Bearer %s\n' "$AI_DEMO_TOKEN" |
+  curl -X POST -H @- \
+    -H 'content-type: application/json' \
+    -d '{"prompt":"What time is it in Asia/Tokyo?"}' \
+    https://<namespace>.<platform-domain>/ai-agent-demo/
 ```
+
+The demo fails closed when `AI_DEMO_TOKEN` is absent. It is an application
+access token, separate from the namespace provider credential; replace it with
+the application's real authentication before exposing a derived Worker.

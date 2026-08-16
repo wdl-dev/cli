@@ -79,7 +79,16 @@ To pick: for a worker that serves a page or fronts an external API, start from
    wdl deploy . --ns <ns>
    ```
    For `env-overrides-demo`, use `wdl deploy . --env preview --ns <ns>` or
-   `wdl deploy . --env production --ns <ns>`.
+   `wdl deploy . --env production --ns <ns>`. For `ai-agent-demo`, configure the
+   namespace provider credential and a Worker-level demo access token before
+   deploy:
+   ```bash
+   wdl ai providers put openai --file provider.openai.json --ns <ns>
+   printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai --ns <ns>
+   AI_DEMO_TOKEN="$(openssl rand -hex 32)"
+   printf '%s' "$AI_DEMO_TOKEN" | wdl secret put --worker <project-name> AI_DEMO_TOKEN --ns <ns>
+   wdl deploy . --ns <ns>
+   ```
 
 ## Anti-patterns
 
@@ -94,6 +103,9 @@ To pick: for a worker that serves a page or fronts an external API, start from
   worker actually calls.
 - ❌ Leaving `"name": "<example-name>"` in `package.json` or wrangler config.
   Two workers with the same name collide on deploy.
+- ❌ Removing the `ai-agent-demo` bearer gate or deploying a derived public AI
+  endpoint without application authentication. WDL does not provide a spend
+  quota for provider calls.
 
 ## Deploy
 

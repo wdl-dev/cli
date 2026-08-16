@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { test } from "node:test";
 
 import { runAiCommand } from "../../commands/ai.js";
-import { mockDeps, response } from "./helpers.js";
+import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
 
@@ -98,6 +98,28 @@ test("ai providers get encodes path segments and prints credential state", async
     "credential: missing",
     "model: primary (responses)",
   ]);
+});
+
+test("ai provider human output escapes control-plane fields", async () => {
+  const hostile = `bad${ESC}[2J\nFORGED\rBAD\u009b`;
+  /** @type {string[]} */
+  const lines = [];
+  await runAiCommand(["providers", "get", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async () =>
+      response({
+        provider: {
+          name: hostile,
+          revision: hostile,
+          kind: hostile,
+          models: { [hostile]: { protocol: hostile } },
+          credentialConfigured: false,
+        },
+      }),
+  });
+
+  assertNoRawTerminalControls(lines.join("\n"), "AI provider output");
 });
 
 test("ai providers put reads project-local JSON and reports returned credential state", async () => {
@@ -244,6 +266,104 @@ test("ai credential put rejects an empty credential before mutation", async () =
   assert.equal(calls, 1);
 });
 
+test("ai credential errors never echo positional or option-shaped credentials", async () => {
+  const credential = `sk-live-${ESC}[2J\nFORGED\rBAD`;
+  let controlCalls = 0;
+  const cases = [
+    ["credential", "put", "openai", credential],
+    ["credential", "put", "openai", `--${credential}`],
+    ["credential", "puts", "openai", credential],
+    ["credentials", "put", "openai", credential],
+    ["credentials", "put", "openai", `--${credential}`],
+    ["--control-url", "credential", "put", "openai", `--${credential}`],
+    ["providers", "--file", "put", "delete", credential, "--yes"],
+  ];
+  for (const args of cases) {
+    await assert.rejects(
+      runAiCommand([...args, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        controlFetch: async () => {
+          controlCalls += 1;
+          return response({ deleted: true });
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "AI credential argument error");
+        assert.doesNotMatch(message, /sk-live|FORGED|BAD/);
+        return true;
+      }
+    );
+  }
+  assert.equal(controlCalls, 0);
+
+  await assert.rejects(
+    runAiCommand(["providers", "get", "credential", "--bogus", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+    }),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.match(message, /ai received invalid arguments/);
+      assert.match(message, /use --help for usage/);
+      assert.doesNotMatch(message, /prompt|stdin/);
+      return true;
+    }
+  );
+});
+
+test("ai credential put explains missing provider setup", async () => {
+  await assert.rejects(
+    runAiCommand(["credential", "put", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+      controlFetch: async () => response({ error: "ai_provider_not_found", message: "AI provider not found" }, 404),
+    }),
+    /prepare AI credential failed: 404 ai_provider_not_found: AI provider not found; create the provider with `wdl ai providers put`/
+  );
+});
+
+test("ai credential put gives actionable mutation failure hints", async () => {
+  const cases = [
+    {
+      error: "ai_provider_revision_mismatch",
+      status: 409,
+      expected: /Provider metadata changed while input was being entered; rerun this command/,
+    },
+    {
+      error: "secret_encryption_unconfigured",
+      status: 503,
+      expected: /Secret-envelope configuration or stored secret data needs operator repair/,
+    },
+    {
+      error: "ai_credential_encryption_unavailable",
+      status: 503,
+      expected: /Secret-envelope configuration or stored secret data needs operator repair/,
+    },
+  ];
+
+  for (const fixture of cases) {
+    let calls = 0;
+    await assert.rejects(
+      runAiCommand(["credential", "put", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdin: Readable.from(["secret-key\n"]),
+        controlFetch: async () => {
+          calls += 1;
+          return calls === 1
+            ? response({ provider: { name: "openai", revision: "0".repeat(32), ...PROVIDER } })
+            : response({ error: fixture.error, message: "mutation failed" }, fixture.status);
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, fixture.expected);
+        assert.doesNotMatch(message, /secret-key/);
+        return true;
+      }
+    );
+    assert.equal(calls, 2);
+  }
+});
+
 test("ai providers delete confirms and deletes metadata with its credential", async () => {
   const { calls, deps } = mockDeps({ ok: true, deleted: true });
   /** @type {string[]} */
@@ -257,6 +377,22 @@ test("ai providers delete confirms and deletes metadata with its credential", as
   assert.deepEqual(lines, ["OK AI provider openai and its credential deleted"]);
 });
 
+test("ai providers delete refuses a non-interactive deletion without --yes", async () => {
+  let calls = 0;
+  await assert.rejects(
+    runAiCommand(["providers", "delete", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+      stdin: /** @type {import("../../lib/stdin.js").StdinLike} */ (/** @type {unknown} */ ({ isTTY: false })),
+      controlFetch: async () => {
+        calls += 1;
+        return response({});
+      },
+    }),
+    /Refusing to delete AI provider "demo\/openai" without interactive confirmation/
+  );
+  assert.equal(calls, 0);
+});
+
 test("ai rejects incomplete and unknown commands", async () => {
   await assert.rejects(
     runAiCommand(["providers", "put", "--ns", "demo", "--control-url", "http://ctl.test"], {
@@ -265,8 +401,8 @@ test("ai rejects incomplete and unknown commands", async () => {
     /requires <provider>/
   );
   await assert.rejects(
-    runAiCommand(["unknown", "--ns", "demo", "--control-url", "http://ctl.test"], {
-      env: { ADMIN_TOKEN: "tok" },
+    runAiCommand(["unknown"], {
+      env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test", WDL_NS: "demo" },
     }),
     /unknown ai command/
   );

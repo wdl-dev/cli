@@ -91,6 +91,8 @@ CLI 只会从 `.env` 读取 WDL 平台变量：`ADMIN_TOKEN`、`CONTROL_URL`、`
 
 推荐的做法是把这些凭证放进托管存储，而不是 shell export 或项目 `.env`：`wdl token set --ns <ns> --control-url <url>` 用隐藏输入读取 token、调 `/whoami` 校验后按 namespace 存入 `~/.config/wdl/credentials`（不进 shell 历史、也不落在项目文件里）。存储是优先级最低的层——命令行标志、shell env、项目 `.env` 仍然胜出——`wdl token list` / `wdl token rm` 管理它。第一个存入的 namespace 成为默认（一行 base `WDL_NS`，和项目 `.env` 一样），命令不带 `--ns` 也能跑；`wdl token use <ns>` 切换默认。详见 [token-zh.md](./docs/token-zh.md)。
 
+`wdl ai`、`wdl secret` 和 `wdl token` 都可能接收凭据，因此会脱敏无效参数的细节。如果完整子命令路径前的 string option 使用分离式值，而该值本身也是命令词，请把子命令放到前面，或改用 `--flag=value` 消歧。例如写 `wdl secret list --worker put` 或 `wdl secret --worker=put list`，不要写 `wdl secret --worker put list`。
+
 `wdl deploy` 在上传前会以你的 OS 用户身份运行项目本地的 Wrangler dry-run 和 build 钩子，这些代码能读到磁盘上的 store（env scrub 只把 WDL 变量挡在 Wrangler 子进程的环境外，挡不住文件），所以只部署你信任的项目。`--no-token-store`（或 `WDL_TOKEN_STORE=off`）让 CLI 只从 flag / shell / `.env` 解析凭据、完全不读 store —— 这是给不太信任的项目或 CI 用的解析 opt-out，不是对文件本身的保护。
 
 用 `wdl config explain` 查看最终 namespace、control URL、脱敏 token 以及每个值的来源。用 `wdl whoami` 调 control-plane `/whoami`，查看当前 authenticated principal、token id、platform version、最低支持 CLI version 和 URL hints。用 `wdl doctor` 做本地可用性检查，包括 Node.js、wdl-cli、Wrangler、配置文件是否存在、凭据是否能解析，以及 `/whoami` 是否可达；在 CI 里可加 `--strict`，命令仍会打印检查结果，但只要任一检查失败就以非零退出。当 control plane 暴露 `/whoami` 时，`doctor` 可以发现 token 是否有效、principal namespace、platform version 和 CLI compatibility；更细的 capability 检查仍需要额外的 control endpoint。运维方没有配置公开 platform domain 时，namespace URL 可能显示为 `(unavailable)`；认证和其它 `/whoami` 字段仍然有效。
@@ -264,7 +266,7 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | Analytics Engine | 暂不支持，部署时会拒绝 |
 | 其他未映射的 Wrangler 绑定/配置/策略段（例如 `vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
 
-WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns`、`[ai]` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除它们。`[ai]` 是 Wrangler 标准配置；WDL 只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。面向租户的数组形态 `[[exports]]` 和其余这些字段是 WDL 扩展；其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
+WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些 WDL 扩展。`[ai]` 是 Wrangler 标准配置，会保留在临时配置中供 Wrangler 校验；如果选中的 named environment 没有自己的 `ai`，CLI 会提示顶层 binding 不会继承。WDL 另行只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
 
 Cron triggers 和 queue consumers 是运行时 dispatch 能力。除非管理方明确给了 reserved namespace，否则只应声明在 tenant namespace 里的可路由 Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是公开/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 
@@ -278,7 +280,7 @@ R2 object key 可以包含开头、结尾或连续的 `/` 分隔符；CLI 会保
 
 ### 环境覆盖
 
-如果 Wrangler 配置里有 `[env.<name>]`，必须通过 `--env <name>` 或 `CLOUDFLARE_ENV` 显式选择；CLI 不会自动挑一个默认环境。和 Cloudflare Workers / Wrangler 不同，WDL 不会把环境名追加到 worker / script 名后面：`wdl deploy . --env preview` 仍然更新顶层 `name` 指定的 worker。`vars` 和大部分 bindings 仍是 env-scoped / non-inheritable：选中 env 后，顶层 `[vars]`、KV、D1、R2、AI、queues、services、workflows 都不会自动进入该 env。策略类配置则会继承：`workers_dev`、`route` / `routes` 和 `[wdl]` 在 env 没有自己声明时继续生效。需要同时跑 staging / production 时，默认用不同 namespace 区分，除非管理方另有约定。
+如果 Wrangler 配置里有 `[env.<name>]`，必须通过 `--env <name>` 或 `CLOUDFLARE_ENV` 显式选择；CLI 不会自动挑一个默认环境。和 Cloudflare Workers / Wrangler 不同，WDL 不会把环境名追加到 worker / script 名后面：`wdl deploy . --env preview` 仍然更新顶层 `name` 指定的 worker。`vars` 和大部分 bindings 仍是 env-scoped / non-inheritable：选中 env 后，顶层 `[vars]`、KV、D1、R2、AI、queues、services、workflows 都不会自动进入该 env；如果选中的 env 漏掉顶层 `[ai]` binding，deploy 会明确提示。策略类配置则会继承：`workers_dev`、`route` / `routes` 和 `[wdl]` 在 env 没有自己声明时继续生效。需要同时跑 staging / production 时，默认用不同 namespace 区分，除非管理方另有约定。
 
 ### KV
 
@@ -378,6 +380,15 @@ wdl ai models
 ```
 
 Provider 元数据选择官方 adapter（`openai`、`xai` 或 `deepseek`），并把 `openai/primary` 这类有界 alias 映射到原生 model id 和 capability。更新元数据会生成新 revision；同 kind 更新保留既有 credential，切换 adapter kind 才会清除 credential 并要求在推理前重新配置。凭据是加密的 namespace 资源，不会进入 Worker env 或 bundle metadata。
+
+`providers put` 会整条替换 `{ kind, models }` metadata，省略的 alias 会被删除。输入文件必须留在当前项目目录内；编辑 `providers get --json` 的响应前，先提取可写字段：
+
+```bash
+wdl ai providers get openai --json \
+  | jq '.provider | {kind, models}' > provider.openai.json
+$EDITOR provider.openai.json
+wdl ai providers put openai --file provider.openai.json
+```
 
 `wdl ai providers delete <provider>` 默认会提示确认，并同时删除 provider metadata 和 credential。该命令没有 dry-run。先运行 `wdl config explain` 确认最终解析出的 namespace，再用 `wdl ai providers get <provider> --ns <namespace>` 查看目标，并在删除时传入同一个显式 `--ns`。只有完成这项独立检查并与用户确认后，才能传 `--yes`。
 

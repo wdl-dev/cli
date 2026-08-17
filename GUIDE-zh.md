@@ -380,7 +380,7 @@ printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai
 wdl ai models
 ```
 
-`providers init` 是生成单模型 provider 文件的离线交互式脚手架。它会为 provider kind、`primary` alias、upstream model id 和 `provider.<provider>.json` 文件名提供可修改的默认值并拒绝覆盖已有文件。它会为对应 adapter 预填 `gpt-5.6-luna`、`grok-4.6` 或 `deepseek-v4-flash`，并只生成 text-only Responses + HTTP/SSE 的保守 descriptor；其他 model-specific protocol 或 capability 需要直接编辑 JSON。Control 仍然是 canonical validator。
+`providers init` 是生成单模型 provider 文件的离线交互式脚手架。它会为 provider kind、`primary` alias、upstream model id 和 `provider.<provider>.json` 文件名提供可修改的默认值并拒绝覆盖已有文件。它会为对应 adapter 预填 `gpt-5.6-luna`、`grok-4.6` 或 `deepseek-v4-flash`，并只生成 text-only Responses + HTTP/SSE 的保守 descriptor；默认配置会拒绝非文本输入、`previous_response_id` 续写和二进制 WebSocket frame，直到启用对应的 `inputModalities`、`previousResponseId` 或 `binaryFrames` 声明。内置 AI agent demo 需要 `previousResponseId: true`，其自带 provider 文件已经声明。其余 capability 标志只是 catalog 声明，WDL 当前不会据此拒绝请求。其他 model-specific protocol 或 capability 需要直接编辑 JSON。Control 仍然是 canonical validator。
 
 Provider 元数据选择官方 adapter（`openai`、`xai` 或 `deepseek`），并把 `openai/primary` 这类有界 alias 映射到原生 model id 和 capability。更新元数据会生成新 revision；同 kind 更新保留既有 credential，切换 adapter kind 才会清除 credential 并要求在推理前重新配置。凭据是加密的 namespace 资源，不会进入 Worker env 或 bundle metadata。
 

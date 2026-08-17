@@ -582,8 +582,13 @@ file. It offers editable defaults for the provider kind, `primary` alias,
 upstream model id, and `provider.<provider>.json` filename, and refuses to
 overwrite. It pre-fills `gpt-5.6-luna`, `grok-4.6`, or `deepseek-v4-flash` for
 the matching adapter and emits a conservative text-only Responses descriptor
-over HTTP/SSE. Edit the JSON for model-specific protocols or capabilities;
-Control remains the canonical validator.
+over HTTP/SSE. Its defaults reject non-text input, `previous_response_id`
+continuation, and binary WebSocket frames until the matching `inputModalities`,
+`previousResponseId`, or `binaryFrames` declaration is enabled. The bundled AI
+agent demo needs `previousResponseId: true`, which its checked-in provider file
+already declares. The other capability flags are catalog declarations; WDL does
+not currently reject requests based on them. Edit the JSON for model-specific
+protocols or capabilities; Control remains the canonical validator.
 
 Provider metadata selects one official adapter (`openai`, `xai`, or `deepseek`)
 and maps bounded aliases such as `openai/primary` to native model ids and

@@ -59,9 +59,13 @@ inferred kind, `primary` alias, and default filename. The initializer pre-fills
 DeepSeek; use `--model` to override these starting values. It emits a
 conservative text-only Responses descriptor over HTTP/SSE with all optional
 capabilities disabled. Edit the JSON when the selected model needs another
-protocol, transport, modality, or capability. The initializer is offline and
-does not read WDL credentials or contact Control; Control remains the canonical
-validator.
+protocol, transport, modality, or capability. The defaults fail closed for
+non-text input, `previous_response_id` continuation, and binary WebSocket
+frames; enable the matching `inputModalities`, `previousResponseId`, or
+`binaryFrames` declaration before using those features. The other capability
+flags are catalog declarations; WDL does not currently reject requests based on
+them. The initializer is offline and does not read WDL credentials or contact
+Control; Control remains the canonical validator.
 
 The generated file has the same writable shape as a manually authored file:
 
@@ -308,8 +312,11 @@ Responses/webhooks, provider file APIs, WebRTC, or SIP.
 ## End-to-end example
 
 `../examples/ai-agent-demo` demonstrates a Responses function-tool loop behind a
-bearer token. Put the provider file, configure its credential and the demo's
-Worker-level access token, deploy the Worker, then POST a prompt:
+bearer token. Its checked-in provider file enables `previousResponseId` because
+the tool loop continues with `previous_response_id`; enable that capability if
+you replace the file with initializer output. Put the provider file, configure
+its credential and the demo's Worker-level access token, deploy the Worker, then
+POST a prompt:
 
 ```bash
 cd examples/ai-agent-demo

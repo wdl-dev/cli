@@ -118,7 +118,13 @@ without loading credentials or contacting Control. It offers editable defaults
 for kind, the `primary` alias, model id, and output filename. It pre-fills
 `gpt-5.6-luna`, `grok-4.6`, or `deepseek-v4-flash` for the matching adapter and
 emits a conservative text-only Responses descriptor over HTTP/SSE. It refuses to
-overwrite files; edit the JSON for model-specific protocols or capabilities.
+overwrite files. The defaults reject non-text input, `previous_response_id`
+continuation, and binary WebSocket frames until the matching `inputModalities`,
+`previousResponseId`, or `binaryFrames` declaration is enabled. The bundled AI
+agent demo needs `previousResponseId: true`, which its provider file already
+declares. Other capability flags are catalog declarations and do not currently
+gate WDL requests; edit the JSON for other model-specific protocols or
+capabilities.
 
 `wdl ai providers put` replaces the complete provider record and accepts only a
 project-contained `{ kind, models }` file; omitted model aliases are removed.

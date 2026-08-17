@@ -65,6 +65,9 @@ Artifacts `triggers.events` subscriptions and R2
 are namespace resources managed with `wdl ai`, never ordinary Worker secrets.
 Use `wdl ai providers init <provider>` to scaffold a conservative one-model
 Responses config, then edit model-specific capabilities before `providers put`.
+Initializer output rejects non-text input, `previous_response_id` continuation,
+and binary WebSocket frames until their corresponding declarations are enabled;
+the bundled AI agent demo already enables its required `previousResponseId`.
 Like other bindings, `[ai]` is not inherited into named environments; deploy
 warns when the selected environment omits a top-level AI binding.
 `[wdl] session_policy = "restart"` makes every promotion close the Worker's open

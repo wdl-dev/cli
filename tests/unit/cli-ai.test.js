@@ -1,0 +1,578 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { test } from "node:test";
+
+import { runAiCommand } from "../../commands/ai.js";
+import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
+
+/** @typedef {import("./helpers.js").ControlCall} ControlCall */
+
+const PROVIDER = {
+  kind: "openai",
+  models: {
+    primary: {
+      upstreamModel: "gpt-5",
+      protocol: "responses",
+      transports: ["http", "sse"],
+    },
+  },
+};
+
+test("ai providers list and models render bounded summaries", async () => {
+  /** @type {string[]} */
+  const providerLines = [];
+  await runAiCommand(["providers", "list", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => providerLines.push(line),
+    controlFetch: async () =>
+      response({
+        providers: [{ name: "openai", kind: "openai", models: PROVIDER.models, credentialConfigured: true }],
+      }),
+  });
+  assert.deepEqual(providerLines, ["openai kind=openai models=1 credential=configured"]);
+
+  /** @type {string[]} */
+  const modelLines = [];
+  await runAiCommand(["models", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => modelLines.push(line),
+    controlFetch: async () =>
+      response({ models: [{ id: "openai/primary", protocol: "responses", transports: ["http", "sse"] }] }),
+  });
+  assert.deepEqual(modelLines, ["openai/primary protocol=responses transports=http,sse"]);
+});
+
+test("ai providers list and models support JSON and empty output", async () => {
+  /** @type {string[]} */
+  const jsonLines = [];
+  const body = { providers: [] };
+  await runAiCommand(["providers", "list", "--json", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => jsonLines.push(line),
+    controlFetch: async () => response(body),
+  });
+  assert.deepEqual(jsonLines, [JSON.stringify(body, null, 2)]);
+
+  /** @type {string[]} */
+  const emptyLines = [];
+  await runAiCommand(["models", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => emptyLines.push(line),
+    controlFetch: async () => response({ models: [] }),
+  });
+  assert.deepEqual(emptyLines, ["(no configured AI models)"]);
+});
+
+test("ai providers get encodes path segments and prints credential state", async () => {
+  /** @type {ControlCall[]} */
+  const calls = [];
+  /** @type {string[]} */
+  const lines = [];
+  await runAiCommand(["providers", "get", "provider/name", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return response({
+        provider: {
+          name: "provider/name",
+          revision: "0123456789abcdef0123456789abcdef",
+          kind: "openai",
+          models: PROVIDER.models,
+          credentialConfigured: false,
+        },
+      });
+    },
+  });
+  assert.equal(calls[0].url, "http://ctl.test/ns/demo/ai/providers/provider%2Fname");
+  assert.deepEqual(lines, [
+    "name: provider/name",
+    "kind: openai",
+    "revision: 0123456789abcdef0123456789abcdef",
+    "credential: missing",
+    "model: primary (responses)",
+  ]);
+});
+
+test("ai provider human output escapes control-plane fields", async () => {
+  const hostile = `bad${ESC}[2J\nFORGED\rBAD\u009b`;
+  /** @type {string[]} */
+  const lines = [];
+  await runAiCommand(["providers", "get", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async () =>
+      response({
+        provider: {
+          name: hostile,
+          revision: hostile,
+          kind: hostile,
+          models: { [hostile]: { protocol: hostile } },
+          credentialConfigured: false,
+        },
+      }),
+  });
+
+  assertNoRawTerminalControls(lines.join("\n"), "AI provider output");
+});
+
+test("ai providers put reads project-local JSON and reports returned credential state", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-"));
+  try {
+    writeFileSync(path.join(dir, "provider.json"), JSON.stringify(PROVIDER));
+    /** @type {ControlCall[]} */
+    const calls = [];
+    /** @type {string[]} */
+    const lines = [];
+    await runAiCommand(
+      ["providers", "put", "openai", "--file", "provider.json", "--ns", "demo", "--control-url", "http://ctl.test"],
+      {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: (/** @type {string} */ line) => lines.push(line),
+        controlFetch: async (
+          /** @type {string} */ url,
+          /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+        ) => {
+          calls.push({ url, init });
+          return response({
+            provider: {
+              name: "openai",
+              revision: "0".repeat(32),
+              credentialConfigured: true,
+              ...PROVIDER,
+            },
+          });
+        },
+      }
+    );
+    assert.equal(calls[0].url, "http://ctl.test/ns/demo/ai/providers/openai");
+    assert.equal(calls[0].init.method, "PUT");
+    assert.deepEqual(JSON.parse(/** @type {string} */ (calls[0].init.body)), PROVIDER);
+    assert.deepEqual(lines, ["OK AI provider openai saved; existing credential preserved"]);
+
+    /** @type {string[]} */
+    const missingLines = [];
+    await runAiCommand(
+      ["providers", "put", "openai", "--file", "provider.json", "--ns", "demo", "--control-url", "http://ctl.test"],
+      {
+        cwd: dir,
+        env: { ADMIN_TOKEN: "tok" },
+        stdout: (/** @type {string} */ line) => missingLines.push(line),
+        controlFetch: async () =>
+          response({
+            provider: {
+              name: "openai",
+              revision: "1".repeat(32),
+              credentialConfigured: false,
+              ...PROVIDER,
+            },
+          }),
+      }
+    );
+    assert.deepEqual(missingLines, ["OK AI provider openai saved; credential not configured; configure it before use"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ai providers put rejects invalid or out-of-project files before control", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-files-"));
+  const dir = path.join(parent, "project");
+  mkdirSync(dir);
+  writeFileSync(path.join(dir, "bad.json"), "[");
+  writeFileSync(path.join(parent, "outside.json"), JSON.stringify(PROVIDER));
+  try {
+    let calls = 0;
+    const deps = {
+      cwd: dir,
+      env: { ADMIN_TOKEN: "tok" },
+      controlFetch: async () => {
+        calls += 1;
+        return response({});
+      },
+    };
+    await assert.rejects(
+      runAiCommand(
+        ["providers", "put", "openai", "--file", "bad.json", "--ns", "demo", "--control-url", "http://ctl.test"],
+        deps
+      ),
+      /must contain valid JSON/
+    );
+    await assert.rejects(
+      runAiCommand(
+        ["providers", "put", "openai", "--file", "../outside.json", "--ns", "demo", "--control-url", "http://ctl.test"],
+        deps
+      ),
+      /must stay inside the project/
+    );
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("ai providers init writes a conservative config without contacting control", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-init-"));
+  /** @type {string[]} */
+  const lines = [];
+  try {
+    await runAiCommand(["providers", "init", "openai"], {
+      cwd: dir,
+      env: {},
+      stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: false })),
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async () => {
+        throw new Error("providers init must not contact control");
+      },
+    });
+
+    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "provider.openai.json"), "utf8")), {
+      kind: "openai",
+      models: {
+        primary: {
+          upstreamModel: "gpt-5.6-luna",
+          protocol: "responses",
+          transports: ["http", "sse"],
+          inputModalities: ["text"],
+          outputModalities: ["text"],
+          capabilities: {
+            functionTools: false,
+            structuredOutput: false,
+            reasoning: false,
+            previousResponseId: false,
+            providerTools: false,
+            binaryFrames: false,
+          },
+        },
+      },
+    });
+    assert.deepEqual(lines, [
+      "Created provider.openai.json.",
+      "Review the generated modalities and capabilities before uploading it.",
+      "Next: wdl ai providers put 'openai' --file 'provider.openai.json' --ns <namespace>",
+    ]);
+
+    for (const [provider, upstreamModel] of [
+      ["xai", "grok-4.6"],
+      ["deepseek", "deepseek-v4-flash"],
+    ]) {
+      await runAiCommand(["providers", "init", provider], {
+        cwd: dir,
+        env: {},
+        stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: false })),
+        stdout: () => {},
+      });
+      const generated = JSON.parse(readFileSync(path.join(dir, `provider.${provider}.json`), "utf8"));
+      assert.equal(generated.models.primary.upstreamModel, upstreamModel);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ai providers init prompts for defaults and writes user overrides", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-prompt-"));
+  const answers = ["xai", "voice", "grok-voice", ""];
+  /** @type {string[]} */
+  const prompts = [];
+  try {
+    await runAiCommand(["providers", "init", "production"], {
+      cwd: dir,
+      env: {},
+      stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: true })),
+      stdout: () => {},
+      stderr: () => {},
+      readLines: async (
+        /** @type {unknown} */ _stdin,
+        /** @type {{ prompts: Array<string | ((answers: readonly string[]) => string)> }} */ options
+      ) => {
+        /** @type {string[]} */
+        const entered = [];
+        for (const prompt of options.prompts) {
+          prompts.push(typeof prompt === "function" ? prompt(entered) : prompt);
+          entered.push(answers[entered.length]);
+        }
+        return entered;
+      },
+    });
+
+    assert.deepEqual(prompts, [
+      "Provider kind (openai/xai/deepseek) [openai]: ",
+      "Model alias [primary]: ",
+      "Upstream model id [grok-4.6]: ",
+      "Output file [provider.production.json]: ",
+    ]);
+    const body = JSON.parse(readFileSync(path.join(dir, "provider.production.json"), "utf8"));
+    assert.equal(body.kind, "xai");
+    assert.deepEqual(body.models.voice, {
+      upstreamModel: "grok-voice",
+      protocol: "responses",
+      transports: ["http", "sse"],
+      inputModalities: ["text"],
+      outputModalities: ["text"],
+      capabilities: {
+        functionTools: false,
+        structuredOutput: false,
+        reasoning: false,
+        previousResponseId: false,
+        providerTools: false,
+        binaryFrames: false,
+      },
+    });
+
+    await runAiCommand(["providers", "init", "openai"], {
+      cwd: dir,
+      env: {},
+      stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: true })),
+      stdout: () => {},
+      stderr: () => {},
+      readLines: async (
+        /** @type {unknown} */ _stdin,
+        /** @type {{ prompts: Array<string | ((answers: readonly string[]) => string)> }} */ options
+      ) => options.prompts.map(() => ""),
+    });
+    const defaults = JSON.parse(readFileSync(path.join(dir, "provider.openai.json"), "utf8"));
+    assert.equal(defaults.kind, "openai");
+    assert.equal(defaults.models.primary.upstreamModel, "gpt-5.6-luna");
+    assert.equal(defaults.models.primary.protocol, "responses");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ai providers init rejects invalid values, unsafe paths, and existing files", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-init-errors-"));
+  const stdin = /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: false }));
+  try {
+    await assert.rejects(
+      runAiCommand(["providers", "init", "custom", "--kind", "other"], {
+        cwd: dir,
+        env: {},
+        stdin,
+      }),
+      /--kind must be one of/
+    );
+    await assert.rejects(
+      runAiCommand(["providers", "init", "openai", "--alias", "123"], { cwd: dir, env: {}, stdin }),
+      /--alias must match/
+    );
+    await assert.rejects(
+      runAiCommand(["providers", "init", "openai", "--model", "gpt-5", "--file", "../outside.json"], {
+        cwd: dir,
+        env: {},
+        stdin,
+      }),
+      /provider output file must stay inside the project/
+    );
+
+    writeFileSync(path.join(dir, "provider.openai.json"), "keep\n");
+    await assert.rejects(
+      runAiCommand(["providers", "init", "openai", "--model", "gpt-5"], {
+        cwd: dir,
+        env: {},
+        stdin,
+      }),
+      /already exists; refusing to overwrite it/
+    );
+    assert.equal(readFileSync(path.join(dir, "provider.openai.json"), "utf8"), "keep\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ai credential put reads a hidden credential and CASes the current provider revision", async () => {
+  /** @type {ControlCall[]} */
+  const calls = [];
+  /** @type {string[]} */
+  const lines = [];
+  const revision = "0123456789abcdef0123456789abcdef";
+  await runAiCommand(["credential", "put", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdin: Readable.from(["secret-key\n"]),
+    stdout: (/** @type {string} */ line) => lines.push(line),
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return calls.length === 1
+        ? response({ provider: { name: "openai", revision, ...PROVIDER } })
+        : response({ ok: true, provider: "openai", revision, credentialConfigured: true });
+    },
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, "http://ctl.test/ns/demo/ai/providers/openai");
+  assert.equal(calls[1].url, "http://ctl.test/ns/demo/ai/providers/openai/credential");
+  assert.equal(calls[1].init.method, "PUT");
+  assert.deepEqual(JSON.parse(/** @type {string} */ (calls[1].init.body)), {
+    revision,
+    credential: "secret-key",
+  });
+  assert.deepEqual(lines, ["OK AI credential configured for openai"]);
+  assert.equal(lines.join("\n").includes("secret-key"), false);
+});
+
+test("ai credential put rejects an empty credential before mutation", async () => {
+  let calls = 0;
+  await assert.rejects(
+    runAiCommand(["credential", "put", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+      stdin: Readable.from(["\n"]),
+      controlFetch: async () => {
+        calls += 1;
+        return response({ provider: { name: "openai", revision: "0".repeat(32), ...PROVIDER } });
+      },
+    }),
+    /must not be empty/
+  );
+  assert.equal(calls, 1);
+});
+
+test("ai credential errors never echo positional or option-shaped credentials", async () => {
+  const credential = `sk-live-${ESC}[2J\nFORGED\rBAD`;
+  let controlCalls = 0;
+  const cases = [
+    ["credential", "put", "openai", credential],
+    ["credential", "put", "openai", `--${credential}`],
+    ["credential", "puts", "openai", credential],
+    ["credentials", "put", "openai", credential],
+    ["credentials", "put", "openai", `--${credential}`],
+    ["--control-url", "credential", "put", "openai", `--${credential}`],
+    ["providers", "--file", "put", "delete", credential, "--yes"],
+  ];
+  for (const args of cases) {
+    await assert.rejects(
+      runAiCommand([...args, "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        controlFetch: async () => {
+          controlCalls += 1;
+          return response({ deleted: true });
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assertNoRawTerminalControls(message, "AI credential argument error");
+        assert.doesNotMatch(message, /sk-live|FORGED|BAD/);
+        return true;
+      }
+    );
+  }
+  assert.equal(controlCalls, 0);
+
+  await assert.rejects(
+    runAiCommand(["providers", "get", "credential", "--bogus", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+    }),
+    (err) => {
+      const message = /** @type {Error} */ (err).message;
+      assert.match(message, /ai received invalid arguments/);
+      assert.match(message, /use --help for usage/);
+      assert.doesNotMatch(message, /prompt|stdin/);
+      return true;
+    }
+  );
+});
+
+test("ai credential put explains missing provider setup", async () => {
+  await assert.rejects(
+    runAiCommand(["credential", "put", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+      controlFetch: async () => response({ error: "ai_provider_not_found", message: "AI provider not found" }, 404),
+    }),
+    /prepare AI credential failed: 404 ai_provider_not_found: AI provider not found; create the provider with `wdl ai providers put`/
+  );
+});
+
+test("ai credential put gives actionable mutation failure hints", async () => {
+  const cases = [
+    {
+      error: "ai_provider_revision_mismatch",
+      status: 409,
+      expected: /Provider metadata changed while input was being entered; rerun this command/,
+    },
+    {
+      error: "secret_encryption_unconfigured",
+      status: 503,
+      expected: /Secret-envelope configuration or stored secret data needs operator repair/,
+    },
+    {
+      error: "ai_credential_encryption_unavailable",
+      status: 503,
+      expected: /Secret-envelope configuration or stored secret data needs operator repair/,
+    },
+  ];
+
+  for (const fixture of cases) {
+    let calls = 0;
+    await assert.rejects(
+      runAiCommand(["credential", "put", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+        env: { ADMIN_TOKEN: "tok" },
+        stdin: Readable.from(["secret-key\n"]),
+        controlFetch: async () => {
+          calls += 1;
+          return calls === 1
+            ? response({ provider: { name: "openai", revision: "0".repeat(32), ...PROVIDER } })
+            : response({ error: fixture.error, message: "mutation failed" }, fixture.status);
+        },
+      }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, fixture.expected);
+        assert.doesNotMatch(message, /secret-key/);
+        return true;
+      }
+    );
+    assert.equal(calls, 2);
+  }
+});
+
+test("ai providers delete confirms and deletes metadata with its credential", async () => {
+  const { calls, deps } = mockDeps({ ok: true, deleted: true });
+  /** @type {string[]} */
+  const lines = [];
+  await runAiCommand(["providers", "delete", "openai", "--yes", "--ns", "demo", "--control-url", "http://ctl.test"], {
+    ...deps,
+    stdout: (/** @type {string} */ line) => lines.push(line),
+  });
+  assert.equal(calls[0].url, "http://ctl.test/ns/demo/ai/providers/openai");
+  assert.equal(calls[0].init.method, "DELETE");
+  assert.deepEqual(lines, ["OK AI provider openai and its credential deleted"]);
+});
+
+test("ai providers delete refuses a non-interactive deletion without --yes", async () => {
+  let calls = 0;
+  await assert.rejects(
+    runAiCommand(["providers", "delete", "openai", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+      stdin: /** @type {import("../../lib/stdin.js").StdinLike} */ (/** @type {unknown} */ ({ isTTY: false })),
+      controlFetch: async () => {
+        calls += 1;
+        return response({});
+      },
+    }),
+    /Refusing to delete AI provider "demo\/openai" without interactive confirmation/
+  );
+  assert.equal(calls, 0);
+});
+
+test("ai rejects incomplete and unknown commands", async () => {
+  await assert.rejects(
+    runAiCommand(["providers", "put", "--ns", "demo", "--control-url", "http://ctl.test"], {
+      env: { ADMIN_TOKEN: "tok" },
+    }),
+    /requires <provider>/
+  );
+  await assert.rejects(
+    runAiCommand(["unknown"], {
+      env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test", WDL_NS: "demo" },
+    }),
+    /unknown ai command/
+  );
+});

@@ -10,6 +10,7 @@ import * as d1Cmd from "../commands/d1.js";
 import * as r2Cmd from "../commands/r2.js";
 import * as tailCmd from "../commands/tail.js";
 import * as workflowsCmd from "../commands/workflows.js";
+import * as aiCmd from "../commands/ai.js";
 import * as configCmd from "../commands/config.js";
 import * as doctorCmd from "../commands/doctor.js";
 import * as whoamiCmd from "../commands/whoami.js";
@@ -34,6 +35,7 @@ const REGISTRY = [
   r2Cmd,
   tailCmd,
   workflowsCmd,
+  aiCmd,
   tokenCmd,
   configCmd,
   doctorCmd,
@@ -60,7 +62,7 @@ for (const c of REGISTRY) {
  * and the metadata the dispatcher reads.
  * @typedef {{
  *   main: (argv?: string[]) => Promise<void>,
- *   meta: { name: string, summary: string, autoloadEnv: boolean, parseOptions: import("node:util").ParseArgsOptionsConfig },
+ *   meta: { name: string, summary: string, autoloadEnv: boolean | ((positionals: string[]) => boolean), parseOptions: import("node:util").ParseArgsOptionsConfig },
  * }} CommandModule
  */
 
@@ -105,8 +107,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   /** @type {NonNullable<Parameters<typeof loadCliControlEnv>[1]>["loadEnv"]} */
   const loadEnvOverride = (Object.hasOwn(deps, "loadEnv") ? deps.loadEnv : undefined) ?? undefined;
   const skipAutoload = Object.hasOwn(deps, "loadEnv") && !deps.loadEnv;
+  const autoloadEnv =
+    typeof commandModule.meta.autoloadEnv === "function"
+      ? commandModule.meta.autoloadEnv(scanned.positionals)
+      : commandModule.meta.autoloadEnv;
   // Help never needs credentials, so a malformed .env must not block it.
-  if (!skipAutoload && commandModule.meta.autoloadEnv && !scanned.help) {
+  if (!skipAutoload && autoloadEnv && !scanned.help) {
     try {
       loadCliControlEnv(env, {
         nsFromFlag: scanned.ns,
@@ -152,6 +158,7 @@ function scanCommandArgs(commandModule, args) {
     controlUrlFromFlag: flagSet(values, "control-url"),
     noTokenStore: values["no-token-store"] === true,
     help: values.help === true || isHelpAlias(positionals),
+    positionals,
   };
 }
 
@@ -168,7 +175,7 @@ function usage(exitCode) {
   write(
     formatHelp({
       usage: ["wdl <command> [args] [options]", "wdl <command> --help", "wdl help <command>", "wdl --version"],
-      description: "Manage deployments, diagnostics, secrets, workers, D1, R2, and Workflows for a WDL control plane.",
+      description: "Manage deployments, diagnostics, secrets, workers, data services, AI, and Workflows for WDL.",
       commands: REGISTRY.map((c) => {
         const alias = aliasesByTarget[c.meta.name];
         const note = alias ? ` (alias: ${alias.join(", ")})` : "";

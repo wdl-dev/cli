@@ -38,6 +38,7 @@ const command = defineCommand({
   name: "token",
   summary: "Store, list, switch the default for, and remove control-plane tokens locally.",
   options: TOKEN_OPTIONS,
+  sensitiveInput: { commandPaths: [["set"], ["list"], ["use"], ["rm"]] },
   autoloadEnv: false,
   usage: usageText,
   run: runToken,

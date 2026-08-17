@@ -1,6 +1,6 @@
 ---
 name: wdl-deploy
-description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, workers, delete, d1, r2, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows bindings, manage D1 / R2 / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
+description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, workers, delete, d1, r2, ai, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows / AI bindings, manage D1 / R2 / AI providers / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
 ---
 
 # WDL CLI deploy skill
@@ -33,6 +33,8 @@ Open the relevant doc before answering:
   queue handlers, message size and retry limits.
 - `docs/workflows.md` — `[[workflows]]` config, the WDL Workflows surface,
   `wdl workflows` instance management.
+- `docs/ai.md` — `[ai]` config, namespace provider/credential management,
+  Responses/tools/SSE, OpenAI SDK use, and WebSocket inference.
 - `docs/kv.md` — `[[kv_namespaces]]`, immediately visible writes, batch reads,
   `list()` metadata / pagination differences.
 - `docs/assets.md` — `[assets]` directory + `env.ASSETS`, size caps, default
@@ -65,27 +67,31 @@ default platform-domain URL; it requires at least one `route` / `routes` pattern
 and is not inferred. The deploy summary prints every active route-pattern URL
 hint, preserving the trailing `*` on prefix patterns, and includes the
 platform-domain URL only while it is enabled. Cloudflare's separate
-`preview_urls` field is unsupported and rejected by the CLI. WDL-only
+`preview_urls` field is unsupported and rejected by the CLI. WDL consumes
 `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
-`[[services]].ns`, and `[wdl]` are parsed by the CLI and removed from Wrangler's
-temporary bundle config; other fields retain their existing Wrangler passthrough
-behavior. Specific nested fields that WDL cannot represent are rejected rather
-than silently dropped, including Cloudflare Artifacts `triggers.events`
-subscriptions and R2 `local_dev.experimental_s3_credentials`.
-`[wdl] session_policy` accepts `preserve` or `restart`. The default `preserve`
-leaves loaded Durable Object facets on the version that built them until the
-host actor restarts or the facet is deleted, and keeps established WebSockets
-draining while their backend stays healthy. `restart` closes the worker's open
-WebSockets with code `1012` at promotion and retires stale facets on their next
-dispatch, preserving SQLite state. Wrangler's object-shaped declarative
-`exports` config is unsupported. The dry-run child hides Wrangler's banner (and
-its normal update check) and disables anonymous telemetry. Wrangler may still
-consult the configured npm registry when reporting an unknown configuration
-field; project build hooks retain their normal network access. For
-`[[services]]` and `[[exports]]`, read `docs/deploy.md`: tenant JSRPC may
-delegate service or Durable Object class stubs as opaque capabilities, but the
-receiver cannot rewrite their host-authored caller properties. Keep delegated
-stubs in memory; long-term irrevocable stub storage is unsupported.
+`[[services]].ns`, and `[wdl]` itself and removes those WDL extensions from
+Wrangler's temporary bundle config. `[ai]` is standard Wrangler configuration
+and stays in that config for Wrangler validation. If a selected named
+environment omits its own `ai`, the CLI warns that the top-level binding is not
+inherited; WDL independently maps its `binding` into the WDL manifest. Other
+fields retain their existing Wrangler passthrough behavior. Specific nested
+fields that WDL cannot represent are rejected rather than silently dropped,
+including Cloudflare Artifacts `triggers.events` subscriptions and R2
+`local_dev.experimental_s3_credentials`. `[wdl] session_policy` accepts
+`preserve` or `restart`. The default `preserve` leaves loaded Durable Object
+facets on the version that built them until the host actor restarts or the facet
+is deleted, and keeps established WebSockets draining while their backend stays
+healthy. `restart` closes the worker's open WebSockets with code `1012` at
+promotion and retires stale facets on their next dispatch, preserving SQLite
+state. Wrangler's object-shaped declarative `exports` config is unsupported. The
+dry-run child hides Wrangler's banner (and its normal update check) and disables
+anonymous telemetry. Wrangler may still consult the configured npm registry when
+reporting an unknown configuration field; project build hooks retain their
+normal network access. For `[[services]]` and `[[exports]]`, read
+`docs/deploy.md`: tenant JSRPC may delegate service or Durable Object class
+stubs as opaque capabilities, but the receiver cannot rewrite their
+host-authored caller properties. Keep delegated stubs in memory; long-term
+irrevocable stub storage is unsupported.
 
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
 overrides the TCP target the admin token connects to (Host header + TLS SNI
@@ -100,6 +106,37 @@ they can read the on-disk token store (`~/.config/wdl/credentials`); only deploy
 trusted projects. For a less-trusted or third-party project, recommend
 `--no-token-store` (or `WDL_TOKEN_STORE=off`) with an ephemeral `--token` /
 `--control-url`, rather than relying on the global store.
+
+`wdl ai`, `wdl secret`, and `wdl token` redact invalid argument details. When a
+string option precedes the complete subcommand path and its separate value is
+also a command word, put the subcommand first or use `--flag=value`; for
+example, use `wdl secret list --worker put` or `wdl secret --worker=put list`
+for a worker named `put`.
+
+Use `wdl ai providers init <provider>` to scaffold a one-model provider file
+without loading credentials or contacting Control. It offers editable defaults
+for kind, the `primary` alias, model id, and output filename. It pre-fills
+`gpt-5.6-luna`, `grok-4.6`, or `deepseek-v4-flash` for the matching adapter and
+emits a conservative text-only Responses descriptor over HTTP/SSE. It refuses to
+overwrite files. The defaults reject non-text input, `previous_response_id`
+continuation, and binary WebSocket frames until the matching `inputModalities`,
+`previousResponseId`, or `binaryFrames` declaration is enabled. The bundled AI
+agent demo needs `previousResponseId: true`, which its provider file already
+declares. Other capability flags are catalog declarations and do not currently
+gate WDL requests; edit the JSON for other model-specific protocols or
+capabilities.
+
+`wdl ai providers put` replaces the complete provider record and accepts only a
+project-contained `{ kind, models }` file; omitted model aliases are removed.
+When editing an existing provider, derive the file with
+`wdl ai providers get <provider> --json | jq '.provider | {kind, models}'`
+instead of feeding response-only fields back to Control.
+
+Treat `wdl ai providers delete` as destructive: it removes both provider
+metadata and its credential and has no dry-run. Run `wdl config explain` first
+to confirm the resolved namespace, inspect the target with
+`wdl ai providers get <provider> --ns <namespace>`, and use the same explicit
+`--ns` for deletion. Never add `--yes` without user confirmation.
 
 `templates/AGENTS.md` is the generic agent entrypoint that `wdl init` copies
 into every new project. It points at the same `docs/` through

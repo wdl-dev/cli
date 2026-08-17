@@ -11,7 +11,7 @@ English | [中文](https://github.com/wdl-dev/cli/blob/main/README-zh.md)
 control plane that runs Cloudflare Workers-style code outside Cloudflare. It
 bundles your project with Wrangler v4, uploads it to your operator's control
 plane, and manages everything around it — D1, R2, KV, Queues, Durable Objects,
-Workflows, secrets, and live logs — inside your own namespace.
+Workflows, AI providers, secrets, and live logs — inside your own namespace.
 
 ## How it relates to Cloudflare Workers
 
@@ -59,6 +59,8 @@ it, email <hi@wdl.dev>.
   uploads with promote; environment overrides via `[env.<name>]`.
 - **Resources** — D1 (SQL, migrations), R2 objects, KV, Queue
   producers/consumers, Durable Objects, Workflows, static assets on a CDN.
+- **AI** — namespace BYO credentials for OpenAI, xAI, and DeepSeek; Responses,
+  tools, SSE, official OpenAI SDK calls, and WebSocket inference.
 - **Secrets** — worker-level and namespace-level runtime secrets, set from stdin
   so values stay out of shell history.
 - **Observability** — `wdl tail` streams live console output and exceptions;
@@ -119,6 +121,7 @@ wdl token list [--json] / wdl token use <ns> / wdl token rm --ns <ns>
 wdl d1 <create|list|delete|execute|migrations> ...
 wdl r2 buckets list / wdl r2 objects <list|head|get|delete> ...
 wdl workflows <list|instances|status|pause|resume|restart|terminate> ...
+wdl ai providers <init|list|get|put|delete> ... / wdl ai credential put ... / wdl ai models
 wdl delete worker <name> [--dry-run] / wdl delete version <name> <version>
 wdl config explain / wdl doctor / wdl whoami [--json]
 wdl --version / wdl <command> --help / wdl help <command>
@@ -129,11 +132,11 @@ that has already verified the target.
 
 ## Documentation
 
-| Where                                                                                                                               | What                                                                                                                                     |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| [GUIDE.md](https://github.com/wdl-dev/cli/blob/main/GUIDE.md) / [GUIDE-zh.md](https://github.com/wdl-dev/cli/blob/main/GUIDE-zh.md) | The full tenant manual: setup, deploy, every binding, debugging                                                                          |
-| [docs/](https://github.com/wdl-dev/cli/blob/main/docs/README.md)                                                                    | Per-feature references (KV, D1, R2, queues, cron, DO, workflows, assets, env overrides, secrets) — bilingual, each page has a `-zh` twin |
-| [examples/](https://github.com/wdl-dev/cli/tree/main/examples)                                                                      | Minimal deployable projects, one per feature                                                                                             |
+| Where                                                                                                                               | What                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| [GUIDE.md](https://github.com/wdl-dev/cli/blob/main/GUIDE.md) / [GUIDE-zh.md](https://github.com/wdl-dev/cli/blob/main/GUIDE-zh.md) | The full tenant manual: setup, deploy, every binding, debugging                                                                              |
+| [docs/](https://github.com/wdl-dev/cli/blob/main/docs/README.md)                                                                    | Per-feature references (KV, D1, R2, AI, queues, cron, DO, workflows, assets, env overrides, secrets) — bilingual, each page has a `-zh` twin |
+| [examples/](https://github.com/wdl-dev/cli/tree/main/examples)                                                                      | Minimal deployable projects, one per feature                                                                                                 |
 
 | Need                             | Example                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -144,6 +147,7 @@ that has already verified the target.
 | Queue producer + consumer        | [`queues-demo`](https://github.com/wdl-dev/cli/tree/main/examples/queues-demo)                   |
 | Durable Object counter           | [`durable-objects-demo`](https://github.com/wdl-dev/cli/tree/main/examples/durable-objects-demo) |
 | Workflow start / status / events | [`workflows-demo`](https://github.com/wdl-dev/cli/tree/main/examples/workflows-demo)             |
+| Responses function-tool agent    | [`ai-agent-demo`](https://github.com/wdl-dev/cli/tree/main/examples/ai-agent-demo)               |
 | Static assets                    | [`pages-assets`](https://github.com/wdl-dev/cli/tree/main/examples/pages-assets)                 |
 | Env overrides & worker naming    | [`env-overrides-demo`](https://github.com/wdl-dev/cli/tree/main/examples/env-overrides-demo)     |
 | R2 + D1 + KV + assets combined   | [`inspection-demo`](https://github.com/wdl-dev/cli/tree/main/examples/inspection-demo)           |
@@ -179,7 +183,7 @@ Steps:
    `wdl init <name> && cd <name> && npm install`
    (add `--ns <ns>` to `wdl init` to bake the namespace into the deploy script; otherwise it resolves from the `wdl token` default or `--ns` at deploy time.)
 4. Immediately open and read `AGENTS.md` in the new directory, then open the relevant docs and examples under `node_modules/@wdl-dev/cli/docs/` for my feature. Note: a freshly generated `AGENTS.md` is not loaded automatically mid-session — read it explicitly.
-5. Edit `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` and `src/` for the feature. Push third-party API secrets with `wdl secret put --worker <worker-name> <KEY>`; never put tokens in source, Wrangler config, or `.env`.
+5. Edit `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` and `src/` for the feature. AI provider credentials use `wdl ai credential put <provider>`; other third-party API secrets use `wdl secret put --worker <worker-name> <KEY>`. Never put tokens in source, Wrangler config, or `.env`.
 6. Run `npm run dry-run` first and fix local bundle issues, then deploy with `npm run deploy`.
 7. After a successful deploy, give me the Worker URL(s) printed by the CLI (the platform URL when enabled, plus any active route-pattern URL hints), the files you changed, and how I should verify.
 ```

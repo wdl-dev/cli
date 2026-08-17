@@ -231,6 +231,35 @@ test("wdl dispatcher skips dotenv when help is requested", async () => {
   assert.deepEqual(calls, []);
 });
 
+test("wdl dispatcher skips credential autoload for local AI provider init", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-init-dispatch-"));
+  const oldCwd = process.cwd();
+  const oldLog = console.log;
+  /** @type {string[]} */
+  const loadCalls = [];
+  process.chdir(dir);
+  console.log = () => {};
+  try {
+    await wdlMain(["ai", "providers", "init", "openai"], {
+      env: {},
+      loadEnv: /** @type {LoadEnvFn} */ (
+        /** @type {unknown} */ (
+          () => {
+            loadCalls.push("loaded");
+            throw new Error("provider init must not load .env");
+          }
+        )
+      ),
+    });
+    assert.equal(JSON.parse(readFileSync(path.join(dir, "provider.openai.json"), "utf8")).kind, "openai");
+  } finally {
+    process.chdir(oldCwd);
+    console.log = oldLog;
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.deepEqual(loadCalls, []);
+});
+
 test("wdl dispatcher reports a malformed .env without a Node stack", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-dispatch-env-"));
   const oldCwd = process.cwd();

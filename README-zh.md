@@ -4,7 +4,7 @@
 
 [English](https://github.com/wdl-dev/cli/blob/main/README.md) | 中文
 
-`wdl` 是 [**WDL 平台**](https://github.com/wdl-dev/wdl)（一套可自托管的运行时 + 控制面，让 Cloudflare Workers 风格的代码在 Cloudflare 之外运行）的配套 CLI：用 Wrangler v4 在本地打包项目、上传到运维方的控制面，并在你自己的命名空间里管理周边的一切——D1、R2、KV、Queues、Durable Objects、Workflows、secrets 和实时日志。
+`wdl` 是 [**WDL 平台**](https://github.com/wdl-dev/wdl)（一套可自托管的运行时 + 控制面，让 Cloudflare Workers 风格的代码在 Cloudflare 之外运行）的配套 CLI：用 Wrangler v4 在本地打包项目、上传到运维方的控制面，并在你自己的命名空间里管理周边的一切——D1、R2、KV、Queues、Durable Objects、Workflows、AI providers、secrets 和实时日志。
 
 ## 与 Cloudflare Workers 的关系
 
@@ -30,6 +30,7 @@ WDL 首先是开源基础设施：运维方自建平台（[wdl-dev/wdl](https://
 
 - **部署** —— 本地 Wrangler v4 打包、manifest 校验、版本化上传 + promote； `[env.<name>]` 环境覆盖。
 - **资源** —— D1（SQL、迁移）、R2 对象、KV、Queue 生产/消费、Durable Objects、Workflows、CDN 静态资源。
+- **AI** —— OpenAI、xAI、DeepSeek 的 namespace BYO 凭据，以及 Responses、tools、SSE、官方 OpenAI SDK 调用和 WebSocket 推理。
 - **Secrets** —— worker 级与命名空间级运行时密钥，从 stdin 读值，不进 shell 历史。
 - **可观测** —— `wdl tail` 实时流式输出 console 与异常；`wdl workers` 列出部署状态。
 - **诊断** —— `wdl doctor`、`wdl config explain`、`wdl whoami` 说清 CLI 解析出了什么、控制面看到了什么。
@@ -77,6 +78,7 @@ wdl token list [--json] / wdl token use <ns> / wdl token rm --ns <ns>
 wdl d1 <create|list|delete|execute|migrations> ...
 wdl r2 buckets list / wdl r2 objects <list|head|get|delete> ...
 wdl workflows <list|instances|status|pause|resume|restart|terminate> ...
+wdl ai providers <init|list|get|put|delete> ... / wdl ai credential put ... / wdl ai models
 wdl delete worker <name> [--dry-run] / wdl delete version <name> <version>
 wdl config explain / wdl doctor / wdl whoami [--json]
 wdl --version / wdl <command> --help / wdl help <command>
@@ -89,7 +91,7 @@ wdl --version / wdl <command> --help / wdl help <command>
 | 位置 | 内容 |
 | --- | --- |
 | [GUIDE.md](https://github.com/wdl-dev/cli/blob/main/GUIDE.md) / [GUIDE-zh.md](https://github.com/wdl-dev/cli/blob/main/GUIDE-zh.md) | 完整租户手册：配置、部署、各类绑定、调试 |
-| [docs/](https://github.com/wdl-dev/cli/blob/main/docs/README-zh.md) | 分功能参考（KV、D1、R2、queues、cron、DO、workflows、assets、环境覆盖、secrets），中英双语 |
+| [docs/](https://github.com/wdl-dev/cli/blob/main/docs/README-zh.md) | 分功能参考（KV、D1、R2、AI、queues、cron、DO、workflows、assets、环境覆盖、secrets），中英双语 |
 | [examples/](https://github.com/wdl-dev/cli/tree/main/examples) | 每个功能一个可部署的最小项目 |
 
 | 需求 | 示例 |
@@ -101,6 +103,7 @@ wdl --version / wdl <command> --help / wdl help <command>
 | Queue 生产 + 消费 | [`queues-demo`](https://github.com/wdl-dev/cli/tree/main/examples/queues-demo) |
 | Durable Object 计数器 | [`durable-objects-demo`](https://github.com/wdl-dev/cli/tree/main/examples/durable-objects-demo) |
 | Workflow 启动 / 状态 / 事件 | [`workflows-demo`](https://github.com/wdl-dev/cli/tree/main/examples/workflows-demo) |
+| Responses function-tool Agent | [`ai-agent-demo`](https://github.com/wdl-dev/cli/tree/main/examples/ai-agent-demo) |
 | 静态资源 | [`pages-assets`](https://github.com/wdl-dev/cli/tree/main/examples/pages-assets) |
 | 环境覆盖与 worker 命名 | [`env-overrides-demo`](https://github.com/wdl-dev/cli/tree/main/examples/env-overrides-demo) |
 | R2 + D1 + KV + assets 组合 | [`inspection-demo`](https://github.com/wdl-dev/cli/tree/main/examples/inspection-demo) |
@@ -133,7 +136,7 @@ Worker/项目目录名：[如果已知就填，例如 hello-counter；不知道�
    `wdl init <name> && cd <name> && npm install`
    （给 `wdl init` 加 `--ns <ns>` 可把 namespace 烤进 deploy 脚本；否则部署期从 `wdl token` 默认或 `--ns` 解析。）
 4. 立刻打开并阅读新目录里的 `AGENTS.md`，再根据我的功能打开 `node_modules/@wdl-dev/cli/docs/` 下相关文档和示例。注意：session 中新生成的 `AGENTS.md` 不会自动加载，必须显式读取。
-5. 根据功能修改 `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` 和 `src/`。需要第三方 API 鉴权 secret 时用 `wdl secret put --worker <worker-name> <KEY>` 写入，不要把 token 放进源码、Wrangler config 或 `.env`。
+5. 根据功能修改 `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` 和 `src/`。AI provider 凭据使用 `wdl ai credential put <provider>`；其它第三方 API secret 使用 `wdl secret put --worker <worker-name> <KEY>`。不要把 token 放进源码、Wrangler config 或 `.env`。
 6. 先跑 `npm run dry-run` 修复本地 bundle 问题，再跑 `npm run deploy` 部署。
 7. 部署成功后给我 CLI 输出的 Worker URL（启用时的平台 URL，以及所有 active route-pattern URL hint）、本次改了哪些文件，以及我该如何验证。
 ```

@@ -280,6 +280,7 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
       main: "src/index.js",
       vars: { TOP: "1" },
       kv_namespaces: [{ binding: "KV", id: "top" }],
+      ai: { binding: "AI" },
       services: [{ binding: "AUTH", service: "auth" }],
       queues: { producers: [{ binding: "Q", queue: "top-q" }] },
       assets: { directory: "./top-public" },
@@ -289,6 +290,7 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
         prod: {
           vars: { ENV: "prod" },
           kv_namespaces: [{ binding: "KV", id: "prod" }],
+          ai: { binding: "PROD_AI" },
           queues: { consumers: [{ queue: "jobs" }] },
         },
       },
@@ -299,11 +301,27 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
 
   assert.deepEqual(cfg.vars, { ENV: "prod" });
   assert.deepEqual(cfg.kv_namespaces, [{ binding: "KV", id: "prod" }]);
+  assert.deepEqual(cfg.ai, { binding: "PROD_AI" });
   assert.deepEqual(cfg.queues, { consumers: [{ queue: "jobs" }] });
   assert.equal(cfg.services, undefined);
   assert.deepEqual(cfg.assets, { directory: "./top-public" });
   assert.equal(cfg.route, "api.example/*");
   assert.equal(cfg.workers_dev, false);
+});
+
+test("resolveWranglerConfig: a top-level AI binding does not inherit into a selected environment", () => {
+  const { cfg } = resolveWranglerConfig(
+    {
+      name: "demo",
+      main: "src/index.js",
+      ai: { binding: "AI" },
+      env: { prod: {} },
+    },
+    "prod",
+    "wrangler.toml"
+  );
+
+  assert.equal(cfg.ai, undefined);
 });
 
 test("resolveWranglerConfig: selected environment can override inherited assets", () => {
@@ -429,7 +447,7 @@ test("resolveWranglerConfig drops __proto__ keys instead of rewriting the merged
   assert.deepEqual(cfg.vars, { A: "1" });
 });
 
-test("createWranglerBundleConfig projects WDL extensions without mutating source config", () => {
+test("createWranglerBundleConfig keeps standard fields while projecting WDL extensions", () => {
   const rawCfg = {
     name: "demo",
     main: "src/index.js",
@@ -451,6 +469,7 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
     ],
     exports: [{ entrypoint: "Auth", allowed_callers: ["acme"] }],
     platform_bindings: [{ binding: "PAYMENT", platform: "STRIPE" }],
+    ai: { binding: "AI" },
     wdl: { session_policy: "restart" },
     env: {
       staging: {
@@ -462,6 +481,7 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
         services: [{ binding: "API", service: "api-worker", ns: "backend", remote: false }],
         exports: [{ entrypoint: "default", allowed_callers: ["*"] }],
         platform_bindings: [{ binding: "SEARCH", platform: "SEARCH" }],
+        ai: { binding: "AI_STAGING" },
         wdl: { session_policy: "preserve" },
       },
     },
@@ -474,6 +494,7 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
   assert.equal(projected.name, "wdl-bundle-tmp");
   assert.equal(projected.exports, undefined);
   assert.equal(projected.platform_bindings, undefined);
+  assert.deepEqual(projected.ai, { binding: "AI" });
   assert.equal(projected.wdl, undefined);
   assert.deepEqual(projected.build, { command: "npm run build" });
   assert.deepEqual(projected.vars, { MODE: "top" });
@@ -493,6 +514,7 @@ test("createWranglerBundleConfig projects WDL extensions without mutating source
   assert.deepEqual(projectedEnv.staging.services, [{ binding: "API", service: "api-worker", remote: false }]);
   assert.equal(projectedEnv.staging.exports, undefined);
   assert.equal(projectedEnv.staging.platform_bindings, undefined);
+  assert.deepEqual(projectedEnv.staging.ai, { binding: "AI_STAGING" });
   assert.equal(projectedEnv.staging.wdl, undefined);
 });
 
@@ -752,7 +774,6 @@ test("validateUnsupportedWranglerConfig: empty env-scoped allowed_callers is sti
 
 test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy keys", () => {
   const objectShapeKeys = new Set([
-    "ai",
     "browser",
     "cache",
     "limits",
@@ -767,7 +788,6 @@ test("validateUnsupportedWranglerConfig rejects unmapped wrangler runtime/deploy
   for (const key of [
     "addresses",
     "agent_memory",
-    "ai",
     "artifacts",
     "browser",
     "cache",

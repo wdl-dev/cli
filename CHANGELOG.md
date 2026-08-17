@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- Add the `[ai]` binding, an offline provider JSON initializer, namespace
+  provider and credential management commands, model discovery,
+  OpenAI-compatible SDK guidance, and a Responses function-tool agent example
+  protected by a Worker-level bearer token.
+
+### Changed
+
+- `wdl ai`, `wdl secret`, and `wdl token` now redact invalid argument details.
+  When a separate string option before the complete subcommand path has a value
+  that is also a command word, put the subcommand first or use `--flag=value` to
+  disambiguate it.
+
 ## 1.7.1
 
 ### Changed

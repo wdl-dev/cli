@@ -28,6 +28,7 @@ English set.
 | Durable Object local classes, SQLite-backed state       | [durable-objects.md](./durable-objects.md) |
 | Session policy on promotion (`[wdl] session_policy`)    | [deploy.md](./deploy.md)                   |
 | Workflow instances, durable steps, event waits          | [workflows.md](./workflows.md)             |
+| Agent inference, provider credentials, SSE, WebSocket   | [ai.md](./ai.md)                           |
 | Queue producer / consumer background work               | [queues.md](./queues.md)                   |
 | Cron / scheduled jobs                                   | [cron-triggers.md](./cron-triggers.md)     |
 | Static assets and `env.ASSETS.url()`                    | [assets.md](./assets.md)                   |
@@ -56,6 +57,7 @@ closest example and rename it:
 | Queue producer + consumer + KV    | `queues-demo`          |
 | Durable Object counter            | `durable-objects-demo` |
 | Workflow start / status / events  | `workflows-demo`       |
+| Responses function-tool agent     | `ai-agent-demo`        |
 | Static assets                     | `pages-assets`         |
 | WDL env overrides & worker naming | `env-overrides-demo`   |
 | R2 + D1 + KV + assets combined    | `inspection-demo`      |

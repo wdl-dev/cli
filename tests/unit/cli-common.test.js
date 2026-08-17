@@ -5,7 +5,7 @@ import { runR2Command } from "../../commands/r2.js";
 import { runSecretCommand } from "../../commands/secret.js";
 import { runWorkersCommand } from "../../commands/workers.js";
 import { runWorkflowsCommand } from "../../commands/workflows.js";
-import { formatHttpError, formatHttpErrorBody, readJsonOrFail } from "../../lib/common.js";
+import { formatHttpError, formatHttpErrorBody, readJsonOrFail, readJsonOrFailWithHint } from "../../lib/common.js";
 import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
@@ -25,6 +25,27 @@ test("formatHttpErrorBody matches raw JSON formatting for parsed bodies", () => 
     blockers: ["version-v1"],
   };
   assert.equal(formatHttpErrorBody(409, body), formatHttpError(409, JSON.stringify(body)));
+});
+
+test("readJsonOrFailWithHint formats one error-body read and appends code-specific guidance", async () => {
+  let textReads = 0;
+  await assert.rejects(
+    () =>
+      readJsonOrFailWithHint(
+        {
+          status: 409,
+          ok: false,
+          text: async () => {
+            textReads += 1;
+            return '{ "error": "retry", "message": "changed" }';
+          },
+        },
+        "mutate",
+        (error) => (error === "retry" ? "; rerun the command" : "")
+      ),
+    { message: "mutate failed: 409 retry: changed; rerun the command" }
+  );
+  assert.equal(textReads, 1);
 });
 
 test("readJsonOrFail compacts redacted D1 lifecycle errors", async () => {
@@ -337,10 +358,6 @@ test("commands escape terminal controls in unexpected positional errors", async 
 
   await assert.rejects(
     () => runDeleteCommand(["version", "--ns", "demo", "api", "v1", bad], deps),
-    assertEscapedBadArg
-  );
-  await assert.rejects(
-    () => runSecretCommand(["list", "--ns", "demo", "--scope", "ns", bad], deps),
     assertEscapedBadArg
   );
   await assert.rejects(() => runR2Command(["buckets", "list", bad, "--ns", "demo"], deps), assertEscapedBadArg);

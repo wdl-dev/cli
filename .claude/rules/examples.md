@@ -28,12 +28,14 @@ requested feature set better than the minimal init template.
 | `queues-demo`          | Queue producer + consumer in one routeable worker, with consumed message state in KV. `wrangler.toml`. Use when requests should enqueue background work.                                                                                                                       |
 | `durable-objects-demo` | Same-worker Durable Object class with SQLite-backed counter state. `wrangler.toml`. Use when one logical object needs serialized state.                                                                                                                                        |
 | `workflows-demo`       | Workflow class with start/status/approval routes. `wrangler.toml`. Use when work spans multiple durable steps or needs CLI-visible instance state.                                                                                                                             |
+| `ai-agent-demo`        | Responses function-tool loop through `env.AI`. `wrangler.toml`. Use when a Worker needs OpenAI-compatible agent inference without receiving provider credentials.                                                                                                              |
 | `env-overrides-demo`   | `[env.preview]` and `[env.production]` blocks showing WDL-specific env override behavior: no worker-name suffix, env-scoped vars that do not inherit top-level vars, and assets override. `wrangler.toml`. Layer on top of any of the above when you need env-specific config. |
 | `inspection-demo`      | Multi-binding example combining D1 + KV + R2 + assets. `wrangler.toml`. Use as a reference when the worker needs more than one binding.                                                                                                                                        |
 
 To pick: for a worker that serves a page or fronts an external API, start from
 `pages-assets`. For pure compute, cron, or queue work, start from `hello-jsonc`,
-`cron-demo`, or `queues-demo`.
+`cron-demo`, or `queues-demo`. For a Responses function-tool agent, start from
+`ai-agent-demo`.
 
 ## Scaffolding steps
 
@@ -77,7 +79,16 @@ To pick: for a worker that serves a page or fronts an external API, start from
    wdl deploy . --ns <ns>
    ```
    For `env-overrides-demo`, use `wdl deploy . --env preview --ns <ns>` or
-   `wdl deploy . --env production --ns <ns>`.
+   `wdl deploy . --env production --ns <ns>`. For `ai-agent-demo`, configure the
+   namespace provider credential and a Worker-level demo access token before
+   deploy:
+   ```bash
+   wdl ai providers put openai --file provider.openai.json --ns <ns>
+   printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai --ns <ns>
+   AI_DEMO_TOKEN="$(openssl rand -hex 32)"
+   printf '%s' "$AI_DEMO_TOKEN" | wdl secret put --worker <project-name> AI_DEMO_TOKEN --ns <ns>
+   wdl deploy . --ns <ns>
+   ```
 
 ## Anti-patterns
 
@@ -92,6 +103,9 @@ To pick: for a worker that serves a page or fronts an external API, start from
   worker actually calls.
 - ❌ Leaving `"name": "<example-name>"` in `package.json` or wrangler config.
   Two workers with the same name collide on deploy.
+- ❌ Removing the `ai-agent-demo` bearer gate or deploying a derived public AI
+  endpoint without application authentication. WDL does not provide a spend
+  quota for provider calls.
 
 ## Deploy
 

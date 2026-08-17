@@ -7,15 +7,15 @@ import {
   CliError,
   defineCliOption,
   formatHelp,
-  formatHttpError,
   isMain,
   isNonEmptyString,
   optionHelp,
-  readJsonOrFail,
-  unexpectedArgument,
+  readJsonOrFailWithHint,
+  redactedArgumentError,
+  sensitiveInputArgumentError,
 } from "../lib/common.js";
 import { confirmAction, readSecretStdin } from "../lib/stdin.js";
-import { escapeTerminalText, writeJsonOr, writeStatusLine } from "../lib/output.js";
+import { writeJsonOr, writeStatusLine } from "../lib/output.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
 
 const SECRET_OPTIONS = [
@@ -32,6 +32,7 @@ const command = defineCommand({
   name: "secret",
   summary: "Manage namespace-level or worker-level secrets.",
   options: SECRET_OPTIONS,
+  sensitiveInput: { commandPaths: [["list"], ["put"], ["delete"]] },
   usage: usageText,
   run: runSecret,
 });
@@ -80,7 +81,7 @@ async function runSecret({ values, positionals, context }) {
   const scopeLabel = worker ? `${ns}/${worker}` : `${ns} (ns)`;
 
   if (subcommand === "list") {
-    if (keyArg) throw unexpectedArgument("secret list", keyArg);
+    if (keyArg) throw redactedArgumentError("secret list");
     const { headers } = context.resolveControl();
     const body = /** @type {SecretResponse} */ (
       await context.fetchJson(context.nsUrl(...secretPath), { headers }, "list")
@@ -94,7 +95,7 @@ async function runSecret({ values, positionals, context }) {
 
   if (subcommand === "put") {
     if (!keyArg) throw new CliError("put requires a KEY argument");
-    if (extraArg) throw unexpectedArgument("secret put", extraArg);
+    if (extraArg) throw sensitiveInputArgumentError("secret put");
     const { headers } = context.resolveControl();
     // Empty string is a set secret (≠ unset), matching wrangler.
     const value = await readSecretStdin(stdin, {
@@ -126,7 +127,7 @@ async function runSecret({ values, positionals, context }) {
 
   if (subcommand === "delete") {
     if (!keyArg) throw new CliError("delete requires a KEY argument");
-    if (extraArg) throw unexpectedArgument("secret delete", extraArg);
+    if (extraArg) throw redactedArgumentError("secret delete");
     const { headers } = context.resolveControl();
     await confirmAction({
       yes: values.yes === true,
@@ -156,7 +157,7 @@ async function runSecret({ values, positionals, context }) {
     return;
   }
 
-  throw new CliError(`unknown subcommand: ${escapeTerminalText(subcommand)}`);
+  throw new CliError(`unknown secret subcommand\n${usageText()}`);
 }
 
 /**
@@ -167,22 +168,11 @@ async function runSecret({ values, positionals, context }) {
  */
 async function fetchSecretMutationJson(context, url, init, label) {
   const res = await context.controlFetch(url, { ...init, env: init.env ?? context.env });
-  if (res.ok) return await readJsonOrFail(res, label);
-  const text = await res.text();
-  throw new CliError(`${label} failed: ${formatHttpError(res.status, text, res.headers)}${secretMutationHint(text)}`);
+  return await readJsonOrFailWithHint(res, label, secretMutationHint);
 }
 
-/** @param {string} text */
-function secretMutationHint(text) {
-  /** @type {unknown} */
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    return "";
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
-  const error = /** @type {{ error?: unknown }} */ (body).error;
+/** @param {unknown} error */
+function secretMutationHint(error) {
   if (error === "worker_env_too_large") {
     return "; secret mutation was not written. Reduce [vars], secrets, or binding metadata; if source_version names a retained version, redeploy/delete that version. estimated_version may be a sizing placeholder. Namespace-scope mutations can be blocked by another worker's retained metadata.";
   }

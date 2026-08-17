@@ -113,6 +113,13 @@ also a command word, put the subcommand first or use `--flag=value`; for
 example, use `wdl secret list --worker put` or `wdl secret --worker=put list`
 for a worker named `put`.
 
+Use `wdl ai providers init <provider>` to scaffold a one-model provider file
+without loading credentials or contacting Control. It offers editable defaults
+for kind, the `primary` alias, model id, and output filename. It pre-fills
+`gpt-5.6-luna`, `grok-4.6`, or `deepseek-v4-flash` for the matching adapter and
+emits a conservative text-only Responses descriptor over HTTP/SSE. It refuses to
+overwrite files; edit the JSON for model-specific protocols or capabilities.
+
 `wdl ai providers put` replaces the complete provider record and accepts only a
 project-contained `{ kind, models }` file; omitted model aliases are removed.
 When editing an existing provider, derive the file with

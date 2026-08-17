@@ -62,7 +62,7 @@ for (const c of REGISTRY) {
  * and the metadata the dispatcher reads.
  * @typedef {{
  *   main: (argv?: string[]) => Promise<void>,
- *   meta: { name: string, summary: string, autoloadEnv: boolean, parseOptions: import("node:util").ParseArgsOptionsConfig },
+ *   meta: { name: string, summary: string, autoloadEnv: boolean | ((positionals: string[]) => boolean), parseOptions: import("node:util").ParseArgsOptionsConfig },
  * }} CommandModule
  */
 
@@ -107,8 +107,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   /** @type {NonNullable<Parameters<typeof loadCliControlEnv>[1]>["loadEnv"]} */
   const loadEnvOverride = (Object.hasOwn(deps, "loadEnv") ? deps.loadEnv : undefined) ?? undefined;
   const skipAutoload = Object.hasOwn(deps, "loadEnv") && !deps.loadEnv;
+  const autoloadEnv =
+    typeof commandModule.meta.autoloadEnv === "function"
+      ? commandModule.meta.autoloadEnv(scanned.positionals)
+      : commandModule.meta.autoloadEnv;
   // Help never needs credentials, so a malformed .env must not block it.
-  if (!skipAutoload && commandModule.meta.autoloadEnv && !scanned.help) {
+  if (!skipAutoload && autoloadEnv && !scanned.help) {
     try {
       loadCliControlEnv(env, {
         nsFromFlag: scanned.ns,
@@ -154,6 +158,7 @@ function scanCommandArgs(commandModule, args) {
     controlUrlFromFlag: flagSet(values, "control-url"),
     noTokenStore: values["no-token-store"] === true,
     help: values.help === true || isHelpAlias(positionals),
+    positionals,
   };
 }
 

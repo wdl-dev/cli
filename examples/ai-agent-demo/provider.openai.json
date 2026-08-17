@@ -2,7 +2,7 @@
   "kind": "openai",
   "models": {
     "primary": {
-      "upstreamModel": "gpt-5",
+      "upstreamModel": "gpt-5.6-luna",
       "protocol": "responses",
       "transports": ["http", "sse", "responses_websocket"],
       "inputModalities": ["image", "text"],

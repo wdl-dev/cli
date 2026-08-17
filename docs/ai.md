@@ -40,24 +40,47 @@ provides the facade.
 Provider metadata and credentials are namespace resources. They remain after the
 namespace has zero deployed Workers, matching namespace-secret lifecycle.
 
-Create a project-local provider JSON file:
+For a common single-model configuration, generate a project-local provider JSON
+file interactively:
+
+```bash
+wdl ai providers init openai
+```
+
+The local initializer offers defaults for the provider kind, model alias,
+upstream model id, and output filename, and lets an interactive user change each
+one. It refuses to overwrite an existing file. The same command works
+non-interactively with those defaults.
+
+Provider names matching `openai`, `xai`, or `deepseek` select that kind; other
+names default to `openai`. Use `--kind`, `--alias`, and `--file` to override the
+inferred kind, `primary` alias, and default filename. The initializer pre-fills
+`gpt-5.6-luna` for OpenAI, `grok-4.6` for xAI, and `deepseek-v4-flash` for
+DeepSeek; use `--model` to override these starting values. It emits a
+conservative text-only Responses descriptor over HTTP/SSE with all optional
+capabilities disabled. Edit the JSON when the selected model needs another
+protocol, transport, modality, or capability. The initializer is offline and
+does not read WDL credentials or contact Control; Control remains the canonical
+validator.
+
+The generated file has the same writable shape as a manually authored file:
 
 ```json
 {
   "kind": "openai",
   "models": {
     "primary": {
-      "upstreamModel": "gpt-5",
+      "upstreamModel": "gpt-5.6-luna",
       "protocol": "responses",
-      "transports": ["http", "sse", "responses_websocket"],
-      "inputModalities": ["image", "text"],
+      "transports": ["http", "sse"],
+      "inputModalities": ["text"],
       "outputModalities": ["text"],
       "capabilities": {
-        "functionTools": true,
-        "structuredOutput": true,
-        "reasoning": true,
-        "previousResponseId": true,
-        "providerTools": true,
+        "functionTools": false,
+        "structuredOutput": false,
+        "reasoning": false,
+        "previousResponseId": false,
+        "providerTools": false,
         "binaryFrames": false
       }
     }
@@ -110,6 +133,7 @@ provider's native model id and may use provider-specific punctuation.
 Provider management commands:
 
 ```bash
+wdl ai providers init <provider> [options]
 wdl ai providers list [--json]
 wdl ai providers get <provider> [--json]
 wdl ai providers put <provider> --file <path> [--json]

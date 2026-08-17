@@ -25,24 +25,34 @@ binding = "AI"
 
 Provider 元数据和凭据是命名空间资源。即使命名空间暂时没有任何已部署 Worker，它们仍会保留，与 namespace secret 的生命周期一致。
 
-在项目内创建 provider JSON 文件：
+常见的单模型配置可以通过交互方式生成项目内的 provider JSON 文件：
+
+```bash
+wdl ai providers init openai
+```
+
+这个本地 initializer 会为 provider kind、model alias、upstream model id 和输出文件名提供默认值，并允许交互用户逐项修改；已有文件不会被覆盖。非交互 shell 执行同一条命令时也会使用这些默认值。
+
+名称为 `openai`、`xai` 或 `deepseek` 的 provider 会选择同名 kind，其他名称默认使用 `openai`；可以用 `--kind` 覆盖。`--alias` 和 `--file` 可覆盖默认的 `primary` alias 与文件名。Initializer 会为 OpenAI、xAI 和 DeepSeek 分别预填 `gpt-5.6-luna`、`grok-4.6` 和 `deepseek-v4-flash`，也可以用 `--model` 覆盖这些起始值。它只生成 text-only Responses + HTTP/SSE 的保守 descriptor，并关闭全部可选 capability；其他 protocol、transport、modality 或 capability 需要直接编辑 JSON。Initializer 完全离线，不读取 WDL credential，也不访问 Control；Control 仍然是 canonical validator。
+
+生成文件与手写文件使用相同的可写形状：
 
 ```json
 {
   "kind": "openai",
   "models": {
     "primary": {
-      "upstreamModel": "gpt-5",
+      "upstreamModel": "gpt-5.6-luna",
       "protocol": "responses",
-      "transports": ["http", "sse", "responses_websocket"],
-      "inputModalities": ["image", "text"],
+      "transports": ["http", "sse"],
+      "inputModalities": ["text"],
       "outputModalities": ["text"],
       "capabilities": {
-        "functionTools": true,
-        "structuredOutput": true,
-        "reasoning": true,
-        "previousResponseId": true,
-        "providerTools": true,
+        "functionTools": false,
+        "structuredOutput": false,
+        "reasoning": false,
+        "previousResponseId": false,
+        "providerTools": false,
         "binaryFrames": false
       }
     }
@@ -83,6 +93,7 @@ Provider `name` 与模型 alias 组成租户模型 id `<provider>/<alias>`，例
 Provider 管理命令：
 
 ```bash
+wdl ai providers init <provider> [options]
 wdl ai providers list [--json]
 wdl ai providers get <provider> [--json]
 wdl ai providers put <provider> --file <path> [--json]

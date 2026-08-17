@@ -1,6 +1,13 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 
+import {
+  AI_PROVIDER_KINDS,
+  createAiProviderConfig,
+  defaultAiProviderModel,
+  defaultAiProviderFile,
+  writeAiProviderFile,
+} from "../lib/ai-provider-init.js";
 import { defineCommand } from "../lib/command.js";
 import {
   CliError,
@@ -13,12 +20,15 @@ import {
   redactedArgumentError,
   sensitiveInputArgumentError,
 } from "../lib/common.js";
-import { escapeTerminalText, writeJsonOr, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, shellSingleQuote, writeJsonOr, writeStatusLine } from "../lib/output.js";
 import { isSecretEnvelopeErrorCode } from "../lib/secret-envelope-errors.js";
-import { confirmAction, readSecretStdin } from "../lib/stdin.js";
+import { confirmAction, readSecretStdin, readTtyLines } from "../lib/stdin.js";
 
 const AI_OPTIONS = [
-  defineCliOption("file", { type: "string" }, "--file <path>", "Provider JSON file for providers put."),
+  defineCliOption("file", { type: "string" }, "--file <path>", "Provider JSON input or init output file."),
+  defineCliOption("kind", { type: "string" }, "--kind <kind>", "Override the inferred provider kind for init."),
+  defineCliOption("model", { type: "string" }, "--model <id>", "Override the default upstream model id."),
+  defineCliOption("alias", { type: "string" }, "--alias <name>", "Model alias for providers init (default: primary)."),
   defineCliOption("yes", { type: "boolean" }, "--yes", "Skip provider delete confirmation."),
   "ns",
   "control",
@@ -37,9 +47,12 @@ const command = defineCommand({
       ["providers", "get"],
       ["providers", "put"],
       ["providers", "delete"],
+      ["providers", "init"],
       ["credential", "put"],
     ],
   },
+  defaults: { readLines: readTtyLines },
+  autoloadEnv: (positionals) => !isProviderInitCommand(positionals),
   usage: usageText,
   run: runAi,
 });
@@ -51,15 +64,26 @@ export const meta = command.meta;
 /**
  * @typedef {import("../lib/command.js").PresetFlags<"ns" | "control" | "json"> & {
  *   file?: string,
+ *   kind?: string,
+ *   model?: string,
+ *   alias?: string,
  *   yes?: boolean,
  * }} AiFlags
  */
 
-/** @param {{ values: AiFlags, positionals: string[], context: import("../lib/command.js").CommandContext }} arg */
+/** @param {{ values: AiFlags, positionals: string[], context: import("../lib/command.js").CommandContext & { readLines: typeof readTtyLines } }} arg */
 async function runAi({ values, positionals, context }) {
   const { stdout, stderr, stdin } = context;
   const [group, action, provider] = positionals;
   const extraArg = positionals[3];
+
+  if (group === "providers" && action === "init") {
+    requireProvider(provider, "ai providers init");
+    if (extraArg) throw redactedArgumentError("ai providers init");
+    await initProviderFile(values, provider, context);
+    return;
+  }
+
   const ns = context.resolveNamespace();
   if (!group || !ns) throw new CliError(usageText());
 
@@ -230,6 +254,81 @@ function requireProvider(provider, commandName) {
   if (!provider) throw new CliError(`${commandName} requires <provider>`);
 }
 
+/**
+ * @param {AiFlags} values
+ * @param {string} provider
+ * @param {import("../lib/command.js").CommandContext & { readLines: typeof readTtyLines }} context
+ */
+async function initProviderFile(values, provider, context) {
+  const { kind, alias, upstreamModel, file } = await collectInitValues(values, provider, context);
+
+  const body = createAiProviderConfig({ provider, kind, alias, upstreamModel });
+  const writtenFile = writeAiProviderFile(context.cwd, file, body);
+
+  writeStatusLine(context.stdout, `Created ${writtenFile}.`);
+  writeStatusLine(context.stdout, "Review the generated modalities and capabilities before uploading it.");
+  writeStatusLine(
+    context.stdout,
+    `Next: wdl ai providers put ${shellSingleQuote(provider)} --file ${shellSingleQuote(writtenFile)} --ns <namespace>`
+  );
+}
+
+/**
+ * @param {AiFlags} values
+ * @param {string} provider
+ * @param {import("../lib/command.js").CommandContext & { readLines: typeof readTtyLines }} context
+ */
+async function collectInitValues(values, provider, context) {
+  const provided = {
+    kind: typeof values.kind === "string" ? values.kind.trim() : "",
+    alias: typeof values.alias === "string" ? values.alias.trim() : "",
+    upstreamModel: typeof values.model === "string" ? values.model.trim() : "",
+    file: typeof values.file === "string" ? values.file.trim() : "",
+  };
+  const defaultKind = AI_PROVIDER_KINDS.includes(provider) ? provider : "openai";
+  const defaultFile = defaultAiProviderFile(provider);
+  /** @type {Record<string, string>} */
+  const entered = {};
+  if (context.stdin.isTTY) {
+    /** @param {readonly string[]} answers */
+    const modelPrompt = (answers) => {
+      const kind = provided.kind || answers[0]?.trim() || defaultKind;
+      const model = defaultAiProviderModel(kind);
+      return model ? `Upstream model id [${model}]: ` : "Upstream model id: ";
+    };
+    const fields = [
+      {
+        key: "kind",
+        value: provided.kind,
+        prompt: `Provider kind (${AI_PROVIDER_KINDS.join("/")}) [${defaultKind}]: `,
+      },
+      { key: "alias", value: provided.alias, prompt: "Model alias [primary]: " },
+      { key: "upstreamModel", value: provided.upstreamModel, prompt: modelPrompt },
+      { key: "file", value: provided.file, prompt: `Output file [${defaultFile}]: ` },
+    ];
+    const missing = fields.filter((field) => !field.value);
+    const answers = await context.readLines(context.stdin, {
+      prompts: missing.map((field) => field.prompt),
+      stderr: context.stderr,
+    });
+    for (const [index, field] of missing.entries()) {
+      entered[field.key] = answers[index]?.trim() ?? "";
+    }
+  }
+  const kind = provided.kind || entered.kind || defaultKind;
+  return {
+    kind,
+    alias: provided.alias || entered.alias || "primary",
+    upstreamModel: provided.upstreamModel || entered.upstreamModel || defaultAiProviderModel(kind) || "",
+    file: provided.file || entered.file || defaultFile,
+  };
+}
+
+/** @param {string[]} positionals */
+function isProviderInitCommand(positionals) {
+  return positionals[0] === "providers" && positionals[1] === "init";
+}
+
 /** @param {string | undefined} file @param {string} cwd */
 function readProviderFile(file, cwd) {
   if (typeof file !== "string" || !file) throw new CliError("ai providers put requires --file <path>");
@@ -298,6 +397,7 @@ function usageText() {
     usage: [
       "wdl ai providers list [options]",
       "wdl ai providers get [options] <provider>",
+      "wdl ai providers init [options] <provider>",
       "wdl ai providers put [options] <provider> --file <path>",
       "wdl ai providers delete [options] <provider> [--yes]",
       "wdl ai credential put [options] <provider>",

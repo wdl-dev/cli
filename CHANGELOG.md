@@ -4,9 +4,10 @@
 
 ### Added
 
-- Add the `[ai]` binding, namespace provider and credential management commands,
-  model discovery, OpenAI-compatible SDK guidance, and a Responses function-tool
-  agent example protected by a Worker-level bearer token.
+- Add the `[ai]` binding, an offline provider JSON initializer, namespace
+  provider and credential management commands, model discovery,
+  OpenAI-compatible SDK guidance, and a Responses function-tool agent example
+  protected by a Worker-level bearer token.
 
 ### Changed
 

@@ -571,10 +571,19 @@ binding = "AI"
 ```
 
 ```bash
+wdl ai providers init openai
 wdl ai providers put openai --file provider.openai.json
 printf '%s' "$OPENAI_API_KEY" | wdl ai credential put openai
 wdl ai models
 ```
+
+`providers init` is an offline interactive scaffold for a single-model provider
+file. It offers editable defaults for the provider kind, `primary` alias,
+upstream model id, and `provider.<provider>.json` filename, and refuses to
+overwrite. It pre-fills `gpt-5.6-luna`, `grok-4.6`, or `deepseek-v4-flash` for
+the matching adapter and emits a conservative text-only Responses descriptor
+over HTTP/SSE. Edit the JSON for model-specific protocols or capabilities;
+Control remains the canonical validator.
 
 Provider metadata selects one official adapter (`openai`, `xai`, or `deepseek`)
 and maps bounded aliases such as `openai/primary` to native model ids and

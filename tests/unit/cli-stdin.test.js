@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { confirmAction, readSecretStdin, readTtyLine } from "../../lib/stdin.js";
+import { confirmAction, readSecretStdin, readTtyLine, readTtyLines } from "../../lib/stdin.js";
 
 const ESC = String.fromCharCode(27);
 
@@ -99,6 +99,24 @@ test("readTtyLine escapes terminal controls in the prompt at the write point", a
   queueMicrotask(() => stdin.emit("data", "y\n"));
   await readTtyLine(stdin, { prompt: `confirm ${ESC}[2J?`, stderr: (s) => errs.push(s) });
   assert.doesNotMatch(errs.join(""), new RegExp(ESC), "raw ESC from the prompt must not reach stderr");
+});
+
+test("readTtyLines preserves pasted answers across prompts", async () => {
+  /** @type {string[]} */
+  const prompts = [];
+  const stdin = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    setEncoding() {},
+    pause() {},
+  });
+  const pending = readTtyLines(stdin, {
+    prompts: ["kind: ", (answers) => `model [${answers[0]}]: `, "alias: "],
+    stderr: (text) => prompts.push(text),
+  });
+  queueMicrotask(() => stdin.emit("data", "openai\nprimary\r\ngpt-5\n"));
+
+  assert.deepEqual(await pending, ["openai", "primary", "gpt-5"]);
+  assert.deepEqual(prompts, ["kind: ", "model [openai]: ", "alias: "]);
 });
 
 test("confirmAction escapes terminal controls in its refusal message", async () => {

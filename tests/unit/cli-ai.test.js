@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -215,6 +215,175 @@ test("ai providers put rejects invalid or out-of-project files before control", 
     assert.equal(calls, 0);
   } finally {
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("ai providers init writes a conservative config without contacting control", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-init-"));
+  /** @type {string[]} */
+  const lines = [];
+  try {
+    await runAiCommand(["providers", "init", "openai"], {
+      cwd: dir,
+      env: {},
+      stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: false })),
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async () => {
+        throw new Error("providers init must not contact control");
+      },
+    });
+
+    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "provider.openai.json"), "utf8")), {
+      kind: "openai",
+      models: {
+        primary: {
+          upstreamModel: "gpt-5.6-luna",
+          protocol: "responses",
+          transports: ["http", "sse"],
+          inputModalities: ["text"],
+          outputModalities: ["text"],
+          capabilities: {
+            functionTools: false,
+            structuredOutput: false,
+            reasoning: false,
+            previousResponseId: false,
+            providerTools: false,
+            binaryFrames: false,
+          },
+        },
+      },
+    });
+    assert.deepEqual(lines, [
+      "Created provider.openai.json.",
+      "Review the generated modalities and capabilities before uploading it.",
+      "Next: wdl ai providers put 'openai' --file 'provider.openai.json' --ns <namespace>",
+    ]);
+
+    for (const [provider, upstreamModel] of [
+      ["xai", "grok-4.6"],
+      ["deepseek", "deepseek-v4-flash"],
+    ]) {
+      await runAiCommand(["providers", "init", provider], {
+        cwd: dir,
+        env: {},
+        stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: false })),
+        stdout: () => {},
+      });
+      const generated = JSON.parse(readFileSync(path.join(dir, `provider.${provider}.json`), "utf8"));
+      assert.equal(generated.models.primary.upstreamModel, upstreamModel);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ai providers init prompts for defaults and writes user overrides", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-prompt-"));
+  const answers = ["xai", "voice", "grok-voice", ""];
+  /** @type {string[]} */
+  const prompts = [];
+  try {
+    await runAiCommand(["providers", "init", "production"], {
+      cwd: dir,
+      env: {},
+      stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: true })),
+      stdout: () => {},
+      stderr: () => {},
+      readLines: async (
+        /** @type {unknown} */ _stdin,
+        /** @type {{ prompts: Array<string | ((answers: readonly string[]) => string)> }} */ options
+      ) => {
+        /** @type {string[]} */
+        const entered = [];
+        for (const prompt of options.prompts) {
+          prompts.push(typeof prompt === "function" ? prompt(entered) : prompt);
+          entered.push(answers[entered.length]);
+        }
+        return entered;
+      },
+    });
+
+    assert.deepEqual(prompts, [
+      "Provider kind (openai/xai/deepseek) [openai]: ",
+      "Model alias [primary]: ",
+      "Upstream model id [grok-4.6]: ",
+      "Output file [provider.production.json]: ",
+    ]);
+    const body = JSON.parse(readFileSync(path.join(dir, "provider.production.json"), "utf8"));
+    assert.equal(body.kind, "xai");
+    assert.deepEqual(body.models.voice, {
+      upstreamModel: "grok-voice",
+      protocol: "responses",
+      transports: ["http", "sse"],
+      inputModalities: ["text"],
+      outputModalities: ["text"],
+      capabilities: {
+        functionTools: false,
+        structuredOutput: false,
+        reasoning: false,
+        previousResponseId: false,
+        providerTools: false,
+        binaryFrames: false,
+      },
+    });
+
+    await runAiCommand(["providers", "init", "openai"], {
+      cwd: dir,
+      env: {},
+      stdin: /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: true })),
+      stdout: () => {},
+      stderr: () => {},
+      readLines: async (
+        /** @type {unknown} */ _stdin,
+        /** @type {{ prompts: Array<string | ((answers: readonly string[]) => string)> }} */ options
+      ) => options.prompts.map(() => ""),
+    });
+    const defaults = JSON.parse(readFileSync(path.join(dir, "provider.openai.json"), "utf8"));
+    assert.equal(defaults.kind, "openai");
+    assert.equal(defaults.models.primary.upstreamModel, "gpt-5.6-luna");
+    assert.equal(defaults.models.primary.protocol, "responses");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ai providers init rejects invalid values, unsafe paths, and existing files", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-ai-provider-init-errors-"));
+  const stdin = /** @type {NodeJS.ReadStream} */ (/** @type {unknown} */ ({ isTTY: false }));
+  try {
+    await assert.rejects(
+      runAiCommand(["providers", "init", "custom", "--kind", "other"], {
+        cwd: dir,
+        env: {},
+        stdin,
+      }),
+      /--kind must be one of/
+    );
+    await assert.rejects(
+      runAiCommand(["providers", "init", "openai", "--alias", "123"], { cwd: dir, env: {}, stdin }),
+      /--alias must match/
+    );
+    await assert.rejects(
+      runAiCommand(["providers", "init", "openai", "--model", "gpt-5", "--file", "../outside.json"], {
+        cwd: dir,
+        env: {},
+        stdin,
+      }),
+      /provider output file must stay inside the project/
+    );
+
+    writeFileSync(path.join(dir, "provider.openai.json"), "keep\n");
+    await assert.rejects(
+      runAiCommand(["providers", "init", "openai", "--model", "gpt-5"], {
+        cwd: dir,
+        env: {},
+        stdin,
+      }),
+      /already exists; refusing to overwrite it/
+    );
+    assert.equal(readFileSync(path.join(dir, "provider.openai.json"), "utf8"), "keep\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

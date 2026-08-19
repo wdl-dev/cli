@@ -85,17 +85,17 @@ ADMIN_TOKEN=<acme-token>
 ADMIN_TOKEN=<acme-staging-token>
 ```
 
-CLI 只会从 `.env` 读取 WDL 平台变量：`ADMIN_TOKEN`、`CONTROL_URL`、`CONTROL_CONNECT_HOST`、`WDL_NS`。优先级是 `CLI flag > shell/CI env > [resolved-ns] section > base .env > wdl token store`，都没有提供时命令直接报错——没有内置默认值。namespace 解析顺序是 `--ns`，然后是 shell 或 base `.env` 里的 `WDL_NS`，再然后是 token store 的默认 namespace。section 名可以是 `[acme]` 这类 tenant namespace，也可以是 `[__name__]` 这种运维保留的不透明 section。Tenant Wrangler 配置默认仍使用普通 tenant namespace 语法，除非运维方明确给了这种 namespace token；否则不要把 `__name__` 形态写进 `[[services]].ns`、`allowed_callers` 或命令示例。如果没有解析出 namespace，section 会全部跳过；后续命令如果需要 namespace 或 token，会按正常校验报错。只有临时切换 namespace 时才需要显式传 `--ns`。不带 scheme 的生产 control host（例如 `api.wdl.dev`）默认补 `https://`；`localhost:8080` 或 `*.test:8080` 这类本地开发地址默认补 `http://`。任何不带 scheme 的 `:8080` control URL 都会按本地 HTTP 处理。需要强制使用其它协议时，显式写 scheme。
+CLI 只会从 `.env` 读取 WDL 平台变量：`ADMIN_TOKEN`、`CONTROL_URL`、`CONTROL_CONNECT_HOST`、`WDL_NS`。优先级是 `CLI flag > shell/CI env > [resolved-ns] section > base .env > wdl token store`，都没有提供时命令直接报错——没有内置默认值。namespace 解析顺序是 `--ns`，然后是 shell 或 base `.env` 里的 `WDL_NS`，再然后是 token store 的默认 namespace。section 名可以是 `[acme]` 这类 tenant namespace，也可以是 `[__name__]` 这种运维保留的不透明 section。Tenant Wrangler 配置默认仍使用普通 tenant namespace 语法，除非运维方明确给了这种 namespace token；否则不要把 `__name__` 形态写进 `[[services]].ns`、`allowed_callers` 或命令示例。如果没有解析出 namespace，section 会全部跳过；后续命令如果需要 namespace 或 token，会按正常校验报错。只有临时切换 namespace 时才需要显式传 `--ns`。不带 scheme 的生产 control host（例如 `api.wdl.dev`）默认补 `https://`；loopback 和保留的 `*.test` host 默认补 `http://`。既有的裸 `:8080` 例外对任何 host（包括 `.local`）仍默认使用 HTTP。除此之外，`.local` 是局域网 / mDNS 后缀而不是 loopback，因此裸 host 默认 HTTPS；所有 HTTP `.local` 目标都会显示明文 token 告警。需要强制使用其它协议时，请显式写 scheme。Control URL 可以包含 path prefix，但不能嵌入 username/password，也不能包含 query string 或 fragment，因为命令会在这个 base URL 后追加 endpoint path，并单独发送 admin token。
 
 `CONTROL_CONNECT_HOST` 是本地开发 / 调试用的覆盖开关：它改变请求实际连接的 TCP 目标，而 HTTP Host header 和 TLS SNI 仍跟随 `CONTROL_URL`（所以 HTTPS 下控制面证书仍会拒绝被重定向的连接；纯 http 没有这层保护）。只在本地开发用 —— 不要在 CI 或生产 shell 中持久设置，残留值可能把 admin token 路由到非预期目标。覆盖值写成 URL 时，scheme 只决定默认 TCP 端口（`http` 为 80，`https` 为 443）；请求使用 HTTP 还是 HTTPS、Host 和 SNI 仍由 `CONTROL_URL` 决定。
 
-推荐的做法是把这些凭证放进托管存储，而不是 shell export 或项目 `.env`：`wdl token set --ns <ns> --control-url <url>` 用隐藏输入读取 token、调 `/whoami` 校验后按 namespace 存入 `~/.config/wdl/credentials`（不进 shell 历史、也不落在项目文件里）。存储是优先级最低的层——命令行标志、shell env、项目 `.env` 仍然胜出——`wdl token list` / `wdl token rm` 管理它。第一个存入的 namespace 成为默认（一行 base `WDL_NS`，和项目 `.env` 一样），命令不带 `--ns` 也能跑；`wdl token use <ns>` 切换默认。详见 [token-zh.md](./docs/token-zh.md)。
+推荐的做法是把这些凭证放进托管存储，而不是 shell export 或项目 `.env`：`wdl token set --ns <ns> --control-url <url>` 用隐藏输入读取 token、调 `/whoami` 校验后按 namespace 存入 `~/.config/wdl/credentials`（不进 shell 历史、也不落在项目文件里）。存储是优先级最低的层——命令行标志、shell env、项目 `.env` 仍然胜出——`wdl token list` / `wdl token rm` 管理它。第一个存入的 namespace 成为默认（一行 base `WDL_NS`，和项目 `.env` 一样），命令不带 `--ns` 也能跑；`wdl token use <ns>` 切换默认。CLI 会拒绝 symlink / 非普通文件形式的 credentials 路径；在 POSIX 上，如果 store 文件不属于当前用户、store 目录可被 group/other 写或文件能被 group/other 访问，也会拒绝读取。详见 [token-zh.md](./docs/token-zh.md)。
 
 `wdl ai`、`wdl secret` 和 `wdl token` 都可能接收凭据，因此会脱敏无效参数的细节。如果完整子命令路径前的 string option 使用分离式值，而该值本身也是命令词，请把子命令放到前面，或改用 `--flag=value` 消歧。例如写 `wdl secret list --worker put` 或 `wdl secret --worker=put list`，不要写 `wdl secret --worker put list`。
 
 `wdl deploy` 在上传前会以你的 OS 用户身份运行项目本地的 Wrangler dry-run 和 build 钩子，这些代码能读到磁盘上的 store（env scrub 只把 WDL 变量挡在 Wrangler 子进程的环境外，挡不住文件），所以只部署你信任的项目。`--no-token-store`（或 `WDL_TOKEN_STORE=off`）让 CLI 只从 flag / shell / `.env` 解析凭据、完全不读 store —— 这是给不太信任的项目或 CI 用的解析 opt-out，不是对文件本身的保护。
 
-用 `wdl config explain` 查看最终 namespace、control URL、脱敏 token 以及每个值的来源。用 `wdl whoami` 调 control-plane `/whoami`，查看当前 authenticated principal、token id、platform version、最低支持 CLI version 和 URL hints。用 `wdl doctor` 做本地可用性检查，包括 Node.js、wdl-cli、Wrangler、配置文件是否存在、凭据是否能解析，以及 `/whoami` 是否可达；在 CI 里可加 `--strict`，命令仍会打印检查结果，但只要任一检查失败就以非零退出。当 control plane 暴露 `/whoami` 时，`doctor` 可以发现 token 是否有效、principal namespace、platform version 和 CLI compatibility；更细的 capability 检查仍需要额外的 control endpoint。运维方没有配置公开 platform domain 时，namespace URL 可能显示为 `(unavailable)`；认证和其它 `/whoami` 字段仍然有效。
+用 `wdl config explain` 查看最终 namespace、control URL、脱敏 token 以及每个值的来源。如果解析需要读取 token store，而该次读取发现 store 损坏、无法读取或未通过安全检查，这个诊断命令仍会排除 store 后成功退出，展示剩余 flag / shell / `.env` 来源，并在人类可读的 `tokenStore` block 或 JSON `tokenStore.error` 中报告故障；实际操作命令需要该 store 时仍会 fail closed。如果更高优先级来源已经覆盖 namespace、control URL 和 token，CLI 不会读取或诊断 store。用 `wdl whoami` 调 control-plane `/whoami`，查看当前 authenticated principal、token id、platform version、最低支持 CLI version 和 URL hints。用 `wdl doctor` 做本地可用性检查，包括 Node.js、wdl-cli、Wrangler、配置文件是否存在、凭据是否能解析，以及 `/whoami` 是否可达；在 CI 里可加 `--strict`，命令仍会打印检查结果，但只要任一检查失败就以非零退出。当 control plane 暴露 `/whoami` 时，`doctor` 可以发现 token 是否有效、principal namespace、platform version 和 CLI compatibility；更细的 capability 检查仍需要额外的 control endpoint。运维方没有配置公开 platform domain 时，namespace URL 可能显示为 `(unavailable)`；认证和其它 `/whoami` 字段仍然有效。
 
 ## 脚手架新 Worker
 
@@ -207,7 +207,7 @@ wdl tail hello --max-reconnects 0  # 不限制自动重连次数
 
 `wdl tail` 会显示 fetch 请求 start/finish（包含 method、对应浏览器访问形态的 pathname（worker 内部路径加上 worker 名前缀，不含 host / query string）、status/outcome、duration），worker 在 fetch 请求路径里产生的 `console.log` / `console.info` / `console.warn` / `console.error`，以及 fetch handler 抛出的未捕获异常。它是 live-only 调试工具：首次连接不会回放历史日志；同一个 CLI 进程的单 worker 网络重连会尽量自动续读，但你按 `Ctrl+C` 退出后再重新运行是一个新进程，会从“现在以后”的日志开始，除非你显式传 `--since <stream-id>`。多 worker 会话在重连期间可能漏事件；如果需要对某个 worker 尽量不丢日志，单独开一个 `wdl tail <worker>` 终端。
 
-`wdl tail` 是 best-effort 实时调试工具，不是审计历史。高流量 worker 或终端连接消费太慢时，可能跳过中间事件。过大的 console 或 exception 事件会整条丢弃，并以较小的 warning 事件报告，而不是截断后输出。事故复盘和完整 payload 请使用管理方提供的常规日志平台。
+`wdl tail` 是 best-effort 实时调试工具，不是审计历史。高流量 worker 或终端连接消费太慢时，可能跳过中间事件。control 侧过大的 console 或 exception 事件会整条丢弃，并以较小的 warning 事件报告，而不是截断后输出；作为独立的客户端防线，如果超大 SSE event 拼接后的 data 超过 4 MiB，CLI 会终止当前 tail 会话。事故复盘和完整 payload 请使用管理方提供的常规日志平台。
 
 control 可能主动回收长时间运行的 tail 会话：客户端约 15s 不读会收到 `session_idle`，会话达到运维方配置的最大时长（默认 15 分钟）会收到 `session_expired`。CLI 会打印 warning 并自动重连；如果反复出现，通常说明终端或外层 wrapper 没有及时消费输出。
 
@@ -361,6 +361,8 @@ wdl r2 objects head uploads images/logo.png
 wdl r2 objects get uploads images/logo.png --out logo.png
 wdl r2 objects delete uploads images/logo.png --yes
 ```
+
+`--out` 接受项目目录外的显式文件系统路径。当前沿用普通覆盖语义：已有文件会被替换，symlink 会跟随到目标。下载前请核对目标路径。
 
 `examples/inspection-demo` 展示了 R2 + D1 + KV + Assets 组合使用。
 
@@ -547,6 +549,8 @@ wdl workflows resume api orders order-123
 wdl workflows restart api orders order-123 --yes
 wdl workflows terminate api orders order-123 --yes
 ```
+
+`--limit` 和 `--step-limit` 接受 1..1000 的整数，超出范围时会在请求 Control 前本地拒绝。`--step-limit` 只能和 `--include-steps` 一起使用。
 
 `wdl workflows list` 会把 active Worker version 不再导出的定义标为 `retired=yes`。既有实例仍可查看和 terminate，但 restart 会返回 `workflow_not_exported`；需要先部署一个重新导出该 workflow name 的 active version。
 
@@ -868,6 +872,8 @@ wdl workers
 wdl delete version hello v1
 ```
 
+删除版本会要求确认，而且控制面没有对应的 dry-run endpoint。请先检查保留版本；自动化只能在另有独立安全检查后传 `--yes`。传入 `--dry-run` 会被明确拒绝，而不会被静默忽略。
+
 删除整个 Worker 前先预览：
 
 ```bash
@@ -880,7 +886,7 @@ wdl delete worker hello --dry-run
 wdl delete worker hello
 ```
 
-`wdl delete worker` 默认会要求确认。建议先用 `--dry-run` 预览受影响的线上版本、保留版本、路由、worker secrets、workflow definitions、queue consumers 和资产清理。即使没有 deployed version，`wdl workers` 也会用 `workflow-defs=yes` 显示仍有 workflow definitions 的 entry；旧 control 未上报该字段时，CLI 显示 `workflow-defs=unknown`，这不表示没有 workflow definitions。自动化脚本里只有在已有独立安全检查后，才建议传 `--yes`。
+`wdl delete worker` 同样默认要求确认。建议先用 `--dry-run` 预览受影响的线上版本、保留版本、路由、worker secrets、workflow definitions、queue consumers 和资产清理。即使没有 deployed version，`wdl workers` 也会用 `workflow-defs=yes` 显示仍有 workflow definitions 的 entry；旧 control 未上报该字段时，CLI 显示 `workflow-defs=unknown`，这不表示没有 workflow definitions。自动化脚本里只有在已有独立安全检查后，才建议传 `--yes`。
 
 确认后删除 D1 数据库：
 

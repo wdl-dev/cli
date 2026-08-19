@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runR2Command } from "../../commands/r2.js";
 import { LONG_CONTROL_TIMEOUT_MS, UNLIMITED_CONTROL_BODY_BYTES } from "../../lib/control-fetch.js";
-import { mockDeps, response, stdinFrom } from "./helpers.js";
+import { INVALID_PAGE_LIMITS, mockDeps, response, stdinFrom } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
 
@@ -161,20 +161,29 @@ test("r2 list --limit is validated locally", async () => {
   await runR2Command(["buckets", "list", "--ns", "demo", "--limit", "1000", "--control-url", "http://ctl.test"], deps);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/r2/buckets?limit=1000");
 
-  await assert.rejects(
-    () =>
-      runR2Command(["buckets", "list", "--ns", "demo", "--limit", "1001", "--control-url", "http://ctl.test"], deps),
-    /--limit must be an integer/
-  );
-  await assert.rejects(
-    () =>
-      runR2Command(
-        ["objects", "list", "--ns", "demo", "uploads", "--limit", "1.5", "--control-url", "http://ctl.test"],
-        deps
-      ),
-    /--limit must be an integer/
-  );
-  assert.equal(calls.length, 1);
+  for (const { value, suffix } of [
+    { value: "", suffix: "" },
+    { value: "01", suffix: "?limit=1" },
+    { value: "1e3", suffix: "?limit=1000" },
+    { value: "0x10", suffix: "?limit=16" },
+    { value: "+8", suffix: "?limit=8" },
+    { value: " 8 ", suffix: "?limit=8" },
+  ]) {
+    await runR2Command(["buckets", "list", "--ns", "demo", "--limit", value, "--control-url", "http://ctl.test"], deps);
+    assert.equal(calls.at(-1)?.url, `http://ctl.test/ns/demo/r2/buckets${suffix}`);
+  }
+
+  for (const value of INVALID_PAGE_LIMITS) {
+    await assert.rejects(
+      () =>
+        runR2Command(
+          ["objects", "list", "--ns", "demo", "uploads", "--limit", value, "--control-url", "http://ctl.test"],
+          deps
+        ),
+      /--limit must be an integer/
+    );
+  }
+  assert.equal(calls.length, 7);
 });
 
 test("r2 object get waits for stdout backpressure", async () => {

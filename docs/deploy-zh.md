@@ -4,7 +4,7 @@
 
 `wdl deploy <dir>` 用 `wrangler deploy --dry-run` 打包一个 Cloudflare Workers 风格的项目，然后把产物推送到 WDL 控制平面。**它不等同于 `wrangler deploy`**，后者直接对接 Cloudflare。在这个平台上**不要**用 `wrangler deploy` —— 只用 `wdl deploy`。
 
-wrangler 解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。默认不会临时 `npx --yes wrangler` 拉包；只有设置 `WDL_ALLOW_NPX_WRANGLER=1` 时才允许这个 fallback。
+wrangler 解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。默认不会临时 `npx --yes wrangler@^4` 拉包；只有设置 `WDL_ALLOW_NPX_WRANGLER=1` 时才允许这个 fallback。
 
 WDL 会隐藏这个 dry-run 子进程的 Wrangler banner（因此跳过常规 banner 更新检查）并关闭匿名遥测。Wrangler 在报告未知配置字段时仍可能访问已配置的 npm registry；项目 build hook 仍保留正常的网络访问能力。
 
@@ -34,7 +34,7 @@ CLI 需要三个值：
 
 **CI / 自动化：** 把 `ADMIN_TOKEN`、`CONTROL_URL`、`WDL_NS` 作为环境变量从 CI secret store 注入 —— 不用交互式的 token store，也绝不提交 `.env`。
 
-裸 control host 会自动补 scheme；生产 host 默认 `https://`，本地 `.test` / `.local` 或 `:8080` 默认 `http://`。如果要强制协议，直接显式写 `https://...` 或 `http://...`。
+裸 control host 会自动补 scheme；生产 host 默认 `https://`，loopback 和 `.test` host 默认 `http://`。既有的裸 `:8080` 例外对任何 host（包括 `.local`）仍默认使用 HTTP。除此之外，`.local` 是局域网 / mDNS 后缀而不是 loopback，因此默认 HTTPS；所有 HTTP `.local` 目标都会显示明文 token 告警。如果要强制协议，直接显式写 `https://...` 或 `http://...`。Control URL 可以包含 path prefix，但嵌入的 username/password、query string 和 fragment 会被拒绝。
 
 优先级：`CLI 标志 > shell env > .env 中 [<ns>] 段 > .env 基础段 > wdl token store`。都没有提供时命令直接报错——没有内置默认值。
 
@@ -141,6 +141,8 @@ Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在�
 
 `wdl delete worker`、`wdl delete version`、`wdl d1 delete`、`wdl secret delete` 和 `wdl ai providers delete` 默认会提示确认。如果有 `--dry-run`，先跑一遍；否则先做只读检查。删除 AI provider 前，先运行 `wdl config explain` 确认最终解析出的 namespace，再用 `wdl ai providers get <provider> --ns <namespace>` 查看目标，并在删除时传入同一个显式 `--ns`；删除 provider 会同时删除其 metadata 和 credential。只有与用户确认后才能加 `--yes`；**不要**主动加。
 
+`wdl delete version` 没有 dry-run endpoint：请先检查保留版本。CLI 会拒绝 `--dry-run`，不会静默执行删除。
+
 `wdl workers` 会显示 `workflow-defs=yes` 或 `workflow-defs=no`；`unknown` 表示旧 control 没有返回该字段，不表示没有 workflow definitions。即使 blocker 使 `wouldDelete=no`，worker delete dry-run 仍会报告 secret 和 workflow-definition 是否存在。
 
 删除 worker **不会**删除 R2 数据 —— 见 [r2-zh.md](./r2-zh.md)。
@@ -168,6 +170,7 @@ Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在�
 | `control promoted the worker without confirming its restart session policy` | version 已经生效，但会话可能没有重启。让必须运行新版本的 client 重连，或在 control 能确认该策略后重新部署。 |
 | Worker URL 返回 404 | URL 缺了 `/<worker-name>` 这一段。 |
 | `wdl tail` 没有历史日志 | tail 是 live-only；先打开 `wdl tail <worker>` 再触发请求。 |
+| `tail SSE event exceeded 4194304 bytes` | 单个 SSE event 拼接后的 UTF-8 data 超过 CLI 的 4 MiB 上限，因此当前 tail 会话已终止。修复或缩小上游 event 后再重新连接。 |
 | `tail session_idle` / `tail session_expired` | control 回收了 live-tail stream；CLI 会自动重连，除非达到重连上限。 |
 | Namespace secret 没生效 | NS 级 secret 不会强制 bump worker；重新部署一次或改用 worker 级 secret。 |
 | 服务绑定还在打老目标 | 绑定在调用方部署时就锁定了；重新部署调用方。 |

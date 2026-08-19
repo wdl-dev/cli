@@ -19,6 +19,7 @@ const DEFAULT_MAX_RECONNECTS_AT_CAP = 10;
 const TAIL_CONNECT_TIMEOUT_MS = 30_000;
 const TAIL_ERROR_BODY_MAX_BYTES = 64 * 1024;
 export const SSE_MAX_LINE_CHARS = 1024 * 1024;
+export const SSE_MAX_EVENT_BYTES = 4 * 1024 * 1024;
 // Socket-shutdown error shapes we tolerate as "our own abort".
 // Anything else (e.g. a 5xx racing the abort) bubbles to the user.
 const ABORT_TOLERATED_ERRORS = new Set(["ECONNRESET", "ECONNABORTED", "EPIPE", "ABORT_ERR"]);
@@ -447,6 +448,8 @@ export class SseParser {
     this.onEvent = onEvent;
     this.buffer = "";
     this.maxLineChars = SSE_MAX_LINE_CHARS;
+    this.maxEventBytes = SSE_MAX_EVENT_BYTES;
+    this.eventBytes = 0;
     this.event = "message";
     /** @type {string | null} */
     this.id = null;
@@ -493,7 +496,14 @@ export class SseParser {
     }
     if (field === "event") this.event = value;
     else if (field === "id") this.id = value;
-    else if (field === "data") this.data.push(value);
+    else if (field === "data") {
+      const nextBytes = this.eventBytes + Buffer.byteLength(value, "utf8") + (this.data.length > 0 ? 1 : 0);
+      if (nextBytes > this.maxEventBytes) {
+        throw new CliError(`tail SSE event exceeded ${this.maxEventBytes} bytes`);
+      }
+      this.eventBytes = nextBytes;
+      this.data.push(value);
+    }
     // unknown fields ignored per spec
   }
   dispatch() {
@@ -501,6 +511,7 @@ export class SseParser {
       // Reset event name even when there's no data so a subsequent
       // event without an explicit `event:` line falls back to "message".
       this.event = "message";
+      this.eventBytes = 0;
       return;
     }
     this.onEvent({ event: this.event, id: this.id, data: this.data.join("\n") });
@@ -508,6 +519,7 @@ export class SseParser {
     // SSE spec: `id` persists until a new id (or `id:` with empty value)
     // overwrites it. We don't reset it.
     this.data = [];
+    this.eventBytes = 0;
   }
   /** @param {string} line */
   assertLineLength(line) {

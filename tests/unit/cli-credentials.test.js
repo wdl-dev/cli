@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -13,7 +13,8 @@ import {
   resolveNamespace,
   warnIfInsecureControlUrl,
 } from "../../lib/credentials.js";
-import { ESC, assertNoRawTerminalControls } from "./helpers.js";
+import { readTokenStore } from "../../lib/token-store.js";
+import { ESC, POSIX_ONLY, assertNoRawTerminalControls } from "./helpers.js";
 
 test("isTokenStoreDisabled honors the flag and WDL_TOKEN_STORE=off", () => {
   assert.equal(isTokenStoreDisabled({}, false), false);
@@ -37,12 +38,13 @@ test("resolveControlUrl requires a configured endpoint", () => {
   assert.throws(() => resolveControlUrl({}, {}), /No control URL configured/);
 });
 
-test("resolveControlUrl escapes invalid endpoint diagnostics", () => {
+test("resolveControlUrl does not echo invalid endpoint input", () => {
   assert.throws(
     () => resolveControlUrl({ "control-url": `ftp://ctl.test/${ESC}[2J\u009b` }, {}),
     (err) => {
       const message = /** @type {Error} */ (err).message;
       assert.match(message, /Invalid control URL/);
+      assert.doesNotMatch(message, /ctl\.test/);
       assertNoRawTerminalControls(message, "control URL errors");
       return true;
     }
@@ -52,11 +54,67 @@ test("resolveControlUrl escapes invalid endpoint diagnostics", () => {
 test("resolveControlUrl accepts bare control hosts as https URLs", () => {
   assert.equal(resolveControlUrl({ "control-url": "ctl.example" }, {}), "https://ctl.example");
   assert.equal(resolveControlUrl({}, { CONTROL_URL: "ctl.uat.example/" }), "https://ctl.uat.example");
+  assert.equal(resolveControlUrl({}, { CONTROL_URL: "dev.local" }), "https://dev.local");
+  assert.equal(resolveControlUrl({}, { CONTROL_URL: "https://ctl.example/control" }), "https://ctl.example/control");
+});
+
+test("resolveControlUrl rejects query strings and fragments", () => {
+  for (const controlUrl of [
+    "https://ctl.example/control?tenant=demo",
+    "https://ctl.example/control#admin",
+    "https://ctl.example/control?",
+    "https://ctl.example/control#",
+  ]) {
+    assert.throws(
+      () => resolveControlUrl({ "control-url": controlUrl }, {}),
+      /query strings and fragments are not supported/
+    );
+  }
+});
+
+test("resolveControlUrl errors never echo embedded credentials", () => {
+  /** @type {{ values: Record<string, unknown>, env: NodeJS.ProcessEnv, expected: RegExp }[]} */
+  const cases = [
+    {
+      values: { "control-url": "https://api.wdl.dev@evil.example" },
+      env: {},
+      expected: /embedded usernames and passwords/,
+    },
+    {
+      values: {},
+      env: { CONTROL_URL: "https://operator:SENTINEL_PASSWORD@ctl.example" },
+      expected: /embedded usernames and passwords/,
+    },
+    {
+      values: { "control-url": "ftp://operator:SENTINEL_PASSWORD@ctl.example" },
+      env: {},
+      expected: /expected http:\/\/ or https:\/\//,
+    },
+    {
+      values: { "control-url": "https://operator:SENTINEL_PASSWORD@[invalid" },
+      env: {},
+      expected: /^Invalid control URL\.$/,
+    },
+  ];
+  for (const { values, env, expected } of cases) {
+    assert.throws(
+      () => resolveControlUrl(values, env),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, expected);
+        assert.doesNotMatch(message, /api\.wdl\.dev|operator|SENTINEL_PASSWORD|evil\.example|ctl\.example/);
+        return true;
+      }
+    );
+  }
 });
 
 test("resolveControlUrl keeps bare local dev control URLs on http", () => {
   assert.equal(resolveControlUrl({}, { CONTROL_URL: "ctl.test:8080" }), "http://ctl.test:8080");
+  assert.equal(resolveControlUrl({}, { CONTROL_URL: "dev.local:8080" }), "http://dev.local:8080");
   assert.equal(resolveControlUrl({ "control-url": "localhost:8080/" }, {}), "http://localhost:8080");
+  assert.equal(resolveControlUrl({ "control-url": "LOCALHOST:9000" }, {}), "http://LOCALHOST:9000");
+  assert.equal(resolveControlUrl({ "control-url": "127.0.0.2:9000" }, {}), "http://127.0.0.2:9000");
   assert.equal(resolveControlUrl({ "control-url": "[::1]" }, {}), "http://[::1]");
   assert.equal(resolveControlUrl({ "control-url": "[::1]:8080/" }, {}), "http://[::1]:8080");
   assert.equal(resolveControlUrl({ "control-url": "ctl.test" }, {}), "http://ctl.test");
@@ -85,8 +143,13 @@ test("warnIfInsecureControlUrl escapes control endpoint text before warning", ()
   assert.equal(warnings[0].includes("\n"), false);
 });
 
-test("warnIfInsecureControlUrl treats local CONTROL_CONNECT_HOST host:port overrides as local", () => {
-  for (const connectHost of ["localhost:18080", "dev.local:18080", "[::1]:18080", "http://localhost:18080"]) {
+test("warnIfInsecureControlUrl treats loopback CONTROL_CONNECT_HOST overrides as local", () => {
+  /** @type {string[]} */
+  const controlWarnings = [];
+  warnIfInsecureControlUrl("http://127.0.0.2:9000", (line) => controlWarnings.push(line), {});
+  assert.deepEqual(controlWarnings, []);
+
+  for (const connectHost of ["localhost:18080", "127.0.0.53:18080", "[::1]:18080", "http://localhost:18080"]) {
     /** @type {string[]} */
     const warnings = [];
     warnIfInsecureControlUrl("http://admin.test:8080", (line) => warnings.push(line), {
@@ -94,6 +157,20 @@ test("warnIfInsecureControlUrl treats local CONTROL_CONNECT_HOST host:port overr
     });
     assert.deepEqual(warnings, []);
   }
+});
+
+test("warnIfInsecureControlUrl does not treat mDNS .local hosts as loopback", () => {
+  /** @type {string[]} */
+  const controlWarnings = [];
+  warnIfInsecureControlUrl("http://dev.local", (line) => controlWarnings.push(line), {});
+  assert.match(controlWarnings[0], /plain http on a non-local host/);
+
+  /** @type {string[]} */
+  const connectWarnings = [];
+  warnIfInsecureControlUrl("http://admin.test:8080", (line) => connectWarnings.push(line), {
+    CONTROL_CONNECT_HOST: "dev.local:18080",
+  });
+  assert.match(connectWarnings[0], /CONTROL_CONNECT_HOST=dev\.local:18080 is non-local/);
 });
 
 test("resolveNamespace prefers explicit namespace before WDL_NS", () => {
@@ -699,6 +776,65 @@ test("loadCliControlEnv lets shell env win over the store (gap-fill only)", () =
   assert.equal(env.CONTROL_URL, "https://store.example", "the empty control URL slot is filled");
 });
 
+test("loadCliControlEnv rejects an unsafe store before mixing its URL with a shell token", POSIX_ONLY, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-store-mixed-source-"));
+  try {
+    const storeDir = path.join(dir, "wdl");
+    const storePath = path.join(storeDir, "credentials");
+    mkdirSync(storeDir, { mode: 0o700 });
+    writeFileSync(storePath, 'WDL_NS="acme"\n[acme]\nCONTROL_URL="http://attacker.example"\n', { mode: 0o600 });
+    chmodSync(storeDir, 0o777);
+    const env = /** @type {NodeJS.ProcessEnv} */ ({ WDL_NS: "acme", ADMIN_TOKEN: "shell-token" });
+
+    assert.throws(
+      () =>
+        loadCliControlEnv(env, {
+          loadEnv: () => [],
+          readStore: () => readTokenStore(storePath),
+        }),
+      /refusing to read credentials: .*group\/world-writable/
+    );
+    assert.equal(env.ADMIN_TOKEN, "shell-token");
+    assert.equal(env.CONTROL_URL, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "loadCliControlEnv surfaces an unsafe store when its default namespace is the only credential source",
+  POSIX_ONLY,
+  () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "wdl-store-default-error-"));
+    try {
+      const storeDir = path.join(dir, "wdl");
+      const storePath = path.join(storeDir, "credentials");
+      mkdirSync(storeDir, { mode: 0o700 });
+      writeFileSync(
+        storePath,
+        'WDL_NS="acme"\n[acme]\nCONTROL_URL="https://control.example"\nADMIN_TOKEN="store-token"\n',
+        { mode: 0o600 }
+      );
+      chmodSync(storePath, 0o644);
+      const env = /** @type {NodeJS.ProcessEnv} */ ({});
+
+      assert.throws(
+        () =>
+          loadCliControlEnv(env, {
+            loadEnv: () => [],
+            readStore: () => readTokenStore(storePath),
+          }),
+        /accessible by group\/other users; restrict it with `chmod 600/
+      );
+      assert.equal(env.WDL_NS, undefined);
+      assert.equal(env.ADMIN_TOKEN, undefined);
+      assert.equal(env.CONTROL_URL, undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+);
+
 test("loadCliControlEnv does not fill a flag-covered slot from the store", () => {
   /** @type {NodeJS.ProcessEnv} */
   const env = { WDL_NS: "acme" };
@@ -762,11 +898,13 @@ test("loadCliControlEnv surfaces a corrupt store when it is the credential sourc
 });
 
 test("loadCliControlEnv tolerates a corrupt store when no namespace is needed", () => {
-  // No --ns/WDL_NS: the optional default-namespace lookup must not let a corrupt
-  // store abort a command that needs none (e.g. whoami --control-url … --token …).
+  // No --ns/WDL_NS and both credentials are explicit: the optional
+  // default-namespace lookup must not let a corrupt store abort whoami.
   const env = /** @type {NodeJS.ProcessEnv} */ ({});
   assert.doesNotThrow(() =>
     loadCliControlEnv(env, {
+      tokenFromFlag: true,
+      controlUrlFromFlag: true,
       loadEnv: () => [],
       readStore: () => {
         throw new Error("Invalid credentials line 3");
@@ -774,6 +912,24 @@ test("loadCliControlEnv tolerates a corrupt store when no namespace is needed", 
     })
   );
   assert.equal(env.WDL_NS, undefined);
+});
+
+test("loadCliControlEnv surfaces a corrupt default-namespace store when the command requires namespace", () => {
+  const env = /** @type {NodeJS.ProcessEnv} */ ({
+    CONTROL_URL: "https://shell.example",
+    ADMIN_TOKEN: "shell-tok",
+  });
+  assert.throws(
+    () =>
+      loadCliControlEnv(env, {
+        requireNamespace: true,
+        loadEnv: () => [],
+        readStore: () => {
+          throw new Error("Invalid credentials line 3");
+        },
+      }),
+    /Invalid credentials line 3/
+  );
 });
 
 test("an empty .env ADMIN_TOKEN does not mark a .env endpoint same-source", () => {

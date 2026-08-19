@@ -9,7 +9,7 @@ Do **not** use `wrangler deploy` on this platform — only `wdl deploy`.
 
 Wrangler resolution order is `WDL_WRANGLER_BIN`, the Worker project's local
 wrangler, the CLI package's local wrangler, then `PATH`. By default there is no
-transient `npx --yes wrangler` fetch; that fallback is allowed only when
+transient `npx --yes wrangler@^4` fetch; that fallback is allowed only when
 `WDL_ALLOW_NPX_WRANGLER=1` is set.
 
 WDL hides Wrangler's banner (which skips the normal banner update check) and
@@ -59,8 +59,13 @@ environment variables from your CI secret store — not the interactive token
 store, and never a committed `.env`.
 
 Bare control hosts get a scheme automatically; production hosts default to
-`https://`, local `.test` / `.local` or `:8080` hosts default to `http://`. To
-force a protocol, write `https://...` or `http://...` explicitly.
+`https://`, while loopback and `.test` hosts default to `http://`. The existing
+bare `:8080` exception also defaults to HTTP on any host, including `.local`.
+Outside that exception, `.local` defaults to HTTPS because mDNS is not loopback;
+every HTTP `.local` target emits the plaintext-token warning. To force a
+protocol, write `https://...` or `http://...` explicitly. A control URL may
+include a path prefix, but embedded usernames/passwords, query strings, and
+fragments are rejected.
 
 Precedence:
 `CLI flag > shell env > .env [<ns>] section > .env base section > wdl token store`.
@@ -294,6 +299,9 @@ same explicit `--ns` for deletion. Provider deletion removes both its metadata
 and credential. Add `--yes` only after confirming with the user; do **not** add
 it on your own.
 
+`wdl delete version` has no dry-run endpoint: inspect the retained version
+first. The CLI rejects `--dry-run` rather than silently performing the delete.
+
 `wdl workers` reports `workflow-defs=yes` or `workflow-defs=no`; `unknown` means
 an older control omitted the field, not that no definitions exist. Worker delete
 dry-runs report secret and workflow-definition presence even when a blocker
@@ -324,6 +332,7 @@ Deleting a worker does **not** delete R2 data — see [r2.md](./r2.md).
 | `control promoted the worker without confirming its restart session policy` | The version is live but its sessions may not have restarted. Reconnect clients that must run it, or deploy again once control confirms the policy.              |
 | Worker URL returns 404                                                      | The URL is missing the `/<worker-name>` segment.                                                                                                                |
 | `wdl tail` has no history                                                   | Tail is live-only; open `wdl tail <worker>` before triggering the request.                                                                                      |
+| `tail SSE event exceeded 4194304 bytes`                                     | One assembled SSE event exceeded the CLI's 4 MiB UTF-8 data cap, so the current tail session terminated. Reduce/fix the upstream event before reconnecting.     |
 | `tail session_idle` / `tail session_expired`                                | Control reclaimed the live-tail stream; the CLI reconnects automatically unless the reconnect cap is reached.                                                   |
 | Namespace secret did not take effect                                        | NS-level secrets do not force-bump workers; redeploy once or use a worker-level secret.                                                                         |
 | Service binding still hits the old target                                   | Bindings are pinned at caller deploy time; redeploy the caller.                                                                                                 |

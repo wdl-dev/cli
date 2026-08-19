@@ -1,7 +1,7 @@
 import { defineCommand } from "../lib/command.js";
 import { CliError, formatHelp, isMain, optionHelp } from "../lib/common.js";
 import { writeResult } from "../lib/output.js";
-import { resolveCliConfigState } from "../lib/config-state.js";
+import { resolveDiagnosticConfigState } from "../lib/config-state.js";
 
 const CONFIG_OPTIONS = ["ns", "control", "json", "help"];
 
@@ -23,7 +23,7 @@ async function runConfig({ values, positionals, context }) {
   const [subcommand, extra] = positionals;
   if (subcommand !== "explain" || extra) throw new CliError(usageText());
 
-  const state = resolveCliConfigState({
+  const { state, tokenStoreError } = resolveDiagnosticConfigState({
     values,
     env: context.env,
     cwd: context.cwd,
@@ -33,6 +33,7 @@ async function runConfig({ values, positionals, context }) {
     namespace: publicEntry(state.namespace),
     controlUrl: publicEntry(state.controlUrl),
     token: publicEntry(state.token),
+    ...(tokenStoreError ? { tokenStore: { error: tokenStoreError } } : {}),
   };
   writeResult(values.json === true, body, () => formatConfigExplain(body), context.stdout);
 }
@@ -59,16 +60,18 @@ function publicEntry(entry) {
 }
 
 /**
- * @param {{ namespace: PublicConfigEntry, controlUrl: PublicConfigEntry, token: PublicConfigEntry }} body
+ * @param {{ namespace: PublicConfigEntry, controlUrl: PublicConfigEntry, token: PublicConfigEntry, tokenStore?: { error: string } }} body
  */
 function formatConfigExplain(body) {
-  return [
+  const lines = [
     ...formatBlock("namespace", body.namespace),
     "",
     ...formatBlock("controlUrl", body.controlUrl),
     "",
     ...formatBlock("token", body.token),
   ];
+  if (body.tokenStore) lines.push("", "tokenStore:", `  error: ${body.tokenStore.error}`);
+  return lines;
 }
 
 /**

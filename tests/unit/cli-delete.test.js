@@ -15,12 +15,84 @@ test("delete version calls the version hard-delete endpoint", async () => {
     assets: { cleanupTaskId: null, skippedSharedPrefix: false, warnings: [] },
   });
 
-  await runDeleteCommand(["version", "--ns", "demo", "api", "v1", "--control-url", "http://ctl.test"], deps);
+  await runDeleteCommand(["version", "--ns", "demo", "api", "v1", "--yes", "--control-url", "http://ctl.test"], deps);
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/worker/api/versions/v1");
   assert.equal(/** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ (calls[0].init).method, "DELETE");
   assert.deepEqual(lines, ["OK demo/api@v1 deleted"]);
+});
+
+test("delete version requires confirmation and rejects dry-run without a request", async () => {
+  /** @type {ControlCall[]} */
+  const calls = [];
+  const deps = {
+    env: { ADMIN_TOKEN: "tok" },
+    stdin: stdinFrom(""),
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return response({});
+    },
+  };
+
+  await assert.rejects(
+    () => runDeleteCommand(["version", "--ns", "demo", "api", "v1", "--control-url", "http://ctl.test"], deps),
+    /Refusing to delete version "demo\/api@v1" without interactive confirmation/
+  );
+  await assert.rejects(
+    () =>
+      runDeleteCommand(
+        ["version", "--ns", "demo", "api", "v1", "--dry-run", "--yes", "--control-url", "http://ctl.test"],
+        deps
+      ),
+    /delete version does not support --dry-run/
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("delete version proceeds after interactive confirmation", async () => {
+  /** @type {ControlCall[]} */
+  const calls = [];
+  /** @type {string[]} */
+  const prompts = [];
+  const stdin = ttyStdinLine("yes\n");
+
+  await runDeleteCommand(["version", "--ns", "demo", "api", "v1", "--control-url", "http://ctl.test"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdin,
+    stderr: (/** @type {string} */ text) => prompts.push(text),
+    stdout: () => {},
+    controlFetch: async (
+      /** @type {string} */ url,
+      /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+    ) => {
+      calls.push({ url, init });
+      return response({ namespace: "demo", name: "api", version: "v1", deleted: true });
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(prompts, ['Are you sure you want to delete version "demo/api@v1"? [y/N] ']);
+  assert.equal(stdin.paused, true);
+});
+
+test("delete version resolves credentials before prompting", async () => {
+  /** @type {string[]} */
+  const prompts = [];
+  await assert.rejects(
+    () =>
+      runDeleteCommand(["version", "--ns", "demo", "api", "v1", "--control-url", "http://ctl.test"], {
+        env: {},
+        stdin: ttyStdinLine("yes\n"),
+        stderr: (/** @type {string} */ text) => prompts.push(text),
+        controlFetch: async () => response({}),
+      }),
+    /Missing admin token/
+  );
+  assert.deepEqual(prompts, []);
 });
 
 test("delete output does not expose internal cleanup task ids", async () => {

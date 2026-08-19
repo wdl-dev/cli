@@ -756,7 +756,7 @@ test("runDeployCommand preserves the local control scheme and port in the Worker
     /** @type {string[]} */
     const lines = [];
     let fetchCount = 0;
-    await runDeployCommand([dir, "--ns", "demo", "--control-url", "https://localhost:8443"], {
+    await runDeployCommand([dir, "--ns", "demo", "--control-url", "https://box.local:8443"], {
       env: { ADMIN_TOKEN: "tok", CONTROL_CONNECT_HOST: "127.0.0.1:18080" },
       stdout: (/** @type {string} */ line) => lines.push(/** @type {string} */ line),
       stderr: () => {},

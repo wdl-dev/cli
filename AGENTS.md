@@ -129,9 +129,10 @@ Credential resolution layers, highest precedence first: CLI flags, shell/CI env,
 the project `./.env` (sectioned by namespace, with a cross-origin guard that
 drops a `.env`-supplied endpoint when the effective token is not from the same
 `.env`), then the global token store (`~/.config/wdl/credentials`, managed by
-`wdl token`). The store is trusted (home directory, same-source token +
-endpoint) and not subject to the guard; a project `.env` is not. The namespace
-itself follows the same shape —
+`wdl token`). A store that passes the directory/file type checks and POSIX
+permission checks is trusted (protected per-user config location, same-source
+token + endpoint) and not subject to the guard; a project `.env` is not. The
+namespace itself follows the same shape —
 `--ns > shell WDL_NS > project .env WDL_NS > store default (base WDL_NS)` — so
 the store's default namespace is the lowest selector, materialized into
 `env.WDL_NS` before the per-key gap-fill. Keep that ordering and the guard

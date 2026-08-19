@@ -6,7 +6,7 @@ import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, option
 import { warnIfInsecureControlUrl } from "../lib/credentials.js";
 import { writeResult } from "../lib/output.js";
 import { readTokenStore, tokenStorePath } from "../lib/token-store.js";
-import { TokenStoreConfigError, resolveCliConfigState } from "../lib/config-state.js";
+import { resolveDiagnosticConfigState } from "../lib/config-state.js";
 import { CLI_ROOT, currentCliVersion, readCliPackageJson } from "../lib/package-info.js";
 import {
   ensureControlContextFromConfigState,
@@ -14,7 +14,7 @@ import {
   namespaceFromPrincipal,
   summarizeWhoami,
 } from "../lib/whoami.js";
-import { MIN_WRANGLER_MAJOR, probeWranglerVersion, resolveWranglerCommand } from "../lib/wrangler/command.js";
+import { checkWranglerVersion, resolveWranglerCommand } from "../lib/wrangler/command.js";
 import { selectWranglerConfigFiles } from "../lib/wrangler/config.js";
 
 const DOCTOR_OPTIONS = [
@@ -50,26 +50,12 @@ async function runDoctor({ values, positionals, context: baseContext }) {
   if (positionals.length > 0) throw new CliError(usageText());
 
   const context = /** @type {DoctorContext} */ (baseContext);
-  let tokenStoreError = null;
-  let state;
-  try {
-    state = resolveCliConfigState({
-      values,
-      env: context.env,
-      cwd: context.cwd,
-      warn: context.warn,
-    });
-  } catch (err) {
-    if (!(err instanceof TokenStoreConfigError)) throw err;
-    tokenStoreError = err.message;
-    state = resolveCliConfigState({
-      values,
-      env: context.env,
-      cwd: context.cwd,
-      readStore: () => ({}),
-      warn: context.warn,
-    });
-  }
+  const { state, tokenStoreError } = resolveDiagnosticConfigState({
+    values,
+    env: context.env,
+    cwd: context.cwd,
+    warn: context.warn,
+  });
   const checks = [
     checkNode(),
     checkCliVersion(),
@@ -96,7 +82,7 @@ async function runDoctor({ values, positionals, context: baseContext }) {
 
 /**
  * The resolved CLI config state doctor inspects.
- * @typedef {ReturnType<typeof resolveCliConfigState>} ConfigState
+ * @typedef {ReturnType<typeof resolveDiagnosticConfigState>["state"]} ConfigState
  */
 
 /**
@@ -138,28 +124,24 @@ function checkWrangler({ cwd, env, execFile }) {
     });
   }
   try {
-    const { version, major } = probeWranglerVersion({
+    const { version } = checkWranglerVersion({
       execFile,
       cwd,
       env,
       wrangler,
       fallbackVersion: () => readInstalledWranglerVersion(cwd),
     });
-    // Mirror the gate `wdl deploy` enforces so doctor can't green-light a
-    // Wrangler major that deploy will reject.
-    const meetsMinimum = major >= MIN_WRANGLER_MAJOR;
     return check({
-      ok: meetsMinimum,
-      label: `Wrangler ${version || "(unknown)"}`,
-      detail: meetsMinimum
-        ? `source: ${wrangler.source}`
-        : `wdl deploy requires Wrangler v${MIN_WRANGLER_MAJOR} (wrangler@^${MIN_WRANGLER_MAJOR}); found ${version || "(unknown)"} via ${wrangler.source}`,
+      ok: true,
+      label: `Wrangler ${version}`,
+      detail: `source: ${wrangler.source}`,
     });
   } catch (err) {
+    const message = err instanceof Error && err.message ? err.message : String(err);
     return check({
       ok: false,
       label: "Wrangler",
-      detail: err instanceof Error && err.message ? err.message : String(err),
+      detail: `${message}\nsource: ${wrangler.source}`,
     });
   }
 }
@@ -337,7 +319,12 @@ function check({ ok, label, detail = "" }) {
 function formatDoctor(checks) {
   return checks.map((item) => {
     const line = `${item.ok ? "✓" : "✗"} ${item.label}`;
-    return item.detail ? `${line}\n  ${item.detail}` : line;
+    if (!item.detail) return line;
+    const detail = item.detail
+      .split("\n")
+      .map((detailLine) => `  ${detailLine}`)
+      .join("\n");
+    return `${line}\n${detail}`;
   });
 }
 

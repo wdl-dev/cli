@@ -43,6 +43,26 @@ test("SseParser rejects overlong lines", () => {
   assert.throws(() => parser.push(`data: ${"x".repeat(SSE_MAX_LINE_CHARS)}`), /SSE line exceeded/);
 });
 
+test("SseParser bounds cumulative event data and resets after dispatch", () => {
+  /** @type {import("../../commands/tail.js").SseEvent[]} */
+  const events = [];
+  const parser = new SseParser((event) => events.push(event));
+  parser.maxEventBytes = 5;
+
+  parser.push("data: abc\ndata: d\n\n");
+  parser.push("data: 12345\n\n");
+  assert.deepEqual(
+    events.map((event) => event.data),
+    ["abc\nd", "12345"]
+  );
+
+  assert.throws(() => parser.push("data: abc\ndata: de\n"), /SSE event exceeded 5 bytes/);
+
+  const multibyte = new SseParser(() => {});
+  multibyte.maxEventBytes = 3;
+  assert.throws(() => multibyte.push("data: \u00e9\u00e9\n"), /SSE event exceeded 3 bytes/);
+});
+
 test("wdl tail rejects errors raised while flushing a trailing SSE event", async () => {
   const fakeTransport = {
     /**

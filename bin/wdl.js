@@ -116,6 +116,9 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     try {
       loadCliControlEnv(env, {
         nsFromFlag: scanned.ns,
+        // Every dispatcher-autoloaded command currently requires a namespace;
+        // namespace-optional diagnostics opt out of dispatcher autoloading.
+        requireNamespace: true,
         tokenFromFlag: scanned.tokenFromFlag,
         controlUrlFromFlag: scanned.controlUrlFromFlag,
         loadEnv: loadEnvOverride,

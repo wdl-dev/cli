@@ -16,7 +16,7 @@ const DELETE_OPTIONS = [
   defineHiddenCliOption("worker", { type: "string" }),
   defineHiddenCliOption("version", { type: "string" }),
   defineCliOption("dry-run", { type: "boolean" }, "--dry-run", "Preview worker delete without changing state."),
-  defineCliOption("yes", { type: "boolean" }, "--yes", "Skip worker delete confirmation."),
+  defineCliOption("yes", { type: "boolean" }, "--yes", "Skip delete confirmation."),
   "ns",
   "control",
   "json",
@@ -58,7 +58,19 @@ async function runDelete({ values, positionals, context }) {
       throw new CliError("version delete requires <worker> <version> or --worker/--version");
     }
     if (extraArg) throw unexpectedArgument("delete version", extraArg);
+    if (values["dry-run"] === true) {
+      throw new CliError(
+        "delete version does not support --dry-run; inspect the retained version first, then rerun without --dry-run"
+      );
+    }
     const { headers } = context.resolveControl();
+    await confirmAction({
+      yes: values.yes === true,
+      stdin,
+      stderr,
+      prompt: `Are you sure you want to delete version "${ns}/${worker}@${version}"? [y/N] `,
+      action: `delete version "${ns}/${worker}@${version}"`,
+    });
     const body = await context.fetchJson(
       context.nsUrl("worker", worker, "versions", version),
       { method: "DELETE", headers },

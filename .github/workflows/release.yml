@@ -15,9 +15,9 @@ jobs:
     outputs:
       dist-tag: ${{ steps.version.outputs.dist-tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
           cache: npm
@@ -32,7 +32,7 @@ jobs:
 
       # Pre-release versions (1.2.3-rc.1) publish under the `next` dist-tag
       # so `npm i -g @wdl-dev/cli` keeps resolving to the last stable release.
-      - name: Tag must match package.json version
+      - name: Tag and stable changelog must match package.json version
         id: version
         run: |
           version="$(node -p 'require("./package.json").version')"
@@ -42,7 +42,10 @@ jobs:
           fi
           case "$version" in
             *-*) echo "dist-tag=next" >> "$GITHUB_OUTPUT" ;;
-            *) echo "dist-tag=latest" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "dist-tag=latest" >> "$GITHUB_OUTPUT"
+              node scripts/changelog-section.js "$version" > /dev/null
+              ;;
           esac
 
       - run: npm pack --dry-run
@@ -55,9 +58,9 @@ jobs:
       contents: read
       id-token: write # OIDC: trusted-publishing auth + provenance attestation
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
@@ -83,9 +86,9 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
           registry-url: https://npm.pkg.github.com
@@ -103,7 +106,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
 
       # Final releases take their notes from the matching CHANGELOG.md
       # section; pre-releases (x.y.z-rc.N) have no section and fall back to
@@ -113,16 +120,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          awk -v ver="$version" '
-            $0 == "## " ver { found=1; next }
-            /^## / && found { exit }
-            found { print }
-          ' CHANGELOG.md > /tmp/notes.md
           args=(--verify-tag)
-          if [ -s /tmp/notes.md ]; then
+          if node scripts/changelog-section.js "$version" > /tmp/notes.md 2>/tmp/changelog-error; then
             args+=(--notes-file /tmp/notes.md)
           else
-            args+=(--generate-notes)
+            status=$?
+            if [[ "$version" == *-* && "$status" -eq 3 ]]; then
+              args+=(--generate-notes)
+            else
+              cat /tmp/changelog-error >&2
+              exit "$status"
+            fi
           fi
           case "$version" in
             *-*) args+=(--prerelease) ;;

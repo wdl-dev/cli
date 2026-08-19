@@ -328,7 +328,7 @@ test("tenant lifecycle commands default namespace from WDL_NS", async () => {
 
   /** @type {ControlCall[]} */
   const deleteCalls = [];
-  await runDeleteCommand(["version", "api", "v1", "--control-url", "http://ctl.test"], {
+  await runDeleteCommand(["version", "api", "v1", "--yes", "--control-url", "http://ctl.test"], {
     env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
     stdout: () => {},
     controlFetch: async (

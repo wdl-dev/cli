@@ -200,6 +200,14 @@ function promotedWorkerUrlHints(raw, includePlatform) {
   return { platform, routes };
 }
 
+/** @param {string} hostname */
+function usesLocalWorkerUrlOrigin(hostname) {
+  // `.local` is not trusted as loopback for credential warnings, but a WDL
+  // control plane reached on the local network still shares its public
+  // scheme/port with the Worker gateway in development environments.
+  return isLocalDevHost(hostname) || hostname.endsWith(".local");
+}
+
 /**
  * @param {string} rawUrl
  * @param {URL} controlUrl
@@ -407,7 +415,7 @@ async function runDeploy({ values, positionals, context: baseContext }) {
   });
 
   const parsedControlUrl = new URL(controlUrl);
-  const isLocal = isLocalDevHost(parsedControlUrl.hostname);
+  const isLocal = usesLocalWorkerUrlOrigin(parsedControlUrl.hostname);
   const reportedUrlHints = promotedWorkerUrlHints(urls, workersDev !== false);
   const invalidUrlHints = [];
   const displayedPlatformUrl =

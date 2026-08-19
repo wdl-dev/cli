@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runWorkflowsCommand } from "../../commands/workflows.js";
 import { formatInstanceList, formatInstanceStatus, formatWorkflowList } from "../../lib/workflows-format.js";
-import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
+import { ESC, INVALID_PAGE_LIMITS, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
 
@@ -160,6 +160,36 @@ test("workflows list accepts flags before the subcommand", async () => {
 
   assert.equal(calls[0].url, "http://ctl.test/ns/demo/workflows");
   assert.deepEqual(lines, ["(no workflows)"]);
+});
+
+test("workflow page limits must be integers from 1 through 1000", async () => {
+  const calls = [];
+  const deps = {
+    env: { ADMIN_TOKEN: "tok", CONTROL_URL: "http://ctl.test" },
+    stdout: () => {},
+    controlFetch: async () => {
+      calls.push(true);
+      return response({});
+    },
+  };
+
+  await runWorkflowsCommand(["status", "api", "orders", "id", "--step-limit", "", "--ns", "demo"], deps);
+
+  for (const value of INVALID_PAGE_LIMITS) {
+    await assert.rejects(
+      () => runWorkflowsCommand(["instances", "api", "orders", "--limit", value, "--ns", "demo"], deps),
+      /workflows --limit must be an integer in \[1, 1000\]/
+    );
+    await assert.rejects(
+      () =>
+        runWorkflowsCommand(
+          ["status", "api", "orders", "id", "--include-steps", "--step-limit", value, "--ns", "demo"],
+          deps
+        ),
+      /workflows --step-limit must be an integer in \[1, 1000\]/
+    );
+  }
+  assert.equal(calls.length, 1);
 });
 
 test("workflows commands reject unexpected positional arguments", async () => {

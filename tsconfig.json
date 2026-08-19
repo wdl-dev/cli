@@ -11,6 +11,6 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["bin/**/*.js", "commands/**/*.js", "lib/**/*.js", "tests/**/*.js", "eslint.config.js"],
+  "include": ["bin/**/*.js", "commands/**/*.js", "lib/**/*.js", "scripts/**/*.js", "tests/**/*.js", "eslint.config.js"],
   "exclude": ["**/node_modules/**", "**/.deploy-dist/**", "**/.wrangler/**"]
 }

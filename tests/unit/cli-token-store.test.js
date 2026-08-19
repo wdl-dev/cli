@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -650,7 +650,7 @@ test("preserves a namespace named like an Object.prototype key", () => {
 test("handles a __proto__ section without polluting the prototype", () => {
   withTempDir((dir) => {
     const p = path.join(dir, "credentials");
-    writeFileSync(p, '[__proto__]\nADMIN_TOKEN="x"\n[acme]\nADMIN_TOKEN="a"\n');
+    writeFileSync(p, '[__proto__]\nADMIN_TOKEN="x"\n[acme]\nADMIN_TOKEN="a"\n', { mode: 0o600 });
     const back = readTokenStore(p);
     assert.deepEqual(Object.keys(back.namespaces).sort(), ["__proto__", "acme"]);
     assert.equal(back.namespaces["__proto__"].ADMIN_TOKEN, "x");
@@ -737,6 +737,78 @@ test("assertStoreDirSecure refuses a group/world-writable store dir", POSIX_ONLY
   }
 });
 
+test("readTokenStore rejects insecure directories, permissions, and file types", POSIX_ONLY, () => {
+  withTempDir((dir) => {
+    const sharedDir = path.join(dir, "shared");
+    const sharedStore = path.join(sharedDir, "credentials");
+    mkdirSync(sharedDir, { mode: 0o700 });
+    writeFileSync(sharedStore, '[acme]\nADMIN_TOKEN="tok"\n', { mode: 0o600 });
+    chmodSync(sharedDir, 0o777);
+    assert.throws(() => readTokenStore(sharedStore), /refusing to read credentials: .*group\/world-writable/);
+
+    const broadStore = path.join(dir, "broad-credentials");
+    writeFileSync(broadStore, '[acme]\nADMIN_TOKEN="tok"\n', { mode: 0o600 });
+    chmodSync(broadStore, 0o644);
+    assert.throws(
+      () => readTokenStore(broadStore),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, /accessible by group\/other users/);
+        assert.doesNotMatch(message, /failed to read credential store/, "the security error should not be wrapped");
+        return true;
+      }
+    );
+
+    const target = path.join(dir, "target-credentials");
+    const link = path.join(dir, "linked-credentials");
+    writeFileSync(target, '[acme]\nADMIN_TOKEN="tok"\n', { mode: 0o600 });
+    symlinkSync(target, link);
+    assert.throws(() => readTokenStore(link), /is not a regular file/);
+
+    const directoryPath = path.join(dir, "directory-credentials");
+    mkdirSync(directoryPath, { mode: 0o700 });
+    assert.throws(() => readTokenStore(directoryPath), /is not a regular file/);
+
+    const fifoPath = path.join(dir, "fifo-credentials");
+    const mkfifo = spawnSync("mkfifo", [fifoPath], { encoding: "utf8" });
+    assert.equal(mkfifo.status, 0, mkfifo.stderr || "mkfifo failed");
+    const fifoRead = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `import { readTokenStore } from ${JSON.stringify(new URL("../../lib/token-store.js", import.meta.url).href)};
+try { readTokenStore(${JSON.stringify(fifoPath)}); }
+catch (err) { process.stderr.write(err.message); process.exit(2); }`,
+      ],
+      { encoding: "utf8", timeout: 1_000 }
+    );
+    const fifoReadError = /** @type {NodeJS.ErrnoException | undefined} */ (fifoRead.error);
+    assert.notEqual(fifoReadError?.code, "ETIMEDOUT", "reading a FIFO credential path must not block");
+    assert.equal(fifoRead.status, 2, fifoRead.stderr);
+    assert.match(fifoRead.stderr, /is not a regular file/);
+  });
+});
+
+test("token-store reads and writes through a secure symlinked config directory", POSIX_ONLY, () => {
+  withTempDir((dir) => {
+    const targetDir = path.join(dir, "target");
+    const linkedDir = path.join(dir, "linked");
+    mkdirSync(targetDir, { mode: 0o755 });
+    chmodSync(targetDir, 0o755);
+    symlinkSync(targetDir, linkedDir);
+
+    const storePath = path.join(linkedDir, "credentials");
+    writeTokenStore(storePath, { namespaces: { acme: { ADMIN_TOKEN: "tok" } } });
+
+    assert.deepEqual(readTokenStore(storePath), {
+      defaultNs: null,
+      namespaces: { acme: { ADMIN_TOKEN: "tok" } },
+    });
+    assert.equal(statSync(targetDir).mode & 0o777, 0o700);
+  });
+});
+
 test("updateTokenStore escapes write-side filesystem errors", () => {
   withTempDir((dir) => {
     const badXdg = path.join(dir, `bad${ESC}dir\nFORGED\rBAD`);
@@ -781,15 +853,20 @@ test("writeTokenStore escapes write-side filesystem errors", () => {
 test("readTokenStore rejects a key outside any section", () => {
   withTempDir((dir) => {
     const p = path.join(dir, "credentials");
-    writeFileSync(p, "ADMIN_TOKEN=loose\n");
-    assert.throws(() => readTokenStore(p), /outside a \[namespace\] section/);
+    writeFileSync(p, "ADMIN_TOKEN=loose\n", { mode: 0o600 });
+    assert.throws(
+      () => readTokenStore(p),
+      new RegExp(
+        `failed to parse credential store .*credentials: Invalid credentials line 1.*outside a \\[namespace\\]`
+      )
+    );
   });
 });
 
 test("readTokenStore reads a base WDL_NS as the default namespace", () => {
   withTempDir((dir) => {
     const p = path.join(dir, "credentials");
-    writeFileSync(p, 'WDL_NS="acme"\n[acme]\nADMIN_TOKEN="t"\n');
+    writeFileSync(p, 'WDL_NS="acme"\n[acme]\nADMIN_TOKEN="t"\n', { mode: 0o600 });
     assert.deepEqual(readTokenStore(p), {
       defaultNs: "acme",
       namespaces: { acme: { ADMIN_TOKEN: "t" } },
@@ -800,7 +877,7 @@ test("readTokenStore reads a base WDL_NS as the default namespace", () => {
 test("readTokenStore ignores unknown keys and comments", () => {
   withTempDir((dir) => {
     const p = path.join(dir, "credentials");
-    writeFileSync(p, '# note\n[acme]\nADMIN_TOKEN="t"\nUNKNOWN=x\n');
+    writeFileSync(p, '# note\n[acme]\nADMIN_TOKEN="t"\nUNKNOWN=x\n', { mode: 0o600 });
     assert.deepEqual(readTokenStore(p), {
       defaultNs: null,
       namespaces: { acme: { ADMIN_TOKEN: "t" } },

@@ -93,10 +93,11 @@ stubs as opaque capabilities, but the receiver cannot rewrite their
 host-authored caller properties. Keep delegated stubs in memory; long-term
 irrevocable stub storage is unsupported.
 
-`CONTROL_URL` may include a path prefix, but query strings and fragments are
-rejected. A bare `.local` host defaults to HTTPS because mDNS is not loopback,
-except that the existing bare `:8080` rule still selects HTTP on any host. Every
-HTTP `.local` target emits the plaintext-token warning.
+`CONTROL_URL` may include a path prefix, but embedded usernames/passwords, query
+strings, and fragments are rejected. A bare `.local` host defaults to HTTPS
+because mDNS is not loopback, except that the existing bare `:8080` rule still
+selects HTTP on any host. Every HTTP `.local` target emits the plaintext-token
+warning.
 
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
 overrides the TCP target the admin token connects to (Host header + TLS SNI

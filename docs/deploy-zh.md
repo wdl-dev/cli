@@ -34,7 +34,7 @@ CLI 需要三个值：
 
 **CI / 自动化：** 把 `ADMIN_TOKEN`、`CONTROL_URL`、`WDL_NS` 作为环境变量从 CI secret store 注入 —— 不用交互式的 token store，也绝不提交 `.env`。
 
-裸 control host 会自动补 scheme；生产 host 默认 `https://`，loopback 和 `.test` host 默认 `http://`。既有的裸 `:8080` 例外对任何 host（包括 `.local`）仍默认使用 HTTP。除此之外，`.local` 是局域网 / mDNS 后缀而不是 loopback，因此默认 HTTPS；所有 HTTP `.local` 目标都会显示明文 token 告警。如果要强制协议，直接显式写 `https://...` 或 `http://...`。Control URL 可以包含 path prefix，但 query string 和 fragment 会被拒绝。
+裸 control host 会自动补 scheme；生产 host 默认 `https://`，loopback 和 `.test` host 默认 `http://`。既有的裸 `:8080` 例外对任何 host（包括 `.local`）仍默认使用 HTTP。除此之外，`.local` 是局域网 / mDNS 后缀而不是 loopback，因此默认 HTTPS；所有 HTTP `.local` 目标都会显示明文 token 告警。如果要强制协议，直接显式写 `https://...` 或 `http://...`。Control URL 可以包含 path prefix，但嵌入的 username/password、query string 和 fragment 会被拒绝。
 
 优先级：`CLI 标志 > shell env > .env 中 [<ns>] 段 > .env 基础段 > wdl token store`。都没有提供时命令直接报错——没有内置默认值。
 

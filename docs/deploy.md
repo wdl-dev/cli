@@ -64,7 +64,8 @@ bare `:8080` exception also defaults to HTTP on any host, including `.local`.
 Outside that exception, `.local` defaults to HTTPS because mDNS is not loopback;
 every HTTP `.local` target emits the plaintext-token warning. To force a
 protocol, write `https://...` or `http://...` explicitly. A control URL may
-include a path prefix, but query strings and fragments are rejected.
+include a path prefix, but embedded usernames/passwords, query strings, and
+fragments are rejected.
 
 Precedence:
 `CLI flag > shell env > .env [<ns>] section > .env base section > wdl token store`.

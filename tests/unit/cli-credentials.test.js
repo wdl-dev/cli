@@ -38,12 +38,13 @@ test("resolveControlUrl requires a configured endpoint", () => {
   assert.throws(() => resolveControlUrl({}, {}), /No control URL configured/);
 });
 
-test("resolveControlUrl escapes invalid endpoint diagnostics", () => {
+test("resolveControlUrl does not echo invalid endpoint input", () => {
   assert.throws(
     () => resolveControlUrl({ "control-url": `ftp://ctl.test/${ESC}[2J\u009b` }, {}),
     (err) => {
       const message = /** @type {Error} */ (err).message;
       assert.match(message, /Invalid control URL/);
+      assert.doesNotMatch(message, /ctl\.test/);
       assertNoRawTerminalControls(message, "control URL errors");
       return true;
     }
@@ -67,6 +68,43 @@ test("resolveControlUrl rejects query strings and fragments", () => {
     assert.throws(
       () => resolveControlUrl({ "control-url": controlUrl }, {}),
       /query strings and fragments are not supported/
+    );
+  }
+});
+
+test("resolveControlUrl errors never echo embedded credentials", () => {
+  /** @type {{ values: Record<string, unknown>, env: NodeJS.ProcessEnv, expected: RegExp }[]} */
+  const cases = [
+    {
+      values: { "control-url": "https://api.wdl.dev@evil.example" },
+      env: {},
+      expected: /embedded usernames and passwords/,
+    },
+    {
+      values: {},
+      env: { CONTROL_URL: "https://operator:SENTINEL_PASSWORD@ctl.example" },
+      expected: /embedded usernames and passwords/,
+    },
+    {
+      values: { "control-url": "ftp://operator:SENTINEL_PASSWORD@ctl.example" },
+      env: {},
+      expected: /expected http:\/\/ or https:\/\//,
+    },
+    {
+      values: { "control-url": "https://operator:SENTINEL_PASSWORD@[invalid" },
+      env: {},
+      expected: /^Invalid control URL\.$/,
+    },
+  ];
+  for (const { values, env, expected } of cases) {
+    assert.throws(
+      () => resolveControlUrl(values, env),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, expected);
+        assert.doesNotMatch(message, /api\.wdl\.dev|operator|SENTINEL_PASSWORD|evil\.example|ctl\.example/);
+        return true;
+      }
     );
   }
 });

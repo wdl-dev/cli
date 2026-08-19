@@ -117,10 +117,11 @@ on any host, including `.local`. Outside that exception, `.local` is a
 network/mDNS suffix rather than loopback, so its bare hosts default to HTTPS.
 Every HTTP `.local` target emits the plaintext-token warning. Include an
 explicit scheme when you need to force a different protocol. A control URL may
-include a path prefix, but query strings and fragments are rejected because
-commands append endpoint paths to this base. If no namespace resolves, section
-values are skipped and the command will fail normally if it needs a namespace or
-token. Pass `--ns` when you want to override the default for one command.
+include a path prefix, but embedded usernames/passwords, query strings, and
+fragments are rejected because commands append endpoint paths to this base and
+send the admin token separately. If no namespace resolves, section values are
+skipped and the command will fail normally if it needs a namespace or token.
+Pass `--ns` when you want to override the default for one command.
 
 `CONTROL_CONNECT_HOST` is a local-dev / debug override: it changes the TCP
 target the request connects to while the HTTP Host header and TLS SNI keep
@@ -141,7 +142,8 @@ shell env, and a project `.env` still win — and `wdl token list` /
 `WDL_NS`, like a project `.env`'s), so commands run without `--ns`;
 `wdl token use <ns>` switches it. The CLI rejects a symlink/non-file credentials
 path. On POSIX, it also rejects a store in a group/world-writable directory or a
-file accessible to group/other users. See [token.md](./docs/token.md).
+file that is not owned by the current user or is accessible to group/other
+users. See [token.md](./docs/token.md).
 
 Because `wdl ai`, `wdl secret`, and `wdl token` can receive credentials, they
 redact invalid argument details. If a string option appears before the complete

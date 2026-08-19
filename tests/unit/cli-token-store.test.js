@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -768,6 +768,25 @@ test("readTokenStore rejects insecure directories, permissions, and file types",
     const directoryPath = path.join(dir, "directory-credentials");
     mkdirSync(directoryPath, { mode: 0o700 });
     assert.throws(() => readTokenStore(directoryPath), /is not a regular file/);
+
+    const fifoPath = path.join(dir, "fifo-credentials");
+    const mkfifo = spawnSync("mkfifo", [fifoPath], { encoding: "utf8" });
+    assert.equal(mkfifo.status, 0, mkfifo.stderr || "mkfifo failed");
+    const fifoRead = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `import { readTokenStore } from ${JSON.stringify(new URL("../../lib/token-store.js", import.meta.url).href)};
+try { readTokenStore(${JSON.stringify(fifoPath)}); }
+catch (err) { process.stderr.write(err.message); process.exit(2); }`,
+      ],
+      { encoding: "utf8", timeout: 1_000 }
+    );
+    const fifoReadError = /** @type {NodeJS.ErrnoException | undefined} */ (fifoRead.error);
+    assert.notEqual(fifoReadError?.code, "ETIMEDOUT", "reading a FIFO credential path must not block");
+    assert.equal(fifoRead.status, 2, fifoRead.stderr);
+    assert.match(fifoRead.stderr, /is not a regular file/);
   });
 });
 

@@ -14,8 +14,9 @@
 
 ### Fixed
 
-- Reject Control base URLs containing query strings or fragments instead of
-  appending command paths into the wrong URL component.
+- Reject Control base URLs containing embedded credentials, query strings, or
+  fragments instead of risking credential disclosure or appending command paths
+  into the wrong URL component.
 - Keep `wdl config explain` usable when credential resolution needs the token
   store but finds it malformed, unreadable, or unsafe by reporting
   `tokenStore.error` alongside the remaining provenance; fully covered
@@ -30,7 +31,7 @@
 - Require confirmation for `wdl delete version` and reject its unsupported
   `--dry-run` flag instead of silently performing the deletion.
 - Reject non-file or symlink credential paths on read, and fail closed when
-  POSIX token-store directory or file permissions are unsafe.
+  POSIX token-store file ownership or directory/file permissions are unsafe.
 - Tighten local HTTP classification: recognize case-insensitive `localhost` and
   `.test` hosts plus the full `127.0.0.0/8` range as local targets, but treat
   `.local` as a network/mDNS host. Bare `.local` hosts default to HTTPS except

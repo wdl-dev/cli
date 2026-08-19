@@ -32,10 +32,12 @@ It is command-owned: `wdl token` rewrites it canonically (default first, then
 sorted, quoted sections), so hand-edit a project `.env` for project-specific
 values instead. The file is written with `0600` permissions. Reads reject a
 credentials path that is not a regular, non-symlink file. On POSIX, they also
-fail closed unless the containing directory is not group/world-writable and the
-file is inaccessible to group and other users. Repair a trusted store with
-`chmod 700 <dir>` and `chmod 600 <file>`; do not relax these checks for a shared
-store.
+fail closed unless the file is owned by the current user, the containing
+directory is not group/world-writable, and the file is inaccessible to group and
+other users. If a trusted store has the wrong owner, use `chown <user> <file>`
+from an administrative account, or delete it and recreate the entries with
+`wdl token set`. Then apply `chmod 700 <dir>` and `chmod 600 <file>`; do not
+relax these checks for a shared store.
 
 ## Commands
 

@@ -19,7 +19,7 @@ ADMIN_TOKEN="<token>"
 LABEL="production"
 ```
 
-它由命令独占：`wdl token` 会 canonical 重写整个文件（默认在前，然后排序、加引号的各段），所以项目专属的值请手编项目 `.env`。文件以 `0600` 权限写入。读取时会拒绝非普通文件或 symlink 的 credentials 路径；在 POSIX 上还会 fail closed：所在目录不能 group/world-writable，且 group/other 用户不可访问该文件。可信 store 可用 `chmod 700 <dir>` 和 `chmod 600 <file>` 修复；不要为了共享 store 放宽这些检查。
+它由命令独占：`wdl token` 会 canonical 重写整个文件（默认在前，然后排序、加引号的各段），所以项目专属的值请手编项目 `.env`。文件以 `0600` 权限写入。读取时会拒绝非普通文件或 symlink 的 credentials 路径；在 POSIX 上还会 fail closed：文件必须属于当前用户，所在目录不能 group/world-writable，且 group/other 用户不可访问该文件。如果可信 store 的 owner 错误，请由管理员执行 `chown <user> <file>`，或删除后用 `wdl token set` 重建各条目；然后用 `chmod 700 <dir>` 和 `chmod 600 <file>` 修复权限。不要为了共享 store 放宽这些检查。
 
 ## 命令
 

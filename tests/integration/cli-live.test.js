@@ -538,7 +538,7 @@ test(
         assert.ok(app.versions.includes(app.activeVersion));
         const oldVersion = app.versions.find((version) => version && version !== app.activeVersion);
         assert.ok(oldVersion, `second deploy did not leave an old version: ${app.versions.join(", ")}`);
-        runJson(["delete", "version", appWorker, oldVersion, "--json"], { env: storeEnv });
+        runJson(["delete", "version", appWorker, oldVersion, "--yes", "--json"], { env: storeEnv });
         runJson(["delete", "worker", appWorker, "--dry-run", "--json"], { env: storeEnv });
       });
 

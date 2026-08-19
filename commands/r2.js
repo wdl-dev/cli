@@ -4,7 +4,15 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { LONG_CONTROL_TIMEOUT_MS, UNLIMITED_CONTROL_BODY_BYTES } from "../lib/control-fetch.js";
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
+import {
+  CliError,
+  defineCliOption,
+  formatHelp,
+  isMain,
+  normalizePageLimit,
+  optionHelp,
+  unexpectedArgument,
+} from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
 import { escapeTerminalText, writeResult, writeStatusLine } from "../lib/output.js";
 import { formatBucketList, formatObjectHead, formatObjectList } from "../lib/r2-format.js";
@@ -66,7 +74,7 @@ async function runR2({ values, positionals, context: baseContext }) {
     const { headers } = context.resolveControl();
     const url = withQuery(context.nsUrl("r2", "buckets"), {
       cursor: values.cursor,
-      limit: normalizeListLimit(values.limit),
+      limit: normalizePageLimit(values.limit, "r2 --limit"),
     });
     const body = /** @type {Parameters<typeof formatBucketList>[0]} */ (
       await context.fetchJson(url, { headers }, "list R2 buckets")
@@ -83,7 +91,7 @@ async function runR2({ values, positionals, context: baseContext }) {
       prefix: values.prefix,
       delimiter: values.delimiter,
       cursor: values.cursor,
-      limit: normalizeListLimit(values.limit),
+      limit: normalizePageLimit(values.limit, "r2 --limit"),
     });
     const body = /** @type {Parameters<typeof formatObjectList>[0]} */ (
       await context.fetchJson(url, { headers }, "list R2 objects")
@@ -197,19 +205,6 @@ function requireR2ObjectKey(key) {
     throw new CliError("R2 object key is required");
   }
   return String(key);
-}
-
-/**
- * @param {string | undefined} limit
- * @returns {string | undefined}
- */
-function normalizeListLimit(limit) {
-  if (limit == null || limit === "") return undefined;
-  const n = Number(limit);
-  if (!Number.isInteger(n) || n < 1 || n > 1000) {
-    throw new CliError("r2 --limit must be an integer in [1, 1000]");
-  }
-  return String(n);
 }
 
 /** @param {string} key */

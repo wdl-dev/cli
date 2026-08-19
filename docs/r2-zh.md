@@ -106,6 +106,8 @@ wdl r2 objects delete <bucket> <key> --yes  # 破坏性 —— 先确认
 
 `wdl r2 objects get` 会写出原始 object bytes。需要 stream bytes 时请 pipe 或重定向 stdout；在交互终端中请使用 `--out <path>`。
 
+`--out` 接受项目目录外的显式路径，当前沿用普通覆盖语义：已有文件会被替换，symlink 会跟随到目标。下载前请核对目标路径。
+
 列表被截断时输出会带 `Next cursor: <c>`；把它传给下一次 `--cursor` 继续翻页（`wdl r2 buckets list` 同样支持 `--cursor` / `--limit`，其中 `--limit` 必须是 1..1000）：
 
 ```bash

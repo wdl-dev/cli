@@ -110,13 +110,17 @@ namespaces, such as `[acme]`, or opaque operator-reserved sections shaped like
 `[__name__]`. Tenant Wrangler config still uses normal tenant namespace grammar
 unless your operator explicitly gave you such a namespace token. Do not put
 `__name__`-shaped names in `[[services]].ns`, `allowed_callers`, or command
-examples without that operator instruction. Bare production control hosts such
-as `api.wdl.dev` default to `https://`; bare local-dev hosts such as
-`localhost:8080` or `*.test:8080` default to `http://`. Any bare `:8080` control
-URL is treated as local HTTP. Include an explicit scheme when you need to force
-a different protocol. If no namespace resolves, section values are skipped and
-the command will fail normally if it needs a namespace or token. Pass `--ns`
-when you want to override the default for one command.
+examples without that operator instruction. A bare production host such as
+`api.wdl.dev` defaults to `https://`; loopback and reserved `*.test` hosts
+default to `http://`. The existing bare `:8080` exception also defaults to HTTP
+on any host, including `.local`. Outside that exception, `.local` is a
+network/mDNS suffix rather than loopback, so its bare hosts default to HTTPS.
+Every HTTP `.local` target emits the plaintext-token warning. Include an
+explicit scheme when you need to force a different protocol. A control URL may
+include a path prefix, but query strings and fragments are rejected because
+commands append endpoint paths to this base. If no namespace resolves, section
+values are skipped and the command will fail normally if it needs a namespace or
+token. Pass `--ns` when you want to override the default for one command.
 
 `CONTROL_CONNECT_HOST` is a local-dev / debug override: it changes the TCP
 target the request connects to while the HTTP Host header and TLS SNI keep
@@ -135,7 +139,9 @@ history or a project file). The store is the lowest-precedence layer — flags,
 shell env, and a project `.env` still win — and `wdl token list` /
 `wdl token rm` manage it. The first stored namespace becomes the default (a base
 `WDL_NS`, like a project `.env`'s), so commands run without `--ns`;
-`wdl token use <ns>` switches it. See [token.md](./docs/token.md).
+`wdl token use <ns>` switches it. The CLI rejects a symlink/non-file credentials
+path. On POSIX, it also rejects a store in a group/world-writable directory or a
+file accessible to group/other users. See [token.md](./docs/token.md).
 
 Because `wdl ai`, `wdl secret`, and `wdl token` can receive credentials, they
 redact invalid argument details. If a string option appears before the complete
@@ -153,10 +159,16 @@ never reads the store — a resolution opt-out for less-trusted projects or CI,
 not protection for the file itself.
 
 Use `wdl config explain` to inspect the final namespace, control URL, masked
-token, and where each value came from. Use `wdl whoami` to call control-plane
-`/whoami` and display the authenticated principal, token id, platform version,
-minimum supported CLI version, and URL hints. Use `wdl doctor` for local
-readiness checks covering Node.js, wdl-cli, Wrangler, config presence, resolved
+token, and where each value came from. If resolution needs the token store and
+that read finds it malformed, unreadable, or unsafe, this diagnostic still exits
+successfully with the remaining flag/shell/`.env` provenance and reports the
+failure in a human `tokenStore` block or JSON `tokenStore.error`; operating
+commands still fail closed when they need that store. When higher-precedence
+sources already cover the namespace, control URL, and token, the store remains
+unread and is not diagnosed. Use `wdl whoami` to call control-plane `/whoami`
+and display the authenticated principal, token id, platform version, minimum
+supported CLI version, and URL hints. Use `wdl doctor` for local readiness
+checks covering Node.js, wdl-cli, Wrangler, config presence, resolved
 credentials, and `/whoami` reachability. Add `--strict` when using it as a CI
 gate; the command still prints the checks, then exits non-zero if any check
 fails. `doctor` can detect token validity, principal namespace, platform
@@ -311,9 +323,11 @@ and trigger the request after the tail is connected.
 
 The tail stream is best-effort live debugging, not audit history. Under high
 traffic or a slow terminal connection, some middle events can be skipped.
-Oversized console or exception events are dropped whole and reported as small
-warning events instead of being truncated. Use the normal log platform your
-operator provides for incident reconstruction and full payloads.
+Control-side oversized console or exception events are dropped whole and
+reported as small warning events instead of being truncated. Independently, the
+CLI terminates the tail session if an oversized SSE event's assembled data
+exceeds 4 MiB. Use the normal log platform your operator provides for incident
+reconstruction and full payloads.
 
 Control may close long-running tail sessions when the client stops reading
 (`session_idle`, about 15s) or when the session reaches its maximum lifetime
@@ -557,6 +571,10 @@ wdl r2 objects head uploads images/logo.png
 wdl r2 objects get uploads images/logo.png --out logo.png
 wdl r2 objects delete uploads images/logo.png --yes
 ```
+
+`--out` accepts an explicit filesystem path outside the project. It currently
+uses normal overwrite semantics: an existing file is replaced, and a symlink
+target is followed. Verify the destination before downloading.
 
 See `examples/inspection-demo` for a combined R2 + D1 + KV + Assets example.
 
@@ -835,6 +853,10 @@ wdl workflows resume api orders order-123
 wdl workflows restart api orders order-123 --yes
 wdl workflows terminate api orders order-123 --yes
 ```
+
+`--limit` and `--step-limit` accept integers from 1 through 1000 and are
+rejected locally outside that range. `--step-limit` may be used only with
+`--include-steps`.
 
 `wdl workflows list` marks definitions absent from the active Worker version as
 `retired=yes`. Existing instances remain inspectable and may be terminated, but
@@ -1264,6 +1286,10 @@ Delete a non-live version:
 wdl delete version hello v1
 ```
 
+Version deletion asks for confirmation and has no dry-run endpoint. Inspect the
+retained version first; automation may pass `--yes` only after an independent
+safety check. Passing `--dry-run` is rejected rather than ignored.
+
 Preview deleting a whole Worker:
 
 ```bash
@@ -1276,11 +1302,11 @@ Delete after confirming:
 wdl delete worker hello
 ```
 
-`wdl delete worker` asks for confirmation by default. Use `--dry-run` first to
-preview the affected active version, retained versions, routes, worker secrets,
-workflow definitions, queue consumers, and asset cleanup. `wdl workers` reports
-`workflow-defs=yes` even for entries that have no deployed version. When an
-older control does not report this field, the CLI displays
+`wdl delete worker` also asks for confirmation by default. Use `--dry-run` first
+to preview the affected active version, retained versions, routes, worker
+secrets, workflow definitions, queue consumers, and asset cleanup. `wdl workers`
+reports `workflow-defs=yes` even for entries that have no deployed version. When
+an older control does not report this field, the CLI displays
 `workflow-defs=unknown`; that does not mean no definitions exist. In automation,
 pass `--yes` only after a separate safety check.
 

@@ -53,6 +53,26 @@ test("probeWranglerVersion returns one parsed version shape for deploy and docto
   });
 });
 
+test("checkWranglerVersion accepts only the supported v4 major", () => {
+  const base = {
+    cwd: "/tmp/project",
+    env: {},
+    wrangler: { command: "wrangler", args: [] },
+  };
+  assert.deepEqual(checkWranglerVersion({ ...base, execFile: versionExecFile("4.123.0") }), {
+    version: "4.123.0",
+    major: 4,
+  });
+  assert.throws(
+    () => checkWranglerVersion({ ...base, execFile: versionExecFile("3.99.0") }),
+    /requires Wrangler v4 .* found v3/
+  );
+  assert.throws(
+    () => checkWranglerVersion({ ...base, execFile: versionExecFile("5.0.0") }),
+    /requires Wrangler v4 .* found v5/
+  );
+});
+
 test("checkWranglerVersion escapes unparsable version diagnostics", () => {
   const execFile = /** @type {typeof import("node:child_process").execFileSync} */ (
     /** @type {unknown} */ (() => `bad\u009b31m\nFORGED\rBAD`)
@@ -215,8 +235,9 @@ test("resolveWranglerCommand only uses npx when explicitly allowed", () => {
       absProject: "/project",
       env: { WDL_ALLOW_NPX_WRANGLER: "1" },
       packageDirs: [],
+      platform: "linux",
     }),
-    { command: "npx", args: ["--yes", "wrangler"], source: "npx" }
+    { command: "npx", args: ["--yes", "wrangler@^4"], source: "npx" }
   );
 });
 
@@ -310,7 +331,10 @@ test("resolveWranglerCommand on win32 fails loudly when only a bare PATH .cmd sh
         }),
       /No runnable wrangler found/
     );
-    // The npx opt-in still provides a working escape hatch.
+    const npxScript = path.join(dir, "node_modules", "npm", "bin", "npx-cli.js");
+    mkdirSync(path.dirname(npxScript), { recursive: true });
+    writeFileSync(npxScript, "");
+    // The npx opt-in runs npm's JS entry instead of its blocked .cmd shim.
     assert.deepEqual(
       resolveWranglerCommand({
         absProject: "/project",
@@ -318,7 +342,47 @@ test("resolveWranglerCommand on win32 fails loudly when only a bare PATH .cmd sh
         packageDirs: [],
         platform: "win32",
       }),
-      { command: "npx", args: ["--yes", "wrangler"], source: "npx" }
+      {
+        command: process.execPath,
+        args: [npxScript, "--yes", "wrangler@^4"],
+        source: "npx",
+      }
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveWranglerCommand on win32 rejects an npx opt-in without a runnable JS entry", () => {
+  assert.throws(
+    () =>
+      resolveWranglerCommand({
+        absProject: "/project",
+        env: { PATH: "", WDL_ALLOW_NPX_WRANGLER: "1" },
+        packageDirs: [],
+        platform: "win32",
+      }),
+    /no runnable npx installation was found/
+  );
+});
+
+test("resolveWranglerCommand on win32 runs an executable npx shim directly", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-wrangler-win32-npx-exe-"));
+  try {
+    const executable = path.join(dir, "npx.exe");
+    writeFileSync(executable, "");
+    assert.deepEqual(
+      resolveWranglerCommand({
+        absProject: "/project",
+        env: { PATH: dir, WDL_ALLOW_NPX_WRANGLER: "1" },
+        packageDirs: [],
+        platform: "win32",
+      }),
+      {
+        command: executable,
+        args: ["--yes", "wrangler@^4"],
+        source: "npx",
+      }
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -1,5 +1,13 @@
 import { defineCommand } from "../lib/command.js";
-import { CliError, defineCliOption, formatHelp, isMain, optionHelp, unexpectedArgument } from "../lib/common.js";
+import {
+  CliError,
+  defineCliOption,
+  formatHelp,
+  isMain,
+  normalizePageLimit,
+  optionHelp,
+  unexpectedArgument,
+} from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
 import { escapeTerminalText, writeJsonOr, writeResult, writeStatusLine } from "../lib/output.js";
 import { formatInstanceList, formatInstanceStatus, formatWorkflowList } from "../lib/workflows-format.js";
@@ -59,9 +67,10 @@ async function runWorkflows({ values, positionals, context }) {
 
   if (subcommand === "instances") {
     const { worker, workflow } = requireWorkflowRef(positionals, "workflows instances");
+    const limit = normalizePageLimit(values.limit, "workflows --limit");
     const { headers } = context.resolveControl();
     const url = new URL(context.nsUrl("workflows", worker, workflow, "instances"));
-    if (values.limit) url.searchParams.set("limit", values.limit);
+    if (limit) url.searchParams.set("limit", limit);
     if (values.cursor) url.searchParams.set("cursor", values.cursor);
     const body =
       /** @type {{ instances?: import("../lib/workflows-format.js").WorkflowInstance[], cursor?: string }} */ (
@@ -76,10 +85,11 @@ async function runWorkflows({ values, positionals, context }) {
     if (values["step-limit"] && !values["include-steps"]) {
       throw new CliError("workflows status --step-limit requires --include-steps");
     }
+    const stepLimit = normalizePageLimit(values["step-limit"], "workflows --step-limit");
     const { headers } = context.resolveControl();
     const url = new URL(context.nsUrl("workflows", worker, workflow, "instances", instanceId));
     if (values["include-steps"]) url.searchParams.set("includeSteps", "true");
-    if (values["step-limit"]) url.searchParams.set("stepLimit", values["step-limit"]);
+    if (stepLimit) url.searchParams.set("stepLimit", stepLimit);
     const body = /** @type {Parameters<typeof formatInstanceStatus>[0]} */ (
       await context.fetchJson(url.href, { headers }, "get workflow instance status")
     );

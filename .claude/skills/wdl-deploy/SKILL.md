@@ -1,6 +1,6 @@
 ---
 name: wdl-deploy
-description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, workers, delete, d1, r2, ai, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows / AI bindings, manage D1 / R2 / AI providers / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
+description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, token, workers, delete, d1, r2, ai, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, manage the local WDL token store, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows / AI bindings, manage D1 / R2 / AI providers / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
 ---
 
 # WDL CLI deploy skill
@@ -93,6 +93,11 @@ stubs as opaque capabilities, but the receiver cannot rewrite their
 host-authored caller properties. Keep delegated stubs in memory; long-term
 irrevocable stub storage is unsupported.
 
+`CONTROL_URL` may include a path prefix, but query strings and fragments are
+rejected. A bare `.local` host defaults to HTTPS because mDNS is not loopback,
+except that the existing bare `:8080` rule still selects HTTP on any host. Every
+HTTP `.local` target emits the plaintext-token warning.
+
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
 overrides the TCP target the admin token connects to (Host header + TLS SNI
 still track `CONTROL_URL`), and a stale value in a CI or production shell could
@@ -137,6 +142,10 @@ metadata and its credential and has no dry-run. Run `wdl config explain` first
 to confirm the resolved namespace, inspect the target with
 `wdl ai providers get <provider> --ns <namespace>`, and use the same explicit
 `--ns` for deletion. Never add `--yes` without user confirmation.
+
+`wdl delete version` also requires confirmation and has no dry-run endpoint.
+Inspect the retained version first; never add `--yes` without a separate safety
+check and user confirmation.
 
 `templates/AGENTS.md` is the generic agent entrypoint that `wdl init` copies
 into every new project. It points at the same `docs/` through

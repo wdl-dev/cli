@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Changed
+
+- Accept only Wrangler v4.
+- Validate Workflow page limits as integers in `1..1000` before contacting
+  Control.
+- List `wdl token` in deploy-skill discovery so agent token-store tasks load the
+  repository guidance.
+- Document that R2 `--out` accepts arbitrary filesystem destinations and uses
+  normal overwrite and symlink-following semantics.
+
+### Fixed
+
+- Reject Control base URLs containing query strings or fragments instead of
+  appending command paths into the wrong URL component.
+- Keep `wdl config explain` usable when credential resolution needs the token
+  store but finds it malformed, unreadable, or unsafe by reporting
+  `tokenStore.error` alongside the remaining provenance; fully covered
+  higher-precedence values continue to leave the store unread.
+- Make the opt-in `WDL_ALLOW_NPX_WRANGLER=1` fallback runnable on Windows by
+  using `npx.exe` or npm's `npx-cli.js` instead of the blocked `npx.cmd` shim.
+- Make stable release tags fail before publishing when their changelog section
+  is missing.
+
+### Security
+
+- Require confirmation for `wdl delete version` and reject its unsupported
+  `--dry-run` flag instead of silently performing the deletion.
+- Reject non-file or symlink credential paths on read, and fail closed when
+  POSIX token-store directory or file permissions are unsafe.
+- Tighten local HTTP classification: recognize case-insensitive `localhost` and
+  `.test` hosts plus the full `127.0.0.0/8` range as local targets, but treat
+  `.local` as a network/mDNS host. Bare `.local` hosts default to HTTPS except
+  for the existing `:8080` rule, and every HTTP `.local` target warns before
+  sending the token.
+- Fail `wdl tail` when cumulative SSE event data exceeds 4 MiB.
+- Pin official GitHub Actions to fixed commit SHAs in CI and release jobs.
+
 ## 1.8.0
 
 ### Added

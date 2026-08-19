@@ -30,7 +30,12 @@ LABEL="production"
 
 It is command-owned: `wdl token` rewrites it canonically (default first, then
 sorted, quoted sections), so hand-edit a project `.env` for project-specific
-values instead. The file is written with `0600` permissions.
+values instead. The file is written with `0600` permissions. Reads reject a
+credentials path that is not a regular, non-symlink file. On POSIX, they also
+fail closed unless the containing directory is not group/world-writable and the
+file is inaccessible to group and other users. Repair a trusted store with
+`chmod 700 <dir>` and `chmod 600 <file>`; do not relax these checks for a shared
+store.
 
 ## Commands
 
@@ -86,16 +91,24 @@ So with a stored default you can run `wdl deploy`, `wdl doctor`, etc. without
 namespace comes from the store default, `wdl config explain` shows the source as
 `token store default`.
 
+If resolution needs the store and that read finds it malformed, unreadable, or
+unsafe, `wdl config explain` excludes it, exits successfully with the remaining
+flag/shell/`.env` provenance, and reports the failure in a human `tokenStore`
+block or JSON `tokenStore.error`. This diagnostic fallback does not weaken
+operating commands: they still fail closed when they need the store. When
+higher-precedence sources already cover the namespace, control URL, and token,
+the store remains unread and is not diagnosed.
+
 The `wdl token` subcommands are the exception to that chain: `set`, `use`, and
 `rm` mutate the store, so they take the namespace from an explicit `--ns` (or
 `use`'s positional) only — never the ambient `WDL_NS` — so a stray shell value
 can't write, switch, or delete the wrong entry.
 
-The store is trusted (it lives in your home directory and you wrote it via
-`wdl token`, so its token and endpoint are same-source). A project `.env` is
-not: a `.env` that supplies a control endpoint without also supplying the token
-is still dropped, so an untrusted project directory can never redirect your
-stored token to a host it chose.
+A store that passes the path and permission checks above is trusted: its token
+and endpoint are same-source in a protected per-user config location. A project
+`.env` is not: a `.env` that supplies a control endpoint without also supplying
+the token is still dropped, so an untrusted project directory can never redirect
+your stored token to a host it chose.
 
 ## Security: deploy runs project code as you
 

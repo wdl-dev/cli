@@ -19,7 +19,7 @@ ADMIN_TOKEN="<token>"
 LABEL="production"
 ```
 
-它由命令独占：`wdl token` 会 canonical 重写整个文件（默认在前，然后排序、加引号的各段），所以项目专属的值请手编项目 `.env`。文件以 `0600` 权限写入。
+它由命令独占：`wdl token` 会 canonical 重写整个文件（默认在前，然后排序、加引号的各段），所以项目专属的值请手编项目 `.env`。文件以 `0600` 权限写入。读取时会拒绝非普通文件或 symlink 的 credentials 路径；在 POSIX 上还会 fail closed：所在目录不能 group/world-writable，且 group/other 用户不可访问该文件。可信 store 可用 `chmod 700 <dir>` 和 `chmod 600 <file>` 修复；不要为了共享 store 放宽这些检查。
 
 ## 命令
 
@@ -63,9 +63,11 @@ CLI 标志 > shell/CI env > 项目 ./.env > 全局 token 存储 > 未配置（�
 
 所以设了存储默认后，`wdl deploy`、`wdl doctor` 等不带 `--ns` 也能跑；要换别的就传 `--ns`（或 `wdl token use <ns>`）。当 namespace 来自存储默认时，`wdl config explain` 把来源显示为 `token store default`。
 
+如果解析需要读取 store，而该次读取发现它损坏、无法读取或未通过安全检查，`wdl config explain` 会排除它，以成功状态展示剩余 flag / shell / `.env` 来源，并在人类可读的 `tokenStore` block 或 JSON `tokenStore.error` 中报告故障。这个诊断 fallback 不会放宽实际操作命令：它们需要 store 时仍会 fail closed。如果更高优先级来源已经覆盖 namespace、control URL 和 token，CLI 不会读取或诊断 store。
+
 `wdl token` 子命令是这条链的例外：`set`、`use`、`rm` 会改动存储，所以它们只从显式 `--ns`（或 `use` 的位置参数）取 namespace —— 绝不取 ambient `WDL_NS` —— 以免一个游离的 shell 值写错、切错或删错条目。
 
-存储是**可信**的（它在你的 home 目录、由你经 `wdl token` 写入，token 和端点同源）。项目 `.env` **不可信**：若一个 `.env` 提供了 control 端点却没同时提供 token，该端点仍会被丢弃——这样不可信的项目目录永远无法把你存的 token 重定向到它指定的主机。
+通过上方路径和权限检查的存储才被视为**可信**：token 和端点同源，存放在受保护的用户级配置目录中。项目 `.env` **不可信**：若一个 `.env` 提供了 control 端点却没同时提供 token，该端点仍会被丢弃——这样不可信的项目目录永远无法把你存的 token 重定向到它指定的主机。
 
 ## 安全：deploy 会以你的身份运行项目代码
 

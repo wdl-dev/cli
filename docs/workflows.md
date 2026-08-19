@@ -70,6 +70,10 @@ wdl workflows restart <worker> <workflowName> <instanceId> --yes
 wdl workflows terminate <worker> <workflowName> <instanceId> --yes
 ```
 
+`--limit` and `--step-limit` accept integers from 1 through 1000. The CLI
+rejects values outside that range before contacting Control; `--step-limit`
+applies only with `--include-steps`.
+
 `restart` and `terminate` are destructive instance lifecycle operations; pass
 `--yes` only after independently confirming the namespace, worker, workflow, and
 instance id.

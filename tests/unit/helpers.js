@@ -13,6 +13,8 @@ export const POSIX_ONLY = {
   skip: process.platform === "win32" ? "POSIX-only filesystem behavior" : false,
 };
 
+export const INVALID_PAGE_LIMITS = ["0", "1001", "1.5", "many"];
+
 // The uid does not decide this — the effective uid, CAP_DAC_OVERRIDE, and
 // mode-ignoring mounts do. Ask tmpdir() what it actually does.
 function modeBitsBlockReads() {

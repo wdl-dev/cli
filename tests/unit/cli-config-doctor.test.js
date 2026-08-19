@@ -189,6 +189,31 @@ test("config explain prints final values and sources", async () => {
   });
 });
 
+test("config explain reports a malformed token store without hiding resolved provenance", async () => {
+  await withTempDir(async (cwd) => {
+    const xdg = path.join(cwd, "xdg");
+    const storePath = tokenStorePath({ XDG_CONFIG_HOME: xdg });
+    mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
+    writeFileSync(storePath, '[demo]\nADMIN_TOKEN="unterminated\n', { mode: 0o600 });
+    /** @type {string[]} */
+    const lines = [];
+
+    await runConfigCommand(["explain"], {
+      cwd,
+      env: { XDG_CONFIG_HOME: xdg, CONTROL_URL: "https://ctl.example", ADMIN_TOKEN: "shell-token" },
+      /** @param {string} line */
+      stdout: (line) => lines.push(line),
+    });
+
+    const out = lines.join("\n");
+    assert.match(out, /namespace:\n {2}value: \(unset\)\n {2}source: \(unset\)/);
+    assert.match(out, /controlUrl:\n {2}value: https:\/\/ctl\.example\n {2}source: CONTROL_URL env/);
+    assert.match(out, /token:\n {2}value: \*+oken\n {2}source: ADMIN_TOKEN env/);
+    assert.match(out, /tokenStore:\n {2}error: failed to parse credential store/);
+    assert.match(out, /xdg[/\\]wdl[/\\]credentials/);
+  });
+});
+
 test("bin does not preload .env for local diagnostic commands", async () => {
   /** @type {string[]} */
   const calls = [];
@@ -318,7 +343,7 @@ test("doctor reports local checks plus remote whoami", async () => {
     let childEnv;
     /** @type {ControlCall[]} */
     const calls = [];
-    const mockWranglerVersion = "9.8.7";
+    const mockWranglerVersion = "4.98.7";
     /**
      * @param {string} _cmd
      * @param {readonly string[]} _args
@@ -396,8 +421,11 @@ test("doctor --strict exits non-zero when any check fails", async () => {
     );
 
     const out = lines.join("\n");
-    assert.match(out, /✗ Wrangler 3\.99\.0/);
+    assert.match(out, /✗ Wrangler\n/);
     assert.match(out, /wdl deploy requires Wrangler v4/);
+    assert.match(out, /found v3\.99\.0/);
+    assert.match(out, /found v3\.99\.0[^\n]*\n {2}source: /);
+    assert.doesNotMatch(out, /\nsource: /);
   });
 });
 
@@ -457,8 +485,8 @@ test("doctor reports a corrupt token store as a failed check", async () => {
     writeFileSync(path.join(cwd, "wrangler.jsonc"), "{}");
     const xdg = path.join(cwd, "xdg");
     const storePath = tokenStorePath({ XDG_CONFIG_HOME: xdg });
-    mkdirSync(path.dirname(storePath), { recursive: true });
-    writeFileSync(storePath, '[demo]\nADMIN_TOKEN="unterminated\n');
+    mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
+    writeFileSync(storePath, '[demo]\nADMIN_TOKEN="unterminated\n', { mode: 0o600 });
     /** @type {string[]} */
     const lines = [];
 
@@ -492,8 +520,8 @@ test("doctor reports a corrupt token store even when it blocks credential resolu
     writeFileSync(path.join(cwd, "wrangler.jsonc"), "{}");
     const xdg = path.join(cwd, "xdg");
     const storePath = tokenStorePath({ XDG_CONFIG_HOME: xdg });
-    mkdirSync(path.dirname(storePath), { recursive: true });
-    writeFileSync(storePath, '[demo]\nADMIN_TOKEN="unterminated\n');
+    mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
+    writeFileSync(storePath, '[demo]\nADMIN_TOKEN="unterminated\n', { mode: 0o600 });
     /** @type {string[]} */
     const lines = [];
 
@@ -598,7 +626,7 @@ test("doctor reports namespace mismatch from whoami", async () => {
   });
 });
 
-test("doctor flags a Wrangler major below the deploy minimum", async () => {
+test("doctor flags a Wrangler major below the supported v4 contract", async () => {
   await withTempDir(async (cwd) => {
     /** @type {string[]} */
     const lines = [];
@@ -617,8 +645,34 @@ test("doctor flags a Wrangler major below the deploy minimum", async () => {
     });
 
     const out = lines.join("\n");
-    assert.match(out, /✗ Wrangler 3\.99\.0/);
+    assert.match(out, /✗ Wrangler\n/);
     assert.match(out, /wdl deploy requires Wrangler v4/);
+    assert.match(out, /found v3\.99\.0/);
+  });
+});
+
+test("doctor flags a Wrangler major above the supported v4 contract", async () => {
+  await withTempDir(async (cwd) => {
+    /** @type {string[]} */
+    const lines = [];
+    await runDoctorCommand(["--ns", "acme", "--token", "secret-token"], {
+      cwd,
+      env: { CONTROL_URL: "https://api.wdl.dev" },
+      execFile: () => "5.0.0\n",
+      /** @param {string} line */
+      stdout: (line) => lines.push(line),
+      controlFetch: async () =>
+        response({
+          ok: true,
+          principal: { kind: "ns", ns: "acme" },
+          minCliVersion: "0.7.1",
+        }),
+    });
+
+    const out = lines.join("\n");
+    assert.match(out, /✗ Wrangler\n/);
+    assert.match(out, /wdl deploy requires Wrangler v4/);
+    assert.match(out, /found v5\.0\.0/);
   });
 });
 

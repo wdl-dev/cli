@@ -1,8 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { runAiCommand } from "../../commands/ai.js";
+import { runD1Command } from "../../commands/d1.js";
+import { runDeleteCommand } from "../../commands/delete.js";
+import { runDeployCommand } from "../../commands/deploy.js";
+import { runR2Command } from "../../commands/r2.js";
+import { runSecretCommand } from "../../commands/secret.js";
+import { runTailCommand } from "../../commands/tail.js";
+import { runWorkersCommand } from "../../commands/workers.js";
+import { runWorkflowsCommand } from "../../commands/workflows.js";
 import { defineCommand } from "../../lib/command.js";
 import { CliError, defineCliOption } from "../../lib/common.js";
-import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
+import { ESC, assertNoRawTerminalControls, mockDeps, response } from "./helpers.js";
 
 /** @typedef {Parameters<typeof defineCommand>[0]} CommandSpec */
 /** @typedef {import("../../lib/command.js").CommandContext} CommandContext */
@@ -11,6 +20,37 @@ import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
 // states the fields it exercises.
 /** @param {Omit<CommandSpec, "name" | "summary"> & { name?: string, summary?: string }} spec */
 const define = (spec) => defineCommand({ name: "t", summary: "t", ...spec });
+
+test("namespace-required commands explain missing namespaces before contacting Control", async () => {
+  for (const { name, run, args } of [
+    { name: "ai", run: runAiCommand, args: ["models"] },
+    { name: "d1", run: runD1Command, args: ["list"] },
+    { name: "delete", run: runDeleteCommand, args: ["worker", "api"] },
+    { name: "deploy", run: runDeployCommand, args: ["."] },
+    { name: "r2", run: runR2Command, args: ["buckets", "list"] },
+    { name: "secret", run: runSecretCommand, args: ["list", "--scope", "ns"] },
+    { name: "tail", run: runTailCommand, args: ["api"] },
+    { name: "workers", run: runWorkersCommand, args: [] },
+    { name: "workflows", run: runWorkflowsCommand, args: ["list"] },
+  ]) {
+    const { calls, lines, deps } = mockDeps({}, {});
+    for (const flags of [[], ["--ns", ""]]) {
+      await assert.rejects(
+        () => run([...args, ...flags], deps),
+        (err) => {
+          assert(err instanceof CliError);
+          assert.match(err.message, /Missing namespace/);
+          assert.match(err.message, /--ns <namespace>/);
+          assert.match(err.message, /WDL_NS/);
+          return true;
+        },
+        name
+      );
+    }
+    assert.deepEqual(calls, [], name);
+    assert.deepEqual(lines, [], name);
+  }
+});
 
 test("defineCommand assembles flag presets and custom options", async () => {
   let seen = /** @type {{ values: Record<string, unknown>, positionals: string[] }} */ (/** @type {unknown} */ (null));

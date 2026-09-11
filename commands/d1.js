@@ -22,6 +22,7 @@ import {
   formatHelp,
   isMain,
   isPathInside,
+  missingNamespaceError,
   optionHelp,
   unexpectedArgument,
 } from "../lib/common.js";
@@ -74,7 +75,8 @@ async function runD1({ values, positionals, context }) {
 
   const [subcommand, firstArg] = positionals;
   const ns = context.resolveNamespace();
-  if (!subcommand || !ns) throw new CliError(usageText());
+  if (!subcommand) throw new CliError(usageText());
+  if (!ns) throw missingNamespaceError();
 
   if (subcommand === "migrations") {
     const action = firstArg;

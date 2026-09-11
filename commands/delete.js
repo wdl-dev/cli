@@ -5,6 +5,7 @@ import {
   defineHiddenCliOption,
   formatHelp,
   isMain,
+  missingNamespaceError,
   optionHelp,
   unexpectedArgument,
 } from "../lib/common.js";
@@ -41,9 +42,10 @@ async function runDelete({ values, positionals, context }) {
 
   const [subcommand, firstArg, secondArg] = positionals;
   const ns = context.resolveNamespace();
-  if (!subcommand || !ns) {
+  if (!subcommand) {
     throw new CliError(usageText());
   }
+  if (!ns) throw missingNamespaceError();
 
   if (subcommand !== "version" && subcommand !== "worker") {
     throw new CliError(`unknown subcommand: ${escapeTerminalText(subcommand)}\n${usageText()}`);

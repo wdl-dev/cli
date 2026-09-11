@@ -9,6 +9,7 @@ import {
   defineCliOption,
   formatHelp,
   isMain,
+  missingNamespaceError,
   normalizePageLimit,
   optionHelp,
   unexpectedArgument,
@@ -62,7 +63,8 @@ async function runR2({ values, positionals, context: baseContext }) {
   const [group, action, bucket, key] = positionals;
   const extraArg = positionals[4];
   const ns = context.resolveNamespace();
-  if (!group || !action || !ns) throw new CliError(usageText());
+  if (!group || !action) throw new CliError(usageText());
+  if (!ns) throw missingNamespaceError();
 
   // Object keys can contain "/" and must reject . / .. segments, so they use
   // encodeR2KeyPath rather than nsUrl's per-segment encodePath.

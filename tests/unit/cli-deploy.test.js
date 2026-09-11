@@ -20,7 +20,7 @@ import { ESC, assertNoRawTerminalControls, response } from "./helpers.js";
  * pipeline sets is present, so reads here are unconditional.
  * @typedef {object} ExecFileOpts
  * @property {string} [cwd]
- * @property {"inherit" | readonly ("ignore" | "pipe")[]} [stdio]
+ * @property {readonly ("ignore" | "pipe" | "inherit")[]} [stdio]
  * @property {string} [encoding]
  * @property {number} [maxBuffer]
  * @property {NodeJS.ProcessEnv} env
@@ -144,6 +144,45 @@ test("runDeployCommand rejects unsupported event triggers before running Wrangle
   assert.equal(execCalled, false);
 });
 
+test("runDeployCommand rejects unknown Workflow fields before bundling the selected config", async (t) => {
+  for (const envName of [null, "production"]) {
+    for (const [key, value] of [
+      ["schedules", '"*/5 * * * *"'],
+      ["limits", "{ steps = 5 }"],
+      ["default_retention", '{ success_retention = "3 days" }'],
+      ["concurrency", "{ limit = 10 }"],
+    ]) {
+      const dir = createDeployProject(
+        t,
+        [
+          'name = "api"',
+          'main = "src/index.js"',
+          `[[${envName ? `env.${envName}.` : ""}workflows]]`,
+          'name = "orders"',
+          'binding = "ORDERS"',
+          'class_name = "OrderWorkflow"',
+          `${key} = ${value}`,
+        ].join("\n")
+      );
+      let execCalled = false;
+      const args = [dir, "--ns", "demo", "--control-url", "http://ctl.test"];
+      if (envName) args.push("--env", envName);
+      await assert.rejects(
+        () =>
+          runDeployCommand(args, {
+            env: { ADMIN_TOKEN: "tok" },
+            execFile: () => {
+              execCalled = true;
+              throw new Error("execFile should not be called");
+            },
+          }),
+        new RegExp(`unknown field\\(s\\): ${key}`)
+      );
+      assert.equal(execCalled, false);
+    }
+  }
+});
+
 test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-"));
   const dir = path.join(parent, "sub");
@@ -245,6 +284,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
     assert.deepEqual(execCalls[0].opts.stdio, ["ignore", "pipe", "pipe"]);
     assert.equal(execCalls[0].opts.encoding, "utf8");
     assert.equal(execCalls[0].opts.env.CLOUDFLARE_API_TOKEN, "dry-run-dummy");
+    assert.equal(execCalls[0].opts.env.WRANGLER_NO_SKILLS_UPDATE_PROMPTS, "true");
     assert.ok(execCalls[1].args.includes("deploy"));
     assert.ok(execCalls[1].args.includes("--dry-run"));
     assert.equal(execCalls[1].opts.cwd, dir);
@@ -252,6 +292,7 @@ test("runDeployCommand resolves cwd-relative project dir and WDL_NS fallback", a
     assert.equal(execCalls[1].opts.encoding, "utf8");
     assert.equal(execCalls[1].opts.maxBuffer, 10 * 1024 * 1024);
     assert.equal(execCalls[1].opts.env.CLOUDFLARE_API_TOKEN, "dry-run-dummy");
+    assert.equal(execCalls[1].opts.env.WRANGLER_NO_SKILLS_UPDATE_PROMPTS, "true");
 
     assert.equal(fetchCalls.length, 2);
     assert.equal(fetchCalls[0].url, "http://ctl.test/ns/demo%20space/worker/api/deploy");
@@ -1522,7 +1563,7 @@ test("packWranglerProject escapes missing entry diagnostics", async () => {
   }
 });
 
-test("runDeployCommand passes through wrangler output in verbose mode", async () => {
+test("runDeployCommand keeps verbose Wrangler output without interactive stdin", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-run-deploy-verbose-"));
   try {
     mkdirSync(path.join(dir, "src"), { recursive: true });
@@ -1553,7 +1594,8 @@ test("runDeployCommand passes through wrangler output in verbose mode", async ()
 
     assert.equal(execCalls.length, 2);
     assertWranglerVersionProbe(execCalls[0]);
-    assert.equal(execCalls[1].opts.stdio, "inherit");
+    assert.deepEqual(execCalls[1].opts.stdio, ["ignore", "inherit", "inherit"]);
+    assert.equal(execCalls[1].opts.env.WRANGLER_NO_SKILLS_UPDATE_PROMPTS, "true");
     assert.equal(Object.hasOwn(execCalls[1].opts, "encoding"), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });

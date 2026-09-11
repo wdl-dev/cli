@@ -15,6 +15,8 @@ binding = "ORDERS"
 class_name = "OrderWorkflow"
 ```
 
+WDL 的 `[[workflows]]` 只支持 `name`、`binding` 和 `class_name`。`script_name` 及其它所有字段（包括 `schedules`、`limits`、`default_retention` 和 `concurrency`）都会在打包前被拒绝，所选 environment 内的声明也一样。单个 instance 的 retention 可通过下文的 `create()` 设置。
+
 Worker 代码遵循 Cloudflare Workflows 心智模型：`WorkflowEntrypoint`、 `env.<BINDING>.create()`、`createBatch()`、`get()`、`status()`、`pause()`、 `resume()`、`restart()`、`terminate()`、`sendEvent()`、`step.do()`、 `step.sleep()`、`step.sleepUntil()`、`step.waitForEvent()`、retry、 `NonRetryableError`、same-worker DO progress callback 和 runtime-observed parallel/DAG step。
 
 如果一个 `step.do` 永久失败，本次 workflow run 会进入 terminal failure，即使用户代码 catch 了这次抛错也一样。
@@ -33,7 +35,7 @@ Worker 代码遵循 Cloudflare Workflows 心智模型：`WorkflowEntrypoint`、 
 ## CLI
 
 ```bash
-wdl workflows list
+wdl workflows list [--limit <n>] [--cursor <c>]
 wdl workflows instances <worker> <workflowName> [--limit <n>] [--cursor <c>]
 wdl workflows status <worker> <workflowName> <instanceId> --include-steps [--step-limit <n>]
 wdl workflows pause <worker> <workflowName> <instanceId>
@@ -48,7 +50,9 @@ wdl workflows terminate <worker> <workflowName> <instanceId> --yes
 
 `wdl workflows list` 会把 active Worker version 不再导出的定义标为 `retired=yes`。既有实例仍可查看和 terminate，但 restart 会返回 `workflow_not_exported`；需要先部署一个重新导出该 workflow name 的 active version。
 
-Workflows API 的语义大小限制会返回 `request_too_large`；HTTP body 解析阶段的大小限制可能返回 `request_body_too_large`。Workflows 5xx 表示平台或 backend 故障，响应体会保持通用错误摘要；底层诊断进入平台日志，不作为稳定 CLI 输出。`workflow_metadata_contention` 表示 control 读取期间 active workflow metadata 发生变化，重试命令即可。
+`workflows list` 和 `workflows instances` 都接受 `--limit` 与 `--cursor`。即使返回空页或短页，也要沿 `Next cursor` 继续，直到不再返回 cursor。Definition 只保证页内排序，不保证扫描过程中的跨页全局排序；namespace 并发变化可能让同一个 `worker`/`name` 组合在多个 definition page 中重复，收集完整视图时应按该组合去重或去掉 cursor 重新开始。Metadata 变化使 definition cursor 失效时，也应去掉 cursor 重新开始。
+
+Workflows API 的语义大小限制会返回 `request_too_large`；HTTP body 解析阶段的大小限制可能返回 `request_body_too_large`。Workflows 5xx 表示平台或 backend 故障，响应体会保持通用错误摘要；底层诊断进入平台日志，不作为稳定 CLI 输出。`workflow_metadata_contention` 表示 control 读取期间 active workflow metadata 发生变化。对于 `workflows list --cursor`，请去掉 `--cursor` 重新开始；即使 Control 返回 `Internal error`，CLI 也会补充这一提示。首次列表请求或其它 Workflow 命令可直接重试。
 
 ## 端到端示例
 

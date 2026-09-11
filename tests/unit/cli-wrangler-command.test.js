@@ -389,26 +389,30 @@ test("resolveWranglerCommand on win32 runs an executable npx shim directly", () 
   }
 });
 
-test("wranglerChildEnv scrubs control env, hides Wrangler's banner, and disables telemetry", () => {
+test("wranglerChildEnv scrubs control env and disables Wrangler prompts and telemetry", () => {
   assert.deepEqual(
-    wranglerChildEnv({
-      ADMIN_TOKEN: "secret",
-      CONTROL_CONNECT_HOST: "ctl.connect.example",
-      CONTROL_URL: "https://ctl.example",
-      WDL_NS: "tenant",
-      // Legacy alias the CLI no longer reads, but must still scrub so a stale
-      // export does not leak the control endpoint into the bundler.
-      ADMIN_URL: "https://legacy-admin.example",
-      CLOUDFLARE_API_TOKEN: "real-cloudflare-token",
-      WRANGLER_HIDE_BANNER: "false",
-      WRANGLER_SEND_METRICS: "true",
-      PATH: "/bin",
-      KEEP_ME: "ok",
-    }),
+    wranglerChildEnv(
+      Object.freeze({
+        ADMIN_TOKEN: "secret",
+        CONTROL_CONNECT_HOST: "ctl.connect.example",
+        CONTROL_URL: "https://ctl.example",
+        WDL_NS: "tenant",
+        // Legacy alias the CLI no longer reads, but must still scrub so a stale
+        // export does not leak the control endpoint into the bundler.
+        ADMIN_URL: "https://legacy-admin.example",
+        CLOUDFLARE_API_TOKEN: "real-cloudflare-token",
+        WRANGLER_HIDE_BANNER: "false",
+        WRANGLER_SEND_METRICS: "true",
+        WRANGLER_NO_SKILLS_UPDATE_PROMPTS: "false",
+        PATH: "/bin",
+        KEEP_ME: "ok",
+      })
+    ),
     {
       CLOUDFLARE_API_TOKEN: "dry-run-dummy",
       WRANGLER_HIDE_BANNER: "true",
       WRANGLER_SEND_METRICS: "false",
+      WRANGLER_NO_SKILLS_UPDATE_PROMPTS: "true",
       PATH: "/bin",
       KEEP_ME: "ok",
     }

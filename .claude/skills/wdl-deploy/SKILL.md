@@ -32,7 +32,11 @@ Open the relevant doc before answering:
 - `docs/queues.md` — `[[queues.producers]]` / `[[queues.consumers]]` config,
   queue handlers, message size and retry limits.
 - `docs/workflows.md` — `[[workflows]]` config, the WDL Workflows surface,
-  `wdl workflows` instance management.
+  `wdl workflows` definition/instance management. Both list commands accept
+  `--limit`/`--cursor`; follow continuation even after an empty page, and
+  deduplicate definition entries by worker/name across concurrent changes. On
+  `workflow_metadata_contention` during definition listing, remove `--cursor`
+  before retrying.
 - `docs/ai.md` — `[ai]` config, namespace provider/credential management,
   Responses/tools/SSE, OpenAI SDK use, and WebSocket inference.
 - `docs/kv.md` — `[[kv_namespaces]]`, immediately visible writes, batch reads,
@@ -74,24 +78,34 @@ Wrangler's temporary bundle config. `[ai]` is standard Wrangler configuration
 and stays in that config for Wrangler validation. If a selected named
 environment omits its own `ai`, the CLI warns that the top-level binding is not
 inherited; WDL independently maps its `binding` into the WDL manifest. Other
-fields retain their existing Wrangler passthrough behavior. Specific nested
-fields that WDL cannot represent are rejected rather than silently dropped,
-including Cloudflare Artifacts `triggers.events` subscriptions and R2
-`local_dev.experimental_s3_credentials`. `[wdl] session_policy` accepts
-`preserve` or `restart`. The default `preserve` leaves loaded Durable Object
-facets on the version that built them until the host actor restarts or the facet
-is deleted, and keeps established WebSockets draining while their backend stays
-healthy. `restart` closes the worker's open WebSockets with code `1012` at
-promotion and retires stale facets on their next dispatch, preserving SQLite
-state. Wrangler's object-shaped declarative `exports` config is unsupported. The
-dry-run child hides Wrangler's banner (and its normal update check) and disables
-anonymous telemetry. Wrangler may still consult the configured npm registry when
-reporting an unknown configuration field; project build hooks retain their
-normal network access. For `[[services]]` and `[[exports]]`, read
-`docs/deploy.md`: tenant JSRPC may delegate service or Durable Object class
-stubs as opaque capabilities, but the receiver cannot rewrite their
-host-authored caller properties. Keep delegated stubs in memory; long-term
-irrevocable stub storage is unsupported.
+fields retain their existing Wrangler passthrough behavior. `[[connect]]` TCP
+listeners are unsupported and rejected before bundling. Specific nested fields
+that WDL cannot represent are rejected rather than silently dropped, including
+Cloudflare Artifacts `triggers.events` subscriptions and R2
+`local_dev.experimental_s3_credentials`. `[[workflows]]` supports only `name`,
+`binding`, and `class_name`; `script_name` and all other fields, including
+`schedules`, `limits`, `default_retention`, and `concurrency`, are rejected
+before bundling. Use per-instance `create()` retention instead of
+`[[workflows]].default_retention`. `[wdl] session_policy` accepts `preserve` or
+`restart`. The default `preserve` leaves loaded Durable Object facets on the
+version that built them until the host actor restarts or the facet is deleted,
+and keeps established WebSockets draining while their backend stays healthy.
+`restart` closes the worker's open WebSockets with code `1012` at promotion and
+retires stale facets on their next dispatch, preserving SQLite state. Wrangler's
+object-shaped declarative `exports` config is unsupported. The dry-run child
+hides Wrangler's banner (and its normal update check) and disables anonymous
+telemetry and automatic agent skills installation, updates, and prompts.
+Bundling keeps stdin closed even with `--verbose`, which still forwards
+stdout/stderr. Wrangler may still write local metrics state and debug logs, and
+consult the configured npm registry when reporting an unknown configuration
+field; project build hooks retain their normal network access. For
+`[[services]]` and `[[exports]]`, read `docs/deploy.md`: tenant JSRPC may
+delegate service or Durable Object class stubs as opaque capabilities, but the
+receiver cannot rewrite their host-authored caller properties. Keep delegated
+stubs in memory; long-term irrevocable stub storage is unsupported.
+
+If a command reports `Missing namespace`, supply the intended tenant with
+`--ns <namespace>` or `WDL_NS` before retrying.
 
 `CONTROL_URL` may include a path prefix, but embedded usernames/passwords, query
 strings, and fragments are rejected. A bare `.local` host defaults to HTTPS

@@ -704,6 +704,17 @@ test("validateUnsupportedWranglerConfig: rejects unsupported config inside the s
   );
 });
 
+test("validateUnsupportedWranglerConfig rejects connect listeners at top-level and in the selected environment", () => {
+  for (const connect of [[{ protocol: "tcp", port: 9000 }], [], null]) {
+    for (const cfg of [{ connect, env: { staging: {} } }, { env: { staging: { connect } } }]) {
+      assert.throws(
+        () => validateUnsupportedWranglerConfig(cfg, "staging", "wrangler.toml"),
+        /uses unsupported Wrangler field "connect"/
+      );
+    }
+  }
+});
+
 test("validateUnsupportedWranglerConfig: top-level allowed_callers is rejected with the [[exports]] migration path", () => {
   assert.throws(
     () =>

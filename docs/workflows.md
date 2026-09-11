@@ -21,6 +21,12 @@ binding = "ORDERS"
 class_name = "OrderWorkflow"
 ```
 
+WDL supports only `name`, `binding`, and `class_name` in `[[workflows]]`.
+`script_name` and all other fields, including `schedules`, `limits`,
+`default_retention`, and `concurrency`, are rejected before bundling, including
+in the selected environment. Set per-instance retention through `create()` as
+described below.
+
 Worker code follows the Cloudflare Workflows mental model: `WorkflowEntrypoint`,
 `env.<BINDING>.create()`, `createBatch()`, `get()`, `status()`, `pause()`,
 `resume()`, `restart()`, `terminate()`, `sendEvent()`, `step.do()`,
@@ -61,7 +67,7 @@ if user code catches the thrown error.
 ## CLI
 
 ```bash
-wdl workflows list
+wdl workflows list [--limit <n>] [--cursor <c>]
 wdl workflows instances <worker> <workflowName> [--limit <n>] [--cursor <c>]
 wdl workflows status <worker> <workflowName> <instanceId> --include-steps [--step-limit <n>]
 wdl workflows pause <worker> <workflowName> <instanceId>
@@ -83,12 +89,23 @@ instance id.
 restart returns `workflow_not_exported` until an active version exports that
 workflow name again.
 
+Both `workflows list` and `workflows instances` accept `--limit` and `--cursor`.
+Follow `Next cursor` until none is returned, including after an empty or short
+page. Definition pages are sorted within each page, not globally across the
+scan. Concurrent namespace changes can repeat a `worker`/`name` pair across
+definition pages; deduplicate by that pair or restart without a cursor when
+collecting a complete view. If metadata changes invalidate a definition cursor,
+restart without it.
+
 Semantic size limits in the Workflows API return `request_too_large`; size
 limits hit during HTTP body parsing may return `request_body_too_large`. A
 Workflows 5xx means a platform or backend failure, and the response body stays a
 generic error summary; underlying diagnostics go to platform logs and are not
 stable CLI output. `workflow_metadata_contention` means the active workflow
-metadata changed while control was reading it; retry the command.
+metadata changed while control was reading it. For `workflows list --cursor`,
+remove `--cursor` and restart the listing; the CLI adds that guidance even when
+Control returns `Internal error`. For an initial listing or another Workflow
+command, retry the command.
 
 ## End-to-end example
 

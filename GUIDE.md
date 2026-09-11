@@ -123,6 +123,9 @@ send the admin token separately. If no namespace resolves, section values are
 skipped and the command will fail normally if it needs a namespace or token.
 Pass `--ns` when you want to override the default for one command.
 
+If a command reports `Missing namespace`, pass `--ns <namespace>` or set
+`WDL_NS` before retrying.
+
 `CONTROL_CONNECT_HOST` is a local-dev / debug override: it changes the TCP
 target the request connects to while the HTTP Host header and TLS SNI keep
 tracking `CONTROL_URL` (so over HTTPS the control plane's certificate still
@@ -255,9 +258,12 @@ wrangler, then `PATH`. TypeScript, module resolution, esbuild bundling, and
 related build behavior still follow Wrangler.
 
 WDL hides Wrangler's banner (which skips the normal banner update check) and
-disables anonymous telemetry for this dry-run subprocess. Wrangler may still
-consult the configured npm registry when reporting an unknown configuration
-field. Project build hooks retain their normal network access.
+disables anonymous telemetry and automatic agent skills installation, updates,
+and prompts for this dry-run subprocess. Bundling keeps stdin closed even with
+`--verbose`, which still forwards stdout/stderr. Wrangler may still write local
+metrics state and debug logs, and consult the configured npm registry when
+reporting an unknown configuration field. Project build hooks retain their
+normal network access.
 
 When several Wrangler config files exist, WDL follows Wrangler's priority:
 `wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`. Both JSON
@@ -425,6 +431,9 @@ binding is not inherited; WDL independently accepts only its `binding` field and
 maps that declaration into the WDL manifest. Other fields retain their existing
 Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
 configuration is not supported by WDL.
+
+`[[connect]]` TCP listeners have no WDL runtime mapping and are rejected before
+bundling, both at the top level and in the selected environment.
 
 Cron triggers and queue consumers are dispatch features. Declare them only on
 routeable Workers in tenant namespaces unless your operator gives you an
@@ -847,8 +856,8 @@ class_name = "OrderWorkflow"
 Use `wdl workflows` to inspect definitions and manage instances:
 
 ```bash
-wdl workflows list
-wdl workflows instances api orders
+wdl workflows list [--limit <n>] [--cursor <c>]
+wdl workflows instances api orders [--limit <n>] [--cursor <c>]
 wdl workflows status api orders order-123 --include-steps
 wdl workflows pause api orders order-123
 wdl workflows resume api orders order-123
@@ -865,11 +874,25 @@ rejected locally outside that range. `--step-limit` may be used only with
 restart returns `workflow_not_exported` until an active version exports that
 workflow name again.
 
+Both Workflow list commands accept `--limit` and `--cursor`. Follow the reported
+cursor even after an empty or short page. Definition ordering is page-local;
+concurrent namespace changes can repeat a `worker`/`name` pair across pages, so
+deduplicate by that pair or restart without a cursor when collecting a complete
+view. When `workflows list` returns `workflow_metadata_contention`, the CLI
+advises restarting without `--cursor` when one was supplied; retry an initial
+listing without a cursor.
+
 This is WDL Workflows support, not full Cloudflare Workflows parity.
 `script_name`, cross-worker workflows, cross-worker callbacks, service-binding
 callbacks, and Cloudflare source-AST visualizer are not supported. Same-worker
 DO progress callbacks and runtime-observed parallel/DAG `step.do` execution are
 available.
+
+WDL supports only `name`, `binding`, and `class_name` in `[[workflows]]`.
+`script_name` and all other fields, including `schedules`, `limits`,
+`default_retention`, and `concurrency`, are rejected before bundling, including
+in the selected environment. Per-instance retention remains configurable through
+`create()`.
 
 Important runtime limits and programming rules:
 

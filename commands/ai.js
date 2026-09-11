@@ -15,6 +15,7 @@ import {
   formatHelp,
   isMain,
   isPathInside,
+  missingNamespaceError,
   optionHelp,
   readJsonOrFailWithHint,
   redactedArgumentError,
@@ -85,7 +86,8 @@ async function runAi({ values, positionals, context }) {
   }
 
   const ns = context.resolveNamespace();
-  if (!group || !ns) throw new CliError(usageText());
+  if (!group) throw new CliError(usageText());
+  if (!ns) throw missingNamespaceError();
 
   if (group === "models") {
     if (action) throw redactedArgumentError("ai models");

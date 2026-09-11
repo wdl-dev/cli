@@ -4,8 +4,10 @@ import {
   defineCliOption,
   formatHelp,
   isMain,
+  missingNamespaceError,
   normalizePageLimit,
   optionHelp,
+  readJsonOrFailWithHint,
   unexpectedArgument,
 } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
@@ -14,8 +16,18 @@ import { formatInstanceList, formatInstanceStatus, formatWorkflowList } from "..
 
 const LIFECYCLE_ACTIONS = new Set(["pause", "resume", "restart", "terminate"]);
 const WORKFLOW_OPTIONS = [
-  defineCliOption("limit", { type: "string" }, "--limit <n>", "Instance page size (default 100, max 1000)."),
-  defineCliOption("cursor", { type: "string" }, "--cursor <cursor>", "Opaque instances pagination cursor."),
+  defineCliOption(
+    "limit",
+    { type: "string" },
+    "--limit <n>",
+    "Definition or instance page size (default 100, max 1000)."
+  ),
+  defineCliOption(
+    "cursor",
+    { type: "string" },
+    "--cursor <cursor>",
+    "Opaque definition or instance pagination cursor."
+  ),
   defineCliOption(
     "include-steps",
     { type: "boolean" },
@@ -53,15 +65,27 @@ async function runWorkflows({ values, positionals, context }) {
 
   const [subcommand] = positionals;
   const ns = context.resolveNamespace();
-  if (!subcommand || !ns) throw new CliError(usageText());
+  if (!subcommand) throw new CliError(usageText());
+  if (!ns) throw missingNamespaceError();
 
   if (subcommand === "list") {
     requireNoExtraPositionals(positionals, 1, "workflows list");
+    const limit = normalizePageLimit(values.limit, "workflows --limit");
     const { headers } = context.resolveControl();
-    const body = /** @type {{ workflows?: import("../lib/workflows-format.js").WorkflowSummary[] }} */ (
-      await context.fetchJson(context.nsUrl("workflows"), { headers }, "list workflows")
-    );
-    writeResult(Boolean(values.json), body, () => formatWorkflowList(body), stdout);
+    const url = new URL(context.nsUrl("workflows"));
+    if (limit) url.searchParams.set("limit", limit);
+    if (values.cursor) url.searchParams.set("cursor", values.cursor);
+    const res = await context.controlFetch(url.href, { headers, env: context.env });
+    const body =
+      /** @type {{ workflows?: import("../lib/workflows-format.js").WorkflowSummary[], cursor?: string | null }} */ (
+        await readJsonOrFailWithHint(res, "list workflows", (error) => {
+          if (error !== "workflow_metadata_contention") return "";
+          return values.cursor
+            ? "; workflow metadata changed, restart the listing without --cursor."
+            : "; workflow metadata changed, retry the command.";
+        })
+      );
+    writeResult(Boolean(values.json), body, () => formatWorkflowList(body, Boolean(values.cursor)), stdout);
     return;
   }
 
@@ -73,10 +97,10 @@ async function runWorkflows({ values, positionals, context }) {
     if (limit) url.searchParams.set("limit", limit);
     if (values.cursor) url.searchParams.set("cursor", values.cursor);
     const body =
-      /** @type {{ instances?: import("../lib/workflows-format.js").WorkflowInstance[], cursor?: string }} */ (
+      /** @type {{ instances?: import("../lib/workflows-format.js").WorkflowInstance[], cursor?: string | null }} */ (
         await context.fetchJson(url.href, { headers }, "list workflow instances")
       );
-    writeResult(Boolean(values.json), body, () => formatInstanceList(body), stdout);
+    writeResult(Boolean(values.json), body, () => formatInstanceList(body, Boolean(values.cursor)), stdout);
     return;
   }
 
@@ -166,7 +190,7 @@ function requireNoExtraPositionals(positionals, expected, label) {
 function usageText() {
   return formatHelp({
     usage: [
-      "wdl workflows list [options]",
+      "wdl workflows list [--limit <n>] [--cursor <cursor>] [options]",
       "wdl workflows instances <worker> <workflowName> [--limit <n>] [--cursor <cursor>] [options]",
       "wdl workflows status <worker> <workflowName> <instanceId> [--include-steps] [--step-limit <n>] [options]",
       "wdl workflows pause <worker> <workflowName> <instanceId> [options]",

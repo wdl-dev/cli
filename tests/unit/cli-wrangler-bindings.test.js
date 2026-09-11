@@ -571,6 +571,30 @@ test("parseWorkflowsFromCfg: parses local workflow declarations", () => {
   );
 });
 
+test("parseWorkflowsFromCfg: rejects unknown workflow fields by presence", () => {
+  for (const key of ["schedules", "limits", "default_retention", "concurrency", "future_policy"]) {
+    for (const value of [{}, null, false, 0, "", undefined]) {
+      assert.throws(
+        () =>
+          parseWorkflowsFromCfg({
+            workflows: [{ name: "flow", binding: "WF", class_name: "Flow", [key]: value }],
+          }),
+        new RegExp(`unknown field\\(s\\): ${key}`)
+      );
+    }
+  }
+  assertThrowsNoRawTerminalControls(
+    () =>
+      parseWorkflowsFromCfg({
+        workflows: [
+          { name: "flow", binding: "WF", class_name: "Flow", [`policy${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`]: {} },
+        ],
+      }),
+    /unknown field\(s\):/,
+    "workflow field diagnostics"
+  );
+});
+
 test("parseWorkflowsFromCfg: rejects invalid names and unsupported script_name", () => {
   assert.throws(() => parseWorkflowsFromCfg({ workflows: {} }), /must be an array/);
   assert.throws(

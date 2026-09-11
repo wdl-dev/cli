@@ -7,7 +7,15 @@ import http from "node:http";
 import https from "node:https";
 import { defineCommand } from "../lib/command.js";
 import { controlRequestError, controlRequestOptions, validateControlHeaders } from "../lib/control-fetch.js";
-import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
+import {
+  CliError,
+  defineCliOption,
+  formatHelp,
+  isMain,
+  isNonEmptyString,
+  missingNamespaceError,
+  optionHelp,
+} from "../lib/common.js";
 import { escapeTerminalLines, escapeTerminalText, formatDiagnosticValue } from "../lib/output.js";
 
 const RECONNECT_INITIAL_MS = 1_000;
@@ -157,7 +165,7 @@ async function runTail({ values, positionals, context: baseContext }) {
   }
 
   const ns = context.resolveNamespace();
-  if (!ns) throw new CliError(usageText());
+  if (!ns) throw missingNamespaceError();
 
   if (positionals.length === 0) {
     throw new CliError("Specify one or more worker names.");

@@ -13,9 +13,12 @@ transient `npx --yes wrangler@^4` fetch; that fallback is allowed only when
 `WDL_ALLOW_NPX_WRANGLER=1` is set.
 
 WDL hides Wrangler's banner (which skips the normal banner update check) and
-disables anonymous telemetry for this dry-run subprocess. Wrangler may still
-consult the configured npm registry when reporting an unknown configuration
-field. Project build hooks retain their normal network access.
+disables anonymous telemetry and automatic agent skills installation, updates,
+and prompts for this dry-run subprocess. Bundling keeps stdin closed even with
+`--verbose`, which still forwards stdout/stderr. Wrangler may still write local
+metrics state and debug logs, and consult the configured npm registry when
+reporting an unknown configuration field. Project build hooks retain their
+normal network access.
 
 ## CLI invocation forms
 
@@ -131,8 +134,10 @@ changes only the control socket target and never a printed Worker origin.
 | Inspect Workflow instances | `wdl workflows instances <worker> <workflow>`             |
 
 `--ns` is optional whenever `WDL_NS` is set via env or `.env`, or the
-`wdl token` store has a default namespace. Every subcommand implements `--help`
-— run it when you don't know which flag to use.
+`wdl token` store has a default namespace. If a command reports
+`Missing namespace`, pass `--ns <namespace>` or set `WDL_NS` before retrying.
+Every subcommand implements `--help` — run it when you don't know which flag to
+use.
 
 ## Standard deploy flow
 
@@ -255,9 +260,9 @@ Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
 configuration is not supported by WDL. `[wdl] session_policy` has its own
 section above.
 
-WDL also rejects Cloudflare Artifacts `triggers.events` subscriptions and R2
-`local_dev.experimental_s3_credentials`: neither field has a WDL deploy-manifest
-or runtime mapping.
+WDL also rejects `[[connect]]` TCP listeners, Cloudflare Artifacts
+`triggers.events` subscriptions, and R2 `local_dev.experimental_s3_credentials`:
+none has a WDL deploy-manifest or runtime mapping.
 
 ### Service bindings and delegated capabilities
 
@@ -281,6 +286,11 @@ sections that WDL would otherwise ignore are also rejected by the CLI, including
 legacy `[site]` Workers Sites, `pages_build_output_dir`, `observability`,
 `limits`, `placement`, and other unsupported binding/config fields or sections
 named in the error. `assets.run_worker_first` is silently ignored.
+
+WDL supports only `name`, `binding`, and `class_name` in `[[workflows]]`. The
+CLI rejects `script_name` and all other fields, including `schedules`, `limits`,
+`default_retention`, and `concurrency`, before bundling. Use per-instance
+`create()` retention instead of Wrangler's `default_retention`.
 
 Cron triggers and queue consumers are runtime dispatch features; declare them
 only on routeable tenant Workers. Workers selected through

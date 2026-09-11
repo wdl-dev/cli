@@ -97,6 +97,7 @@ test("workflow formatters escape control fields but preserve their own layout", 
   const hostile = `${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`;
   const lines = [
     ...formatWorkflowList({
+      cursor: hostile,
       workflows: [
         {
           worker: hostile,
@@ -128,6 +129,88 @@ test("workflow formatters escape control fields but preserve their own layout", 
   assertNoRawTerminalControls(out, "workflow formatter output");
   assert.ok(out.includes("\\u001b[2J\\nFORGED\\rBAD\\tCOLUMN\\u009b"));
   assert.equal(out.split("\t").length - 1, 7, "only formatter-owned column separators may remain as raw tabs");
+});
+
+test("workflow definition listing forwards pagination and keeps empty-page continuation visible", async () => {
+  const { deps, calls, lines } = mockDeps({ namespace: "demo", workflows: [], cursor: "next+page/=" });
+  await runWorkflowsCommand(
+    ["list", "--ns", "demo", "--control-url", "http://ctl.test", "--limit", "2", "--cursor", "a+b/="],
+    deps
+  );
+  assert.equal(calls[0].url, "http://ctl.test/ns/demo/workflows?limit=2&cursor=a%2Bb%2F%3D");
+  assert.deepEqual(lines, ["(no workflows on this page)", "Next cursor: next+page/="]);
+});
+
+test("workflow definition listing displays continuation after non-empty pages", async () => {
+  const { deps, lines } = mockDeps({ workflows: [{ worker: "api", name: "orders" }], cursor: "next+page/=" });
+
+  await runWorkflowsCommand(["list", "--ns", "demo", "--control-url", "http://ctl.test"], deps);
+
+  assert.deepEqual(lines, ["api/orders\tbinding=-\tclass=-\tactive=-\tkey=-\tretired=no", "Next cursor: next+page/="]);
+});
+
+test("workflow definition listing explains metadata contention without retrying a stale cursor", async () => {
+  for (const { error, cursor, hint } of [
+    { error: "workflow_metadata_contention", cursor: "", hint: /; workflow metadata changed, retry the command/ },
+    {
+      error: "workflow_metadata_contention",
+      cursor: "stale-cursor",
+      hint: /; workflow metadata changed, restart the listing without --cursor/,
+    },
+    { error: "workflow_backend_error", cursor: "stale-cursor", hint: null },
+  ]) {
+    const { deps, calls, lines } = mockDeps({});
+    const args = ["list", "--ns", "demo", "--control-url", "http://ctl.test"];
+    if (cursor) args.push("--cursor", cursor);
+    await assert.rejects(
+      () =>
+        runWorkflowsCommand(args, {
+          ...deps,
+          controlFetch: async (
+            /** @type {string} */ url,
+            /** @type {import("../../lib/control-fetch.js").ControlFetchInit} */ init = {}
+          ) => {
+            calls.push({ url, init });
+            return response({ error, message: "Internal error" }, 503);
+          },
+        }),
+      (err) => {
+        const message = /** @type {Error} */ (err).message;
+        assert.match(message, new RegExp(`list workflows failed: 503 ${error}: Internal error`));
+        if (hint) assert.match(message, hint);
+        else assert.doesNotMatch(message, /retry|restart|without --cursor/);
+        return true;
+      }
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(new URL(calls[0].url).searchParams.get("cursor"), cursor || null);
+    assert.equal(calls[0].init.env, deps.env);
+    assert.deepEqual(lines, []);
+  }
+});
+
+test("workflow instance listing keeps empty-page continuation visible", async () => {
+  const { deps, lines } = mockDeps({ instances: [], cursor: "7" });
+
+  await runWorkflowsCommand(["instances", "api", "orders", "--ns", "demo", "--control-url", "http://ctl.test"], deps);
+
+  assert.deepEqual(lines, ["(no workflow instances on this page)", "Next cursor: 7"]);
+});
+
+test("workflow listings label empty final continuation pages", async () => {
+  const definitions = mockDeps({ workflows: [], cursor: null });
+  await runWorkflowsCommand(
+    ["list", "--cursor", "final-definitions", "--ns", "demo", "--control-url", "http://ctl.test"],
+    definitions.deps
+  );
+  assert.deepEqual(definitions.lines, ["(no workflows on this page)"]);
+
+  const instances = mockDeps({ instances: [], cursor: null });
+  await runWorkflowsCommand(
+    ["instances", "api", "orders", "--cursor", "final-instances", "--ns", "demo", "--control-url", "http://ctl.test"],
+    instances.deps
+  );
+  assert.deepEqual(instances.lines, ["(no workflow instances on this page)"]);
 });
 
 test("workflow lifecycle status lines escape control fields and preserve JSON", async () => {
@@ -176,6 +259,10 @@ test("workflow page limits must be integers from 1 through 1000", async () => {
   await runWorkflowsCommand(["status", "api", "orders", "id", "--step-limit", "", "--ns", "demo"], deps);
 
   for (const value of INVALID_PAGE_LIMITS) {
+    await assert.rejects(
+      () => runWorkflowsCommand(["list", "--limit", value, "--ns", "demo"], deps),
+      /workflows --limit must be an integer in \[1, 1000\]/
+    );
     await assert.rejects(
       () => runWorkflowsCommand(["instances", "api", "orders", "--limit", value, "--ns", "demo"], deps),
       /workflows --limit must be an integer in \[1, 1000\]/

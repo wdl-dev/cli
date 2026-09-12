@@ -58,12 +58,16 @@ disabling the default platform-domain URL; it requires at least one `route` /
 `routes` pattern and is not inferred. The deploy summary prints every active
 route-pattern URL hint, preserving the trailing `*` on prefix patterns, and
 includes the platform-domain URL only while it is enabled. Cloudflare's separate
-`preview_urls` field is unsupported and rejected by the CLI. Cloudflare
-Artifacts `triggers.events` subscriptions and R2
+`preview_urls` field is unsupported and rejected by the CLI. `[[connect]]` TCP
+listeners, Cloudflare Artifacts `triggers.events` subscriptions, and R2
 `local_dev.experimental_s3_credentials` are also unsupported and rejected.
-`[ai] binding = "AI"` declares the AI facade; provider metadata and credentials
-are namespace resources managed with `wdl ai`, never ordinary Worker secrets.
-Use `wdl ai providers init <provider>` to scaffold a conservative one-model
+`[[workflows]]` supports only `name`, `binding`, and `class_name`; `script_name`
+and all other fields, including `schedules`, `limits`, `default_retention`, and
+`concurrency`, are rejected before bundling. Use per-instance `create()`
+retention instead of `[[workflows]].default_retention`. `[ai] binding = "AI"`
+declares the AI facade; provider metadata and credentials are namespace
+resources managed with `wdl ai`, never ordinary Worker secrets. Use
+`wdl ai providers init <provider>` to scaffold a conservative one-model
 Responses config, then edit model-specific capabilities before `providers put`.
 Initializer output rejects non-text input, `previous_response_id` continuation,
 and binary WebSocket frames until their corresponding declarations are enabled;

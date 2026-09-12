@@ -11,6 +11,7 @@ import {
   formatHttpError,
   formatHttpErrorBody,
   isMain,
+  missingNamespaceError,
   optionHelp,
   readJsonOrFail,
   unexpectedArgument,
@@ -385,9 +386,10 @@ async function runDeploy({ values, positionals, context: baseContext }) {
   const ns = context.resolveNamespace();
   const [projectDir] = positionals;
   const extraArg = positionals[1];
-  if (!projectDir || !ns) {
+  if (!projectDir) {
     throw new CliError(usageText());
   }
+  if (!ns) throw missingNamespaceError();
   if (extraArg) throw unexpectedArgument("deploy", extraArg);
 
   const { controlUrl, headers: authHeaders } = context.resolveControl();

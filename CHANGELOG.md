@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Changed
+
+- Upgrade the bundled Wrangler to 4.131.0 and reject unmapped `[[connect]]` TCP
+  listeners and `[[workflows]]` fields, including `schedules`, `limits`,
+  `default_retention`, and `concurrency`, instead of silently dropping them.
+- Support `--limit` and `--cursor` for Workflow definition listing and display
+  continuation cursors even for empty definition pages.
+- Disable Wrangler skills installation/update prompts during deploy. Bundling
+  keeps stdin closed even with `--verbose`, which still forwards stdout/stderr.
+
+### Fixed
+
+- Distinguish empty intermediate Workflow instance pages from an empty result
+  set when Control returns a continuation cursor.
+- Explain how to restart Workflow definition listing after cursor metadata
+  contention, even when Control redacts the error message.
+- Explain how to set `--ns` or `WDL_NS` when a required namespace is missing.
+
+### Security
+
+- Update `smol-toml` to 1.7.1 and Wrangler's transitive `sharp` to 0.35.4,
+  clearing their dependency advisories without overrides.
+
 ## 1.8.1
 
 ### Changed

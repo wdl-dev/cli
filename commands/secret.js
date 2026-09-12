@@ -9,6 +9,7 @@ import {
   formatHelp,
   isMain,
   isNonEmptyString,
+  missingNamespaceError,
   optionHelp,
   readJsonOrFailWithHint,
   redactedArgumentError,
@@ -58,9 +59,10 @@ async function runSecret({ values, positionals, context }) {
   const [subcommand, keyArg] = positionals;
   const extraArg = positionals[2];
   const ns = context.resolveNamespace();
-  if (!subcommand || !ns) {
+  if (!subcommand) {
     throw new CliError(usageText());
   }
+  if (!ns) throw missingNamespaceError();
 
   // Narrow values.worker to a string once; reuse `worker`/`hasWorker` below so
   // the worker-presence predicate lives in exactly one place.

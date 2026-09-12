@@ -87,6 +87,8 @@ ADMIN_TOKEN=<acme-staging-token>
 
 CLI 只会从 `.env` 读取 WDL 平台变量：`ADMIN_TOKEN`、`CONTROL_URL`、`CONTROL_CONNECT_HOST`、`WDL_NS`。优先级是 `CLI flag > shell/CI env > [resolved-ns] section > base .env > wdl token store`，都没有提供时命令直接报错——没有内置默认值。namespace 解析顺序是 `--ns`，然后是 shell 或 base `.env` 里的 `WDL_NS`，再然后是 token store 的默认 namespace。section 名可以是 `[acme]` 这类 tenant namespace，也可以是 `[__name__]` 这种运维保留的不透明 section。Tenant Wrangler 配置默认仍使用普通 tenant namespace 语法，除非运维方明确给了这种 namespace token；否则不要把 `__name__` 形态写进 `[[services]].ns`、`allowed_callers` 或命令示例。如果没有解析出 namespace，section 会全部跳过；后续命令如果需要 namespace 或 token，会按正常校验报错。只有临时切换 namespace 时才需要显式传 `--ns`。不带 scheme 的生产 control host（例如 `api.wdl.dev`）默认补 `https://`；loopback 和保留的 `*.test` host 默认补 `http://`。既有的裸 `:8080` 例外对任何 host（包括 `.local`）仍默认使用 HTTP。除此之外，`.local` 是局域网 / mDNS 后缀而不是 loopback，因此裸 host 默认 HTTPS；所有 HTTP `.local` 目标都会显示明文 token 告警。需要强制使用其它协议时，请显式写 scheme。Control URL 可以包含 path prefix，但不能嵌入 username/password，也不能包含 query string 或 fragment，因为命令会在这个 base URL 后追加 endpoint path，并单独发送 admin token。
 
+如果命令报告 `Missing namespace`，请传入 `--ns <namespace>` 或设置 `WDL_NS` 后重试。
+
 `CONTROL_CONNECT_HOST` 是本地开发 / 调试用的覆盖开关：它改变请求实际连接的 TCP 目标，而 HTTP Host header 和 TLS SNI 仍跟随 `CONTROL_URL`（所以 HTTPS 下控制面证书仍会拒绝被重定向的连接；纯 http 没有这层保护）。只在本地开发用 —— 不要在 CI 或生产 shell 中持久设置，残留值可能把 admin token 路由到非预期目标。覆盖值写成 URL 时，scheme 只决定默认 TCP 端口（`http` 为 80，`https` 为 443）；请求使用 HTTP 还是 HTTPS、Host 和 SNI 仍由 `CONTROL_URL` 决定。
 
 推荐的做法是把这些凭证放进托管存储，而不是 shell export 或项目 `.env`：`wdl token set --ns <ns> --control-url <url>` 用隐藏输入读取 token、调 `/whoami` 校验后按 namespace 存入 `~/.config/wdl/credentials`（不进 shell 历史、也不落在项目文件里）。存储是优先级最低的层——命令行标志、shell env、项目 `.env` 仍然胜出——`wdl token list` / `wdl token rm` 管理它。第一个存入的 namespace 成为默认（一行 base `WDL_NS`，和项目 `.env` 一样），命令不带 `--ns` 也能跑；`wdl token use <ns>` 切换默认。CLI 会拒绝 symlink / 非普通文件形式的 credentials 路径；在 POSIX 上，如果 store 文件不属于当前用户、store 目录可被 group/other 写或文件能被 group/other 访问，也会拒绝读取。详见 [token-zh.md](./docs/token-zh.md)。
@@ -150,7 +152,7 @@ APP_NAME = "hello"
 
 Control 会拒绝早于 `2026-04-01` 的显式日期、无效或未来日期，以及超出 bundled workerd 支持范围的日期。上游 experimental enable flags、`legacy_error_serialization` 和 `allow_irrevocable_stub_storage` 不受支持。这些校验由 control canonical 持有，CLI 不复制 workerd flag table。
 
-你可以继续使用 `wrangler dev` 做本地开发；部署到本平台时改用 `wdl deploy`。平台部署命令会调用 `wrangler deploy --dry-run`（Wrangler v4）打包项目，解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。TypeScript、模块解析、esbuild 打包等流程仍走 wrangler 的标准路径。WDL 会隐藏这个 dry-run 子进程的 Wrangler banner（因此跳过常规 banner 更新检查）并关闭匿名遥测。Wrangler 在报告未知配置字段时仍可能访问已配置的 npm registry；项目 build hook 仍保留正常的网络访问能力。
+你可以继续使用 `wrangler dev` 做本地开发；部署到本平台时改用 `wdl deploy`。平台部署命令会调用 `wrangler deploy --dry-run`（Wrangler v4）打包项目，解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。TypeScript、模块解析、esbuild 打包等流程仍走 wrangler 的标准路径。WDL 会隐藏这个 dry-run 子进程的 Wrangler banner（因此跳过常规 banner 更新检查），关闭匿名遥测及自动 agent skills 安装、更新和提示。即使使用 `--verbose`，打包时 stdin 也保持关闭，但仍透传 stdout/stderr。Wrangler 仍可能写入本地 metrics 状态和调试日志，并在报告未知配置字段时访问已配置的 npm registry；项目 build hook 仍保留正常的网络访问能力。
 
 如果同时存在多个 Wrangler 配置文件，WDL 跟随 Wrangler 的优先级：`wrangler.json`，然后 `wrangler.jsonc`，最后 `wrangler.toml`。
 
@@ -267,6 +269,8 @@ Wrangler 能打包、但 WDL 不能运行的形状由 control plane 作为 canon
 | 其他未映射的 Wrangler 绑定/配置/策略段（例如 `vectorize`、`hyperdrive`、`agent_memory`、`websearch`、`media`、`stream`、`ratelimits`、`vpc_services`、`cloudchamber`、`containers`、`wasm_modules`、`[site]`、`limits`、`placement`、`observability`、`pages_build_output_dir`） | 不支持；部署时显式报错，不会静默丢弃绑定/配置。CLI 报错会点名被拒字段；内部拒绝列表跟随打包的 Wrangler schema，这里不复刻完整清单 |
 
 WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些 WDL 扩展。`[ai]` 是 Wrangler 标准配置，会保留在临时配置中供 Wrangler 校验；如果选中的 named environment 没有自己的 `ai`，CLI 会提示顶层 binding 不会继承。WDL 另行只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。
+
+`[[connect]]` TCP listener 没有对应的 WDL runtime 映射，顶层和所选 environment 内的声明都会在打包前被拒绝。
 
 Cron triggers 和 queue consumers 是运行时 dispatch 能力。除非管理方明确给了 reserved namespace，否则只应声明在 tenant namespace 里的可路由 Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是公开/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 
@@ -541,8 +545,8 @@ class_name = "OrderWorkflow"
 用 `wdl workflows` 查看定义和管理实例：
 
 ```bash
-wdl workflows list
-wdl workflows instances api orders
+wdl workflows list [--limit <n>] [--cursor <c>]
+wdl workflows instances api orders [--limit <n>] [--cursor <c>]
 wdl workflows status api orders order-123 --include-steps
 wdl workflows pause api orders order-123
 wdl workflows resume api orders order-123
@@ -554,7 +558,11 @@ wdl workflows terminate api orders order-123 --yes
 
 `wdl workflows list` 会把 active Worker version 不再导出的定义标为 `retired=yes`。既有实例仍可查看和 terminate，但 restart 会返回 `workflow_not_exported`；需要先部署一个重新导出该 workflow name 的 active version。
 
+两个 Workflow list 命令都接受 `--limit` 与 `--cursor`；即使返回空页或短页，也应继续使用返回的 cursor。Definition 只保证页内排序；namespace 并发变化可能让同一个 `worker`/`name` 组合跨页重复，收集完整视图时应按该组合去重或去掉 cursor 重新开始。`workflows list` 返回 `workflow_metadata_contention` 时，如果传了 `--cursor`，CLI 会提示去掉它重新开始；未带 cursor 的首次列表请求可直接重试。
+
 这是 WDL Workflows 支持，不是完整 Cloudflare Workflows parity。 `script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 不支持。same-worker DO progress callback 和 runtime-observed parallel/DAG `step.do` execution 可用。
+
+WDL 的 `[[workflows]]` 只支持 `name`、`binding` 和 `class_name`。`script_name` 及其它所有字段（包括 `schedules`、`limits`、`default_retention` 和 `concurrency`）都会在打包前被拒绝，所选 environment 内的声明也一样。单个 instance 的 retention 仍可通过 `create()` 配置。
 
 重要运行限制和编程规则：
 

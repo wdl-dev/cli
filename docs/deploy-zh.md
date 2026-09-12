@@ -6,7 +6,7 @@
 
 wrangler 解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。默认不会临时 `npx --yes wrangler@^4` 拉包；只有设置 `WDL_ALLOW_NPX_WRANGLER=1` 时才允许这个 fallback。
 
-WDL 会隐藏这个 dry-run 子进程的 Wrangler banner（因此跳过常规 banner 更新检查）并关闭匿名遥测。Wrangler 在报告未知配置字段时仍可能访问已配置的 npm registry；项目 build hook 仍保留正常的网络访问能力。
+WDL 会隐藏这个 dry-run 子进程的 Wrangler banner（因此跳过常规 banner 更新检查），关闭匿名遥测及自动 agent skills 安装、更新和提示。即使使用 `--verbose`，打包时 stdin 也保持关闭，但仍透传 stdout/stderr。Wrangler 仍可能写入本地 metrics 状态和调试日志，并在报告未知配置字段时访问已配置的 npm registry；项目 build hook 仍保留正常的网络访问能力。
 
 ## CLI 调用形式
 
@@ -69,7 +69,7 @@ Cloudflare 用 `workers_dev` 控制 Worker 的 `*.workers.dev` route；版本化
 | 删除 worker（预览） | `wdl delete worker <worker> --dry-run` |
 | 查看 Workflow 实例 | `wdl workflows instances <worker> <workflow>` |
 
-只要 `WDL_NS` 通过 env 或 `.env` 设置了，或者 `wdl token` store 有默认 namespace，`--ns` 就是可选的。每个子命令都实现了 `--help` —— 不知道用什么 flag 时直接跑。
+只要 `WDL_NS` 通过 env 或 `.env` 设置了，或者 `wdl token` store 有默认 namespace，`--ns` 就是可选的。如果命令报告 `Missing namespace`，请传入 `--ns <namespace>` 或设置 `WDL_NS` 后重试。每个子命令都实现了 `--help` —— 不知道用什么 flag 时直接跑。
 
 ## 标准部署流程
 
@@ -127,13 +127,15 @@ wdl deploy . --env production
 
 WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些 WDL 扩展。`[ai]` 是 Wrangler 标准配置，会保留在临时配置中供 Wrangler 校验；如果选中的 named environment 没有自己的 `ai`，CLI 会提示顶层 binding 不会继承。WDL 另行只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
-WDL 还会拒绝 Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；这两个字段都没有对应的 WDL deploy manifest 或 runtime 映射。
+WDL 还会拒绝 `[[connect]]` TCP listener、Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；它们都没有对应的 WDL deploy manifest 或 runtime 映射。
 
 ### Service bindings 与 capability delegation
 
 Tenant JSRPC 可以序列化 `Blob` value，并把 service 或 Durable Object class stub 作为 opaque capability argument 传递。接收方可以调用被委托的目标，但不能改写 stub 携带的 host-authored caller properties。Delegated stub 只应留在内存中；WDL 不支持长期 irrevocable stub storage。
 
 **不支持（部署失败）：** Analytics Engine。Durable Objects 仅支持同 worker class；`script_name`、rename/delete migration 暂未实现。WDL Workflows 仅支持当前 Worker 内定义的 workflow class，不是完整 Cloudflare Workflows parity；`script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 暂不支持。`route` / `routes` 仅在运维方启用时支持。Python Workers modules、不支持的 workerd compatibility flags 和 WDL 保留注入模块名会在部署时被拒绝：CLI 会对本地 `.py` module fail-fast，workerd compatibility 与 bundle-shape policy 由 control plane canonical 判断。WDL 会忽略、且无法映射进 manifest 的顶层或所选 env Wrangler runtime/deploy 配置字段和 section 也会由 CLI 直接拒绝，包括 legacy `[site]` Workers Sites、`pages_build_output_dir`、`observability`、`limits`、`placement`，以及错误信息点名的其它 unsupported binding/config field 或 section。`assets.run_worker_first` 会被静默忽略。
+
+WDL 的 `[[workflows]]` 只支持 `name`、`binding` 和 `class_name`。CLI 会在打包前拒绝 `script_name` 及其它所有字段，包括 `schedules`、`limits`、`default_retention` 和 `concurrency`。保留时间请通过单个 instance 的 `create()` retention 设置，不要使用 Wrangler 的 `default_retention`。
 
 Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在可路由的 tenant Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是 public/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 

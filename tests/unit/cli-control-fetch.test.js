@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { PassThrough } from "node:stream";
 import { CliError } from "../../lib/common.js";
 import { DEFAULT_CONTROL_MAX_BODY_BYTES, controlFetch, readControlResponse } from "../../lib/control-fetch.js";
@@ -227,7 +227,8 @@ test("controlFetch keeps timeout active while streaming the response body", asyn
   assert.match(requestDestroyError.message, /control request timed out after 20ms/);
 });
 
-test("controlFetch streaming timeout is idle-based after headers", async () => {
+test("controlFetch streaming timeout is idle-based after headers", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const res = Object.assign(new PassThrough(), {
     statusCode: 200,
     headers: { "content-type": "application/octet-stream" },
@@ -239,9 +240,6 @@ test("controlFetch streaming timeout is idle-based after headers", async () => {
         write() {},
         end() {
           onResponse(/** @type {import("node:http").IncomingMessage} */ (/** @type {unknown} */ (res)));
-          setTimeout(() => res.write("a"), 10);
-          setTimeout(() => res.write("b"), 25);
-          setTimeout(() => res.end("c"), 40);
         },
         destroy() {},
       });
@@ -257,9 +255,17 @@ test("controlFetch streaming timeout is idle-based after headers", async () => {
   /** @type {string[]} */
   const chunks = [];
   const body = /** @type {import("node:stream").Readable} */ (response.body);
-  for await (const chunk of body) {
-    chunks.push(Buffer.from(chunk).toString("utf8"));
+  for (const chunk of ["a", "b", "c"]) {
+    const received = once(body, "data");
+    // Total duration exceeds the timeout, but each chunk arrives before idle expiry.
+    t.mock.timers.tick(15);
+    res.write(chunk);
+    const [data] = await received;
+    chunks.push(Buffer.from(data).toString("utf8"));
   }
+  const ended = once(body, "end");
+  res.end();
+  await ended;
   assert.equal(chunks.join(""), "abc");
 });
 

@@ -1,5 +1,5 @@
 import { defineCommand } from "../lib/command.js";
-import { CliError, formatHelp, isMain, optionHelp } from "../lib/common.js";
+import { CliError, formatHelp, isMain, missingNamespaceError, optionHelp } from "../lib/common.js";
 import { writeResult } from "../lib/output.js";
 import { formatWorkersList } from "../lib/workers-format.js";
 
@@ -23,7 +23,7 @@ export { formatWorkersList };
 async function runWorkers({ values, positionals, context }) {
   const ns = context.resolveNamespace();
   if (positionals.length > 0) throw new CliError(usageText());
-  if (!ns) throw new CliError(usageText());
+  if (!ns) throw missingNamespaceError();
   await printWorkersList(context, values.json === true);
 }
 

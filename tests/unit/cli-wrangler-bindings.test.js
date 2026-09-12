@@ -571,6 +571,30 @@ test("parseWorkflowsFromCfg: parses local workflow declarations", () => {
   );
 });
 
+test("parseWorkflowsFromCfg: rejects unknown workflow fields by presence", () => {
+  for (const key of ["schedules", "limits", "default_retention", "concurrency", "future_policy"]) {
+    for (const value of [{}, null, false, 0, "", undefined]) {
+      assert.throws(
+        () =>
+          parseWorkflowsFromCfg({
+            workflows: [{ name: "flow", binding: "WF", class_name: "Flow", [key]: value }],
+          }),
+        new RegExp(`unknown field\\(s\\): ${key}`)
+      );
+    }
+  }
+  assertThrowsNoRawTerminalControls(
+    () =>
+      parseWorkflowsFromCfg({
+        workflows: [
+          { name: "flow", binding: "WF", class_name: "Flow", [`policy${ESC}[2J\nFORGED\rBAD\tCOLUMN\u009b`]: {} },
+        ],
+      }),
+    /unknown field\(s\):/,
+    "workflow field diagnostics"
+  );
+});
+
 test("parseWorkflowsFromCfg: rejects invalid names and unsupported script_name", () => {
   assert.throws(() => parseWorkflowsFromCfg({ workflows: {} }), /must be an array/);
   assert.throws(
@@ -626,13 +650,15 @@ test("parseWorkflowsFromCfg: rejects invalid names and unsupported script_name",
       }),
     /reserved for runtime-injected entrypoints/
   );
-  assert.throws(
-    () =>
-      parseWorkflowsFromCfg({
-        workflows: [{ name: "flow", binding: "WF", class_name: "Flow", script_name: "other" }],
-      }),
-    /script_name is not supported/
-  );
+  for (const scriptName of ["other", null, undefined]) {
+    assert.throws(
+      () =>
+        parseWorkflowsFromCfg({
+          workflows: [{ name: "flow", binding: "WF", class_name: "Flow", script_name: scriptName }],
+        }),
+      scriptName == null ? /unknown field\(s\): script_name/ : /script_name is not supported/
+    );
+  }
 });
 
 test("parseExportsFromCfg: absent → empty; snake→camel translation", () => {

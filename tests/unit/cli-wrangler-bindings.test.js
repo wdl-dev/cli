@@ -650,13 +650,15 @@ test("parseWorkflowsFromCfg: rejects invalid names and unsupported script_name",
       }),
     /reserved for runtime-injected entrypoints/
   );
-  assert.throws(
-    () =>
-      parseWorkflowsFromCfg({
-        workflows: [{ name: "flow", binding: "WF", class_name: "Flow", script_name: "other" }],
-      }),
-    /script_name is not supported/
-  );
+  for (const scriptName of ["other", null, undefined]) {
+    assert.throws(
+      () =>
+        parseWorkflowsFromCfg({
+          workflows: [{ name: "flow", binding: "WF", class_name: "Flow", script_name: scriptName }],
+        }),
+      scriptName == null ? /unknown field\(s\): script_name/ : /script_name is not supported/
+    );
+  }
 });
 
 test("parseExportsFromCfg: absent → empty; snake→camel translation", () => {

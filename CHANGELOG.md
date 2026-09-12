@@ -2,13 +2,15 @@
 
 ## Unreleased
 
+## 1.9.0
+
 ### Changed
 
+- Support `--limit` and `--cursor` for Workflow definition listing and display
+  continuation cursors even for empty definition pages.
 - Upgrade the bundled Wrangler to 4.131.0 and reject unmapped `[[connect]]` TCP
   listeners and `[[workflows]]` fields, including `schedules`, `limits`,
   `default_retention`, and `concurrency`, instead of silently dropping them.
-- Support `--limit` and `--cursor` for Workflow definition listing and display
-  continuation cursors even for empty definition pages.
 - Disable Wrangler skills installation/update prompts during deploy. Bundling
   keeps stdin closed even with `--verbose`, which still forwards stdout/stderr.
 

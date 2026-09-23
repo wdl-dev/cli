@@ -6,10 +6,24 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runR2Command } from "../../commands/r2.js";
+import { formatObjectList } from "../../lib/r2-format.js";
 import { LONG_CONTROL_TIMEOUT_MS, UNLIMITED_CONTROL_BODY_BYTES } from "../../lib/control-fetch.js";
 import { INVALID_PAGE_LIMITS, mockDeps, response, stdinFrom } from "./helpers.js";
 
 /** @typedef {import("./helpers.js").ControlCall} ControlCall */
+
+test("R2 object list keeps untrusted keys and cursors on one output line", () => {
+  const lines = formatObjectList({
+    namespace: "demo",
+    bucket: "uploads",
+    truncated: true,
+    cursor: "next\nFORGED",
+    objects: [{ key: "ok\nNext cursor: forged\tcolumn", size: 1 }],
+  });
+  assert.equal(lines.length, 3);
+  assert.match(lines[1], /ok\\nNext cursor: forged\\tcolumn/);
+  assert.equal(lines[2], "Next cursor: next\\nFORGED");
+});
 
 test("r2 buckets and objects commands call encoded control endpoints", async () => {
   /** @type {ControlCall[]} */

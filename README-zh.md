@@ -10,7 +10,7 @@
 
 **WDL 与 Cloudflare, Inc. 没有关联、背书或赞助关系。Cloudflare、Cloudflare Workers、Wrangler 和 workerd 是 Cloudflare, Inc. 的商标或注册商标。**
 
-- 你写的就是标准 module worker（`export default { fetch }`），配普通的 `wrangler.json` / `wrangler.jsonc` / `wrangler.toml`，pin 在 `wrangler@^4`。
+- 你写的就是标准 module worker（`export default { fetch }`），配普通的 `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` 和 Wrangler `>=4.27.0 <5.0.0`。
 - `wdl deploy` 只用 `wrangler deploy --dry-run` 做**本地打包**——不会向 Cloudflare 发送任何东西。在 WDL 平台上不要用 `wrangler deploy` 发布，真实发布走 `wdl deploy`。
 - Worker 默认通过平台域名上带路径前缀的 URL 提供服务：
 

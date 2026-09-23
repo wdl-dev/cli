@@ -202,6 +202,40 @@ test("delete worker dry-run reports state presence without overstating deletion"
   ]);
 });
 
+test("delete worker reports retained Durable Object storage in preview and result", () => {
+  const durableObjects = { storageRetention: { retained: true, objects: 3 } };
+  for (const dryRun of [true, false]) {
+    const lines = formatWorkerDelete({
+      namespace: "demo",
+      name: "api",
+      dryRun,
+      deleted: true,
+      durableObjects,
+    });
+    assert.ok(lines.includes("  Durable Object storage retained=yes objects=3"));
+  }
+});
+
+test("delete worker omits empty Durable Object retention but reports affected objects", () => {
+  for (const dryRun of [true, false]) {
+    const base = { namespace: "demo", name: "api", dryRun, deleted: true };
+    const empty = { storageRetention: { retained: false, objects: 0 } };
+    assert.ok(
+      formatWorkerDelete({ ...base, durableObjects: empty }).every((line) => !line.includes("storage retained"))
+    );
+    assert.ok(
+      formatWorkerDelete({ ...base, deleted: false, durableObjects: empty }).every(
+        (line) => !line.includes("storage retained")
+      )
+    );
+    assert.ok(
+      formatWorkerDelete({ ...base, durableObjects: { storageRetention: { retained: false, objects: 2 } } }).includes(
+        "  Durable Object storage retained=no objects=2"
+      )
+    );
+  }
+});
+
 test("delete worker dry-run renders workflow blockers in human output", async () => {
   const hostile = `bad${ESC}[2J\nFORGED\rBAD`;
   const body = {

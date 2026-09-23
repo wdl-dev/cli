@@ -40,8 +40,8 @@ wdl workflows instances <worker> <workflowName> [--limit <n>] [--cursor <c>]
 wdl workflows status <worker> <workflowName> <instanceId> --include-steps [--step-limit <n>]
 wdl workflows pause <worker> <workflowName> <instanceId>
 wdl workflows resume <worker> <workflowName> <instanceId>
-wdl workflows restart <worker> <workflowName> <instanceId> --yes
-wdl workflows terminate <worker> <workflowName> <instanceId> --yes
+wdl workflows restart <worker> <workflowName> <instanceId> [--yes]
+wdl workflows terminate <worker> <workflowName> <instanceId> [--yes]
 ```
 
 `--limit` 和 `--step-limit` 接受 1..1000 的整数；超出范围时 CLI 会在请求 Control 前拒绝。`--step-limit` 只能和 `--include-steps` 一起使用。

@@ -69,6 +69,8 @@ CLI 标志 > shell/CI env > 项目 ./.env > 全局 token 存储 > 未配置（�
 
 通过上方路径和权限检查的存储才被视为**可信**：token 和端点同源，存放在受保护的用户级配置目录中。项目 `.env` **不可信**：若一个 `.env` 提供了 control 端点却没同时提供 token，该端点仍会被丢弃——这样不可信的项目目录永远无法把你存的 token 重定向到它指定的主机。
 
+同理，项目 `.env` 提供的 `CONTROL_CONNECT_HOST` 只有在有效 token 和 `CONTROL_URL` 也来自同一份 `.env` 时才会生效，否则会被忽略。使用 flag、shell 或 token store 提供的端点做本地调试时，请在 shell 中设置连接覆盖值。
+
 ## 安全：deploy 会以你的身份运行项目代码
 
 `wdl deploy` 在上传前会**以你的 OS 用户身份**运行项目本地的 Wrangler dry-run 以及任何 build 命令 / 依赖钩子。把 `ADMIN_TOKEN` 和控制面变量从子进程**环境**里 scrub 掉，只挡住了*环境*这条路 —— 它**不是沙箱**。磁盘上的 `~/.config/wdl/credentials` 仍被这些代码读到，就和 `~/.aws/credentials`、`~/.npmrc` 一样。所以恶意项目能读它；又因为 store 可能存着**多个 namespace** 的 token，一次不可信的 deploy 就能偷走与该项目无关的 namespace 的 token。

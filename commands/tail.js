@@ -25,9 +25,12 @@ const RECONNECT_STABLE_MS = 30_000;
 // cap-stuck attempts. `--max-reconnects 0` disables the cap.
 const DEFAULT_MAX_RECONNECTS_AT_CAP = 10;
 const TAIL_CONNECT_TIMEOUT_MS = 30_000;
+const TAIL_IDLE_TIMEOUT_MS = 30_000;
 const TAIL_ERROR_BODY_MAX_BYTES = 64 * 1024;
+const RETRYABLE_TAIL_STATUSES = new Set([502, 503, 504]);
 export const SSE_MAX_LINE_CHARS = 1024 * 1024;
 export const SSE_MAX_EVENT_BYTES = 4 * 1024 * 1024;
+class TailIdleError extends Error {}
 // Socket-shutdown error shapes we tolerate as "our own abort".
 // Anything else (e.g. a 5xx racing the abort) bubbles to the user.
 const ABORT_TOLERATED_ERRORS = new Set(["ECONNRESET", "ECONNABORTED", "EPIPE", "ABORT_ERR"]);
@@ -132,7 +135,7 @@ export const meta = command.meta;
 /**
  * The result of one SSE connection lifecycle: empty on a clean end, or
  * `{ fatal }` carrying an error detail to surface and stop reconnecting.
- * @typedef {{ fatal?: string, serverRecycle?: boolean }} StreamResult
+ * @typedef {{ fatal?: string, retryableStatus?: number, retryableDetail?: string, serverRecycle?: boolean }} StreamResult
  */
 
 /**
@@ -223,6 +226,7 @@ async function runTail({ values, positionals, context: baseContext }) {
       let result;
       let transportErr = null;
       let connectedAt = null;
+      let lastActivityAt = null;
       try {
         const hasResumeCursor = lastEventId !== null;
         result = await streamSse({
@@ -241,6 +245,9 @@ async function runTail({ values, positionals, context: baseContext }) {
             connectedAt = now();
             stderr(attempts === 0 ? "tail connected; waiting for events…" : "tail reconnected; waiting for events…");
           },
+          onActivity: () => {
+            lastActivityAt = now();
+          },
         });
       } catch (err) {
         if (err instanceof CliError) throw err;
@@ -250,19 +257,26 @@ async function runTail({ values, positionals, context: baseContext }) {
       attempts += 1;
 
       if (ctrl.signal.aborted) break;
-      // Ended without a fatal error — server closed cleanly. For a 4xx /
-      // 5xx response with a JSON error body, surface it and exit instead
-      // of looping (the request would just keep failing).
+      // Ended without a fatal error — server closed cleanly. Most HTTP
+      // errors remain fatal; transient gateway/control failures reconnect.
       if (result?.fatal) {
         throw new CliError(result.fatal);
       }
+      const retryableFailure = result?.retryableStatus
+        ? `HTTP ${result.retryableStatus}${result.retryableDetail ? ` ${result.retryableDetail}` : ""}`
+        : null;
+      if (retryableFailure) stderr(`tail control returned ${retryableFailure}; will reconnect`);
       if (result?.serverRecycle) {
         backoff = RECONNECT_INITIAL_MS;
         consecutiveAtCap = 0;
       }
       const connectedAtMs = connectedAt;
       const connectionAgeMs = typeof connectedAtMs === "number" ? now() - connectedAtMs : 0;
-      const stableConnection = connectionAgeMs >= RECONNECT_STABLE_MS;
+      const activeAgeMs =
+        typeof connectedAtMs === "number" && typeof lastActivityAt === "number" ? lastActivityAt - connectedAtMs : 0;
+      // An initial tail-open frame does not make a 30-second silent stream stable.
+      const stableConnection =
+        (transportErr instanceof TailIdleError ? activeAgeMs : connectionAgeMs) >= RECONNECT_STABLE_MS;
       if (stableConnection) {
         backoff = RECONNECT_INITIAL_MS;
         consecutiveAtCap = 0;
@@ -280,7 +294,8 @@ async function runTail({ values, positionals, context: baseContext }) {
           throw new CliError(
             `tail: gave up after ${consecutiveAtCap} consecutive reconnects ` +
               `failed at the ${RECONNECT_MAX_MS}ms backoff cap ` +
-              `(override with --max-reconnects N, or 0 to disable)`
+              `(override with --max-reconnects N, or 0 to disable)` +
+              (retryableFailure ? `; last control error: ${retryableFailure}` : "")
           );
         }
       }
@@ -334,12 +349,19 @@ function sleep(ms, signal) {
  *   transport: import("../lib/control-fetch.js").ControlTransport | null,
  *   onEvent: (event: SseEvent) => "server-recycle" | void,
  *   onConnected?: () => void,
+ *   onActivity?: () => void,
  * }} arg
  * @returns {Promise<StreamResult>}
  */
-function streamSse({ url, headers, signal, env, transport, onEvent, onConnected }) {
+function streamSse({ url, headers, signal, env, transport, onEvent, onConnected, onActivity }) {
   /** @type {(() => void) | null} */
   let onAbort = null;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let idleTimer = null;
+  const clearIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+  };
   /** @type {Promise<StreamResult>} */
   const promise = new Promise((resolve, reject) => {
     const u = new URL(url);
@@ -354,6 +376,14 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
       if (connectTimer) clearTimeout(connectTimer);
       connectTimer = null;
     };
+    const resetIdleTimer = () => {
+      clearIdleTimer();
+      idleTimer = setTimeout(() => {
+        reject(new TailIdleError(`tail stream idle for ${TAIL_IDLE_TIMEOUT_MS}ms`));
+        req.destroy();
+      }, TAIL_IDLE_TIMEOUT_MS);
+      idleTimer.unref?.();
+    };
 
     let serverRecycle = false;
     /** @type {import("../lib/control-fetch.js").ControlClientRequest} */
@@ -361,6 +391,11 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
     try {
       req = lib.request(reqOpts, (/** @type {import("node:http").IncomingMessage} */ res) => {
         clearConnectTimer();
+        res.on("data", resetIdleTimer);
+        res.on("end", clearIdleTimer);
+        res.on("error", clearIdleTimer);
+        res.on("close", clearIdleTimer);
+        resetIdleTimer();
         const status = res.statusCode || 0;
         /** @param {unknown} err */
         const onResponseError = (err) => {
@@ -378,15 +413,26 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
           });
           res.on("end", () => {
             let detail;
+            let code = null;
             try {
-              const body = /** @type {{ message?: string, error?: string }} */ (
+              const body = /** @type {{ message?: unknown, error?: unknown } | null} */ (
                 JSON.parse(Buffer.concat(chunks).toString("utf8"))
               );
-              detail = escapeTerminalText(body.message || body.error || `HTTP ${status}`);
+              code = typeof body?.error === "string" ? body.error : null;
+              const message = typeof body?.message === "string" ? body.message : null;
+              detail = escapeTerminalText(
+                code && message ? `${code}: ${message}` : message || code || `HTTP ${status}`
+              );
             } catch {
               detail = `HTTP ${status}`;
             }
-            resolve({ fatal: detail });
+            if (status === 503 && code === "ctx_unavailable") {
+              resolve({ fatal: `HTTP ${status} ${detail}` });
+            } else if (RETRYABLE_TAIL_STATUSES.has(status)) {
+              resolve({ retryableStatus: status, retryableDetail: detail === `HTTP ${status}` ? undefined : detail });
+            } else {
+              resolve({ fatal: detail });
+            }
           });
           return;
         }
@@ -396,6 +442,7 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
         });
         res.setEncoding("utf8");
         res.on("data", (/** @type {string} */ chunk) => {
+          onActivity?.();
           try {
             parser.push(chunk);
           } catch (err) {
@@ -418,11 +465,13 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
     }
     req.on("error", (/** @type {unknown} */ err) => {
       clearConnectTimer();
+      clearIdleTimer();
       if (signal?.aborted && isExpectedAbortError(err)) return resolve({});
       reject(err);
     });
     onAbort = () => {
       clearConnectTimer();
+      clearIdleTimer();
       req.destroy(tailAbortError());
     };
     if (signal) {
@@ -441,6 +490,7 @@ function streamSse({ url, headers, signal, env, transport, onEvent, onConnected 
   // flapping reconnect loop doesn't accumulate one closure per attempt.
   return signal
     ? promise.finally(() => {
+        clearIdleTimer();
         if (onAbort) signal.removeEventListener("abort", onAbort);
       })
     : promise;

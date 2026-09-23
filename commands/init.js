@@ -206,7 +206,7 @@ async function writeStarter(targetDir, { packageName, workerName, ns }) {
         type: "module",
         scripts: {
           deploy: ns ? `wdl deploy . --ns ${ns}` : "wdl deploy .",
-          "dry-run": "wrangler deploy --dry-run --outdir=.deploy-dist",
+          "dry-run": "wrangler deploy --dry-run --outdir=.deploy-dist --env-file=.wdl-empty.env",
         },
         devDependencies: {
           wrangler: wranglerDep,
@@ -243,6 +243,7 @@ ${WRANGLER_WDL_TMP_PREFIX}*.json
 .env
 .env.*
 !.env.example
+.dev.vars*
 `;
 
   await fs.mkdir(path.join(targetDir, "src"), { recursive: true });
@@ -251,6 +252,7 @@ ${WRANGLER_WDL_TMP_PREFIX}*.json
     fs.writeFile(path.join(targetDir, "wrangler.jsonc"), wranglerJsonc),
     fs.writeFile(path.join(targetDir, "src", "index.js"), indexJs),
     fs.writeFile(path.join(targetDir, ".gitignore"), gitignore),
+    fs.writeFile(path.join(targetDir, ".wdl-empty.env"), ""),
   ]);
 }
 

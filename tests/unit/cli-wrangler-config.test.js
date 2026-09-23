@@ -282,6 +282,8 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
       kv_namespaces: [{ binding: "KV", id: "top" }],
       ai: { binding: "AI" },
       services: [{ binding: "AUTH", service: "auth" }],
+      exports: [{ entrypoint: "Api", allowed_callers: ["acme"] }],
+      platform_bindings: [{ binding: "PAY", platform: "STRIPE" }],
       queues: { producers: [{ binding: "Q", queue: "top-q" }] },
       assets: { directory: "./top-public" },
       route: "api.example/*",
@@ -304,9 +306,39 @@ test("resolveWranglerConfig: non-inheritable keys are env-scoped while inheritab
   assert.deepEqual(cfg.ai, { binding: "PROD_AI" });
   assert.deepEqual(cfg.queues, { consumers: [{ queue: "jobs" }] });
   assert.equal(cfg.services, undefined);
+  assert.equal(cfg.exports, undefined);
+  assert.equal(cfg.platform_bindings, undefined);
   assert.deepEqual(cfg.assets, { directory: "./top-public" });
   assert.equal(cfg.route, "api.example/*");
   assert.equal(cfg.workers_dev, false);
+});
+
+test("resolveWranglerConfig: env routes replace the other top-level route form", () => {
+  const base = { name: "demo", main: "src/index.js" };
+  const withRoutes = resolveWranglerConfig(
+    { ...base, route: "old.example/*", env: { prod: { routes: ["new.example/*"] } } },
+    "prod"
+  ).cfg;
+  assert.equal(withRoutes.route, undefined);
+  assert.deepEqual(collectRoutes(withRoutes), ["new.example/*"]);
+  const withRoute = resolveWranglerConfig(
+    { ...base, routes: ["old.example/*"], env: { prod: { route: "new.example/*" } } },
+    "prod"
+  ).cfg;
+  assert.equal(withRoute.routes, undefined);
+  assert.deepEqual(collectRoutes(withRoute), ["new.example/*"]);
+});
+
+test("resolveWranglerConfig: an environment cannot declare route and routes together", () => {
+  const { cfg } = resolveWranglerConfig(
+    {
+      name: "demo",
+      main: "src/index.js",
+      env: { prod: { route: "one.example/*", routes: ["two.example/*"] } },
+    },
+    "prod"
+  );
+  assert.throws(() => collectRoutes(cfg), /specify either "route" or "routes"/);
 });
 
 test("resolveWranglerConfig: a top-level AI binding does not inherit into a selected environment", () => {
@@ -447,12 +479,13 @@ test("resolveWranglerConfig drops __proto__ keys instead of rewriting the merged
   assert.deepEqual(cfg.vars, { A: "1" });
 });
 
-test("createWranglerBundleConfig keeps standard fields while projecting WDL extensions", () => {
+test("createWranglerBundleConfig keeps bundle fields while projecting manifest-only fields", () => {
   const rawCfg = {
     name: "demo",
     main: "src/index.js",
     build: { command: "npm run build" },
     vars: { MODE: "top" },
+    assets: { directory: "." },
     triggers: {
       crons: ["*/5 * * * *"],
       schedules: [{ cron: "0 9 * * 1-5", timezone: "Asia/Shanghai" }],
@@ -474,6 +507,7 @@ test("createWranglerBundleConfig keeps standard fields while projecting WDL exte
     env: {
       staging: {
         define: { BUILD_ENV: '"staging"' },
+        assets: { directory: "./staging-public" },
         triggers: {
           crons: ["0 * * * *"],
           schedules: [{ cron: "0 8 * * *", timezone: "Europe/London" }],
@@ -498,6 +532,7 @@ test("createWranglerBundleConfig keeps standard fields while projecting WDL exte
   assert.equal(projected.wdl, undefined);
   assert.deepEqual(projected.build, { command: "npm run build" });
   assert.deepEqual(projected.vars, { MODE: "top" });
+  assert.equal(projected.assets, undefined);
   assert.deepEqual(projected.triggers, { crons: ["*/5 * * * *"] });
   assert.deepEqual(projected.services, [
     {
@@ -510,6 +545,7 @@ test("createWranglerBundleConfig keeps standard fields while projecting WDL exte
   ]);
   const projectedEnv = /** @type {Record<string, Record<string, unknown>>} */ (projected.env);
   assert.deepEqual(projectedEnv.staging.define, { BUILD_ENV: '"staging"' });
+  assert.equal(projectedEnv.staging.assets, undefined);
   assert.deepEqual(projectedEnv.staging.triggers, { crons: ["0 * * * *"] });
   assert.deepEqual(projectedEnv.staging.services, [{ binding: "API", service: "api-worker", remote: false }]);
   assert.equal(projectedEnv.staging.exports, undefined);
@@ -549,10 +585,10 @@ test("parseSessionPolicy validates the [wdl] session policy", () => {
   );
 });
 
-test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays", () => {
+test("collectRoutes: accepts string patterns and rejects route objects", () => {
   assert.deepEqual(collectRoutes({}, "wrangler.toml"), []);
   assert.deepEqual(collectRoutes({ route: "dev.example.com/*" }, "wrangler.toml"), ["dev.example.com/*"]);
-  assert.deepEqual(collectRoutes({ routes: ["a.example.com/*", { pattern: "b.example.com/*" }] }, "wrangler.toml"), [
+  assert.deepEqual(collectRoutes({ routes: ["a.example.com/*", "b.example.com/*"] }, "wrangler.toml"), [
     "a.example.com/*",
     "b.example.com/*",
   ]);
@@ -560,6 +596,14 @@ test("collectRoutes: accepts strings and { pattern } tables, rejects non-arrays"
   assert.throws(
     () => collectRoutes({ routes: { pattern: "a.example.com/*" } }, "wrangler.toml"),
     /"routes" must be an array/
+  );
+  assert.throws(
+    () => collectRoutes({ route: { pattern: "a.example.com/*" } }, "wrangler.toml"),
+    /use a string pattern instead of a route object/
+  );
+  assert.throws(
+    () => collectRoutes({ routes: [{ pattern: "a.example.com/*", zone_id: "zone" }] }, "wrangler.toml"),
+    /use a string pattern instead of a route object/
   );
   assert.throws(
     () => collectRoutes({ route: "a", routes: ["b"] }, "wrangler.toml"),
@@ -628,6 +672,15 @@ test("validateUnsupportedWranglerConfig: rejects session_policy hoisted out of [
         "wrangler.toml"
       ),
     /env\.prod uses top-level session_policy/
+  );
+});
+
+test("validateUnsupportedWranglerConfig: rejects custom module rules before bundling", () => {
+  const rules = [{ type: "Text", globs: ["**/*.bin"] }];
+  assert.throws(() => validateUnsupportedWranglerConfig({ rules }, null), /unsupported Wrangler field "rules"/);
+  assert.throws(
+    () => validateUnsupportedWranglerConfig({ env: { prod: { rules } } }, "prod"),
+    /env\.prod uses unsupported Wrangler field "rules"/
   );
 });
 

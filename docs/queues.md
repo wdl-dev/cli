@@ -72,6 +72,9 @@ and leave it to the platform's `max_retries` and `dead_letter_queue` handling.
   wait-based aggregation yet; actual dispatch is mostly cut off by
   `max_batch_size` and the platform's scheduling cadence.
 - `max_concurrency` is not supported and is rejected at deploy time.
+- Only `worker` queue consumers are supported. HTTP-pull consumers and unmapped
+  fields in `[queues]`, producer, or consumer entries are rejected before
+  bundling rather than silently ignored.
 - Queue consumers are runtime dispatch targets; declare them on routeable tenant
   Workers, not on platform binding target Workers.
 

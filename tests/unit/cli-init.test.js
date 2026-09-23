@@ -189,6 +189,8 @@ test("init scaffolds files with --ns and --worker", async () => {
     const cliPkg = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8"));
     assert.equal(pkg.name, "demo");
     assert.equal(pkg.scripts.deploy, "wdl deploy . --ns acme");
+    assert.match(pkg.scripts["dry-run"], /--env-file=\.wdl-empty\.env/);
+    assert.equal(readFileSync(path.join(projectDir, ".wdl-empty.env"), "utf8"), "");
     assert.equal(pkg.scripts["deploy:prod"], undefined);
     assert.equal(pkg.devDependencies.wrangler, cliPkg.dependencies.wrangler);
     assert.ok(pkg.devDependencies["@wdl-dev/cli"]);

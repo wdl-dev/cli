@@ -31,8 +31,9 @@ https://<namespace>.<platform-domain>/<worker-name>/<path>
 
 Prerequisites:
 
-- Wrangler v4 (`wrangler@^4`) in the Worker project; v3 is no longer supported
-  by the CLI's bundling step.
+- The selected Wrangler must be `>=4.27.0 <5.0.0` for `--env-file`. A
+  project-local installation takes precedence over the CLI's bundled, tested v4
+  release; older local v4 releases fail even during version probing.
 - Node.js 22 or newer, matching the CLI runtime and Wrangler v4 baseline.
 - `npm install` inside the Worker project before deploying if the Worker has
   dependencies.
@@ -127,13 +128,17 @@ If a command reports `Missing namespace`, pass `--ns <namespace>` or set
 `WDL_NS` before retrying.
 
 `CONTROL_CONNECT_HOST` is a local-dev / debug override: it changes the TCP
-target the request connects to while the HTTP Host header and TLS SNI keep
-tracking `CONTROL_URL` (so over HTTPS the control plane's certificate still
-rejects a redirected connection; plain http has no such check). Use it only for
-local development — never set it persistently in a CI or production shell, where
-a stale value could route the admin token to an unintended target. When the
-override is a URL, its scheme only selects the default TCP port (`http` uses 80;
-`https` uses 443); request transport, Host, and SNI still follow `CONTROL_URL`.
+target the request connects to while the HTTP Host header and TLS certificate
+identity keep tracking `CONTROL_URL`. DNS authorities use SNI; IP authorities
+omit SNI but still validate the certificate against that IP. Plain HTTP has no
+certificate check. Use the override only for local development — never set it
+persistently in a CI or production shell, where a stale value could route the
+admin token to an unintended target. When the override is a URL, its scheme only
+selects the default TCP port (`http` uses 80; `https` uses 443); request
+transport and Host still follow `CONTROL_URL`. An override from a project `.env`
+is ignored unless the effective token and `CONTROL_URL` both came from that same
+`.env`; set the override in your shell for local debugging with a shell, flag,
+or stored endpoint.
 
 The recommended setup keeps these credentials in a managed store rather than a
 shell export or a project `.env`: `wdl token set --ns <ns> --control-url <url>`
@@ -156,12 +161,13 @@ subcommand first or use `--flag=value`; for example, write
 `wdl secret --worker put list`.
 
 `wdl deploy` runs the project's local Wrangler dry-run and build hooks as your
-OS user before uploading, and that code can read the on-disk store (the env
-scrub keeps WDL variables out of the Wrangler child's environment, not out of
-the file), so only deploy projects you trust. `--no-token-store` (or
-`WDL_TOKEN_STORE=off`) resolves credentials from flags / shell / `.env` only and
-never reads the store — a resolution opt-out for less-trusted projects or CI,
-not protection for the file itself.
+OS user before uploading. The CLI passes an empty env-file so Wrangler does not
+reload project `.env` values into the child environment, but build hooks can
+still read `.env`, `.dev.vars`, and the on-disk token store directly. Only
+deploy projects you trust. `--no-token-store` (or `WDL_TOKEN_STORE=off`)
+resolves credentials from flags / shell / `.env` only and never reads the store
+— a resolution opt-out for less-trusted projects or CI, not protection for the
+file itself.
 
 Use `wdl config explain` to inspect the final namespace, control URL, masked
 token, and where each value came from. If resolution needs the token store and
@@ -182,6 +188,10 @@ capability checks still require additional control endpoints. The namespace URL
 can be `(unavailable)` when the operator has not configured a public platform
 domain; authentication and other `/whoami` fields still work.
 
+In a project directory, `wdl doctor` executes that project's Wrangler
+`--version` as your OS user. Run it only in projects you trust, just like
+`wdl deploy`.
+
 ## Scaffolding a New Worker
 
 `wdl init` is the default scaffold for new WDL Worker projects:
@@ -196,12 +206,14 @@ It writes:
 
 - `package.json` — `npm run deploy` with `--ns` baked in when you pass it
   (otherwise just `wdl deploy .`, with the namespace resolved at deploy time),
-  plus an `npm run dry-run` local bundle check; pins `wrangler@^4` and
-  `@wdl-dev/cli` as devDependencies.
+  plus an `npm run dry-run` local bundle check that uses a generated empty
+  `.wdl-empty.env`; pins the CLI-tested Wrangler v4 release and `@wdl-dev/cli`
+  as devDependencies.
 - `wrangler.jsonc` — top-level `name` is the worker name (defaults to the
   directory name; override with `--worker <name>`).
-- `src/index.js`, `.gitignore`, and `AGENTS.md`/`CLAUDE.md` so AI agents can
-  find the per-feature docs under `node_modules/@wdl-dev/cli/docs/`.
+- `src/index.js`, `.gitignore`, `.wdl-empty.env`, and `AGENTS.md`/`CLAUDE.md` so
+  AI agents can find the per-feature docs under
+  `node_modules/@wdl-dev/cli/docs/`.
 
 Use `wdl init . --ns acme` to scaffold into the current (empty) directory. The
 directory name must start with a letter and contain only letters, digits, and
@@ -329,6 +341,12 @@ short network reconnects, while multi-worker sessions may miss events during
 reconnect. For critical debugging, open a dedicated `wdl tail <worker>` session
 and trigger the request after the tail is connected.
 
+Formatted fetch paths include the worker-name prefix: a Worker-internal `/`
+appears as `/<worker>/`; `--raw` keeps the original event payload. Scheduled and
+queue start/finish events include outcome and duration, but `console.*` inside
+those handlers is not included in this tail stream. Restarting the CLI starts a
+new live session unless `--since` is supplied.
+
 The tail stream is best-effort live debugging, not audit history. Under high
 traffic or a slow terminal connection, some middle events can be skipped.
 Control-side oversized console or exception events are dropped whole and
@@ -336,6 +354,11 @@ reported as small warning events instead of being truncated. Independently, the
 CLI terminates the tail session if an oversized SSE event's assembled data
 exceeds 4 MiB. Use the normal log platform your operator provides for incident
 reconstruction and full payloads.
+
+The CLI reconnects after a transient 502/503/504 control response or 30 seconds
+without stream data (the control normally sends a heartbeat every 5 seconds).
+The permanent `503 ctx_unavailable` error and other HTTP errors stop the
+session.
 
 Control may close long-running tail sessions when the client stops reading
 (`session_idle`, about 15s) or when the session reaches its maximum lifetime
@@ -374,8 +397,9 @@ for you.
 
 A Worker with at least one route pattern may set `workers_dev = false` to
 disable its default WDL platform-domain URL while keeping its pattern routes
-active. WDL requires this explicit opt-out; declaring `route` / `routes` alone
-does not disable the platform URL. The deploy summary prints every active
+active. Use string patterns for `route` / `routes`; route objects are
+unsupported. WDL requires this explicit opt-out; declaring `route` / `routes`
+alone does not disable the platform URL. The deploy summary prints every active
 route-pattern URL hint, preserving the trailing `*` on prefix patterns, and
 prints the platform-domain URL only while it is enabled.
 
@@ -426,11 +450,19 @@ WDL consumes `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
 `[[services]].ns`, and `[wdl]` itself and removes those WDL extensions from the
 temporary config passed to the Wrangler bundler. `[ai]` is standard Wrangler
 configuration and stays in that temporary config for Wrangler validation. When a
-selected named environment omits its own `ai`, the CLI warns that the top-level
-binding is not inherited; WDL independently accepts only its `binding` field and
-maps that declaration into the WDL manifest. Other fields retain their existing
-Wrangler passthrough behavior. Wrangler's object-shaped declarative `exports`
-configuration is not supported by WDL.
+selected named environment omits top-level `[ai]`, `[[exports]]`, or
+`[[platform_bindings]]`, the CLI warns that the binding is not inherited; WDL
+independently accepts only `[ai]`'s `binding` field and maps that declaration
+into the WDL manifest. Other fields retain their existing Wrangler passthrough
+behavior, except custom module `rules`: the CLI cannot recover their types from
+Wrangler's bundle output and rejects them. Wrangler's object-shaped declarative
+`exports` configuration is not supported by WDL.
+
+The CLI rejects queue consumer types other than `worker`, unmapped fields in
+queue, service, and Durable Object binding entries, route objects, and
+unsupported `[assets]` options such as `html_handling` and `not_found_handling`.
+WDL's implicit asset binding is named `ASSETS`; another `assets.binding` is
+rejected.
 
 `[[connect]]` TCP listeners have no WDL runtime mapping and are rejected before
 bundling, both at the top level and in the selected environment.
@@ -452,11 +484,11 @@ results need metadata.
 R2 data is not deleted when a Worker is deleted. Use `wdl r2 buckets list` and
 `wdl r2 objects list <bucket>` to inspect namespace R2 data,
 `wdl r2 objects head <bucket> <key>` / `wdl r2 objects get <bucket> <key>` to
-inspect one object, and `wdl r2 objects delete <bucket> <key> --yes` to
-explicitly remove one object. `wdl r2 buckets list` is derived from existing
-object prefixes, so a declared bucket appears only after its first PUT. Object
-delete is a single idempotent S3 DELETE, is not retried, and does not report
-whether the object previously existed. Missing-object `HEAD` follows HTTP
+inspect one object, and `wdl r2 objects delete <bucket> <key>` to explicitly
+remove one object after confirmation. `wdl r2 buckets list` is derived from
+existing object prefixes, so a declared bucket appears only after its first PUT.
+Object delete is a single idempotent S3 DELETE, is not retried, and does not
+report whether the object previously existed. Missing-object `HEAD` follows HTTP
 semantics and returns an empty 404; `wdl r2 objects head` reports the status
 rather than a JSON error body.
 
@@ -475,11 +507,13 @@ choose a default environment. Unlike Cloudflare Workers / Wrangler, WDL does not
 append the environment name to the worker / script name:
 `wdl deploy . --env preview` still updates the top-level `name`. `vars` and most
 bindings remain env-scoped and non-inheritable: selecting an env does not carry
-top-level `[vars]`, KV, D1, R2, AI, queues, services, or workflows into that
-env. Deploy warns when a top-level `[ai]` binding is omitted from the selected
+top-level `[vars]`, KV, D1, R2, AI, queues, services, workflows, `[[exports]]`,
+or `[[platform_bindings]]` into that env. Deploy warns when top-level `[ai]`,
+`[[exports]]`, or `[[platform_bindings]]` is omitted from the selected
 environment. Policies do inherit: `workers_dev`, `route` / `routes`, and `[wdl]`
-keep applying unless the env declares its own. For staging and production side
-by side, use separate namespaces unless your operator tells you otherwise.
+keep applying unless the env declares its own. An env-level `route` or `routes`
+replaces the other top-level form. For staging and production side by side, use
+separate namespaces unless your operator tells you otherwise.
 
 ### KV
 
@@ -580,7 +614,7 @@ wdl r2 buckets list
 wdl r2 objects list uploads --prefix images/
 wdl r2 objects head uploads images/logo.png
 wdl r2 objects get uploads images/logo.png --out logo.png
-wdl r2 objects delete uploads images/logo.png --yes
+wdl r2 objects delete uploads images/logo.png
 ```
 
 `--out` accepts an explicit filesystem path outside the project. It currently
@@ -716,7 +750,9 @@ Migrations are forward-only. WDL uses the migration filename as the migration
 id, so already-applied migration files should not be renamed or edited; a rename
 is treated as a new migration. There is no automatic down/rollback workflow, so
 write migrations in an expand/contract style when a Worker version rollback may
-happen.
+happen. An apply error does not mean the whole batch failed: earlier migrations
+may already be applied. The CLI shows control-reported applied/skipped IDs when
+available; run `wdl d1 migrations status <database>` before retrying.
 
 SQLite object names starting with `_cf_` are reserved by workerd,
 case-insensitively. Avoid creating or renaming D1 tables, indexes, triggers, or
@@ -861,8 +897,8 @@ wdl workflows instances api orders [--limit <n>] [--cursor <c>]
 wdl workflows status api orders order-123 --include-steps
 wdl workflows pause api orders order-123
 wdl workflows resume api orders order-123
-wdl workflows restart api orders order-123 --yes
-wdl workflows terminate api orders order-123 --yes
+wdl workflows restart api orders order-123
+wdl workflows terminate api orders order-123
 ```
 
 `--limit` and `--step-limit` accept integers from 1 through 1000 and are
@@ -1108,15 +1144,17 @@ The deploy manifest sent to control is capped at 32 MiB. Assets are embedded in
 that JSON request during deploy (base64, ~4/3 inflation), so a large asset set
 can hit the control request cap before runtime limits. The CLI additionally
 pre-checks each asset file against a 25 MiB per-file cap and 100 MiB total cap
-before bundling. Use R2 for bulk or frequently changing files.
+before upload. Use R2 for bulk or frequently changing files.
 
 By default the CLI skips `.git/`, `node_modules/`, `.DS_Store`, `.wrangler/`,
-`.deploy-dist/`, `.wrangler.wdl-tmp*.json`, and `.env`/`.env.*` in the assets
-tree; deploy prints a note listing what was skipped. To exclude more files (or
-deliberately re-include one of the defaults with a `!pattern` line), add a
-`.assetsignore` file with gitignore-style patterns to the assets directory — the
-same mechanism Cloudflare Workers Assets uses. The `.assetsignore` file itself
-is also skipped by default.
+`.deploy-dist/`, `.wrangler.wdl-tmp*.json`, `.env*`, `.dev.vars*`, and
+`.wdl-empty.env` in the assets tree; deploy prints a note listing what was
+skipped. To exclude more files (or deliberately re-include one of the defaults
+with a `!pattern` line), add a `.assetsignore` file with gitignore-style
+patterns to the assets directory — the same mechanism Cloudflare Workers Assets
+uses. The CLI collects assets after bundling; Wrangler's dry-run does not scan
+the directory as assets. The `.assetsignore` file itself is also skipped by
+default.
 
 ### Service Bindings
 
@@ -1333,7 +1371,9 @@ secrets, workflow definitions, queue consumers, and asset cleanup. `wdl workers`
 reports `workflow-defs=yes` even for entries that have no deployed version. When
 an older control does not report this field, the CLI displays
 `workflow-defs=unknown`; that does not mean no definitions exist. In automation,
-pass `--yes` only after a separate safety check.
+pass `--yes` only after a separate safety check. When control reports it, delete
+output also shows Durable Object storage retention and the number of affected
+objects.
 
 Delete a D1 database after confirming:
 
@@ -1352,7 +1392,7 @@ wdl tail hello
 | Symptom                                                                     | Likely cause                                                                                                        | What to check                                                                                                                                     |
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Missing admin token`                                                       | No tenant token was provided                                                                                        | Run `wdl token set --ns <ns> --control-url <url>` (recommended), set `ADMIN_TOKEN`, or pass `--token`                                             |
-| `wrangler build failed`                                                     | Wrangler could not bundle the Worker project                                                                        | Run `npx wrangler deploy --dry-run` inside the Worker project and fix local build/config errors                                                   |
+| `wrangler build failed`                                                     | Wrangler could not bundle the Worker project                                                                        | Run `npm run dry-run` in an initialized project; direct Wrangler dry-runs need an empty `--env-file` to avoid loading project `.env`              |
 | Deploy succeeds but promote fails                                           | Route, custom host, or binding validation failed at promotion time                                                  | Check that custom hosts are enabled for your namespace and service-binding targets exist                                                          |
 | Worker URL returns 404                                                      | URL shape or worker name is wrong                                                                                   | Use `https://<namespace>.<platform-domain>/<worker-name>/`; include the worker name path segment                                                  |
 | Worker URL returns `502 runtime_error`                                      | The Worker `fetch()` handler threw before producing a response                                                      | Use `wdl tail <worker>` and request logs; exception details are intentionally not copied into the client response body                            |

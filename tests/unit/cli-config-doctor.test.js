@@ -179,7 +179,7 @@ test("config explain prints final values and sources", async () => {
       cwd,
       env: {},
       /** @param {string} line */
-      stdout: (line) => lines.push(line),
+      stdout: (/** @type {string} */ line) => lines.push(line),
     });
 
     const out = lines.join("\n");
@@ -394,6 +394,57 @@ test("doctor reports local checks plus remote whoami", async () => {
     assert.equal(calls[0].url, "https://api.wdl.dev/whoami");
     assert.deepEqual(calls[0].init.headers, { "x-admin-token": "secret-token" });
     assert.equal(calls[0].init.env?.CONTROL_URL, "https://api.wdl.dev");
+  });
+});
+
+test("doctor escapes control-supplied check labels and details", async () => {
+  await withTempDir(async (cwd) => {
+    /** @type {string[]} */
+    const lines = [];
+    await runDoctorCommand(["--ns", "acme", "--token", "secret-token"], {
+      cwd,
+      env: { CONTROL_URL: "https://api.wdl.dev" },
+      execFile: () => "4.131.0\n",
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async () =>
+        response({
+          ok: true,
+          principal: { kind: "ns\n\u2713 FORGED", ns: "acme" },
+          tokenId: "tok\n\u2713 FORGED",
+          platformVersion: "wdl\n\u2713 FORGED",
+          minCliVersion: "1.9.0",
+          urls: { control: "https://api.wdl.dev/\n\u2713 FORGED" },
+        }),
+    });
+    const out = lines.join("\n");
+    assert.doesNotMatch(out, /\n\u2713 FORGED/);
+    assert.match(out, /Principal ns\\n\u2713 FORGED\/acme/);
+    assert.match(out, /token id: tok\\n\u2713 FORGED/);
+    assert.match(out, /Platform wdl\\n\u2713 FORGED/);
+  });
+});
+
+test("doctor --json preserves control-supplied check values", async () => {
+  await withTempDir(async (cwd) => {
+    /** @type {string[]} */
+    const lines = [];
+    await runDoctorCommand(["--json", "--ns", "acme", "--token", "secret-token"], {
+      cwd,
+      env: { CONTROL_URL: "https://api.wdl.dev" },
+      execFile: () => "4.131.0\n",
+      stdout: (/** @type {string} */ line) => lines.push(line),
+      controlFetch: async () =>
+        response({
+          ok: true,
+          principal: { kind: "ns\nFORGED", ns: "acme" },
+          tokenId: "tok\nFORGED",
+          minCliVersion: "1.9.0",
+          urls: { control: "https://api.wdl.dev/\nFORGED" },
+        }),
+    });
+    const body = /** @type {{ checks: Array<{ label: string, detail: string }> }} */ (JSON.parse(lines.join("\n")));
+    assert.equal(body.checks.find((item) => item.label.startsWith("Principal "))?.label, "Principal ns\nFORGED/acme");
+    assert.equal(body.checks.find((item) => item.label === "ADMIN_TOKEN valid")?.detail, "token id: tok\nFORGED");
   });
 });
 

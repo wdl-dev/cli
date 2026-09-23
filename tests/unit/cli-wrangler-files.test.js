@@ -39,6 +39,16 @@ test("collectModules: preserves prototype-shaped module names as own manifest ke
   }
 });
 
+test("collectModules: preserves Wrangler's default SQL text module type", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-collect-sql-"));
+  try {
+    writeFileSync(path.join(dir, "query.sql"), "SELECT 1;");
+    assert.deepEqual(collectModules(dir)["query.sql"], { text: "SELECT 1;" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("collectModules: refuses to follow a symlink in wrangler's outdir", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "wdl-mod-sym-"));
   const outdir = path.join(parent, "out");
@@ -139,12 +149,17 @@ test("collectAssets: rejects a file that exceeds the per-file cap", () => {
   }
 });
 
-test("collectAssets skips repo/tooling artifacts and .env files by default", () => {
+test("collectAssets skips repo/tooling artifacts and local credential files by default", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-assets-ignore-"));
   try {
     writeFileSync(path.join(dir, "index.html"), "<html></html>");
     writeFileSync(path.join(dir, ".env"), "ADMIN_TOKEN=leak");
     writeFileSync(path.join(dir, ".env.production"), "ADMIN_TOKEN=leak");
+    writeFileSync(path.join(dir, ".envrc"), "ADMIN_TOKEN=leak");
+    writeFileSync(path.join(dir, ".dev.vars"), "ADMIN_TOKEN=leak");
+    writeFileSync(path.join(dir, ".dev.vars.production"), "ADMIN_TOKEN=leak");
+    writeFileSync(path.join(dir, ".dev.varsrc"), "ADMIN_TOKEN=leak");
+    writeFileSync(path.join(dir, ".wdl-empty.env"), "");
     mkdirSync(path.join(dir, ".git"), { recursive: true });
     writeFileSync(path.join(dir, ".git", "HEAD"), "ref: refs/heads/main");
     mkdirSync(path.join(dir, "node_modules", "pkg"), { recursive: true });
@@ -156,6 +171,8 @@ test("collectAssets skips repo/tooling artifacts and .env files by default", () 
     mkdirSync(path.join(dir, "sub", "node_modules"), { recursive: true });
     writeFileSync(path.join(dir, "sub", "node_modules", "y.js"), "y");
     writeFileSync(path.join(dir, "sub", ".env"), "NESTED=leak");
+    writeFileSync(path.join(dir, "sub", ".envrc"), "NESTED=leak");
+    writeFileSync(path.join(dir, "sub", ".wdl-empty.env"), "");
     writeFileSync(path.join(dir, ".DS_Store"), "junk");
 
     const out = collectAssets(dir);

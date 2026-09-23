@@ -4,7 +4,7 @@ import path from "node:path";
 import { defineCommand } from "../lib/command.js";
 import { CliError, defineCliOption, formatHelp, isMain, isNonEmptyString, optionHelp } from "../lib/common.js";
 import { warnIfInsecureControlUrl } from "../lib/credentials.js";
-import { writeResult } from "../lib/output.js";
+import { escapeTerminalText, writeResult } from "../lib/output.js";
 import { readTokenStore, tokenStorePath } from "../lib/token-store.js";
 import { resolveDiagnosticConfigState } from "../lib/config-state.js";
 import { CLI_ROOT, currentCliVersion, readCliPackageJson } from "../lib/package-info.js";
@@ -74,7 +74,7 @@ async function runDoctor({ values, positionals, context: baseContext }) {
   checks.push(...remote.checks);
 
   const body = { checks, whoami: remote.whoami, whoamiError: remote.error };
-  writeResult(Boolean(values.json), body, () => formatDoctor(checks), context.stdout);
+  writeResult(Boolean(values.json), body, () => formatDoctor(checks, remote.checks), context.stdout);
   if (values.strict === true && checks.some((item) => !item.ok)) {
     throw new CliError("doctor checks failed");
   }
@@ -315,12 +315,15 @@ function check({ ok, label, detail = "" }) {
   return { ok, label, detail };
 }
 
-/** @param {DoctorCheck[]} checks */
-function formatDoctor(checks) {
+/** @param {DoctorCheck[]} checks @param {DoctorCheck[]} remoteChecks */
+function formatDoctor(checks, remoteChecks) {
+  const remoteRows = new Set(remoteChecks);
   return checks.map((item) => {
-    const line = `${item.ok ? "✓" : "✗"} ${item.label}`;
+    const label = remoteRows.has(item) ? escapeTerminalText(item.label) : item.label;
+    const line = `${item.ok ? "✓" : "✗"} ${label}`;
     if (!item.detail) return line;
-    const detail = item.detail
+    const detailText = remoteRows.has(item) ? escapeTerminalText(item.detail) : item.detail;
+    const detail = detailText
       .split("\n")
       .map((detailLine) => `  ${detailLine}`)
       .join("\n");

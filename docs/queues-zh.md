@@ -55,6 +55,7 @@ export default {
 - Dead-letter queue 是有界的诊断通道（默认约 1 万条，近似裁剪）——应及时排空，不要当作持久归档使用。
 - CLI 会转发通过基础整数 delay 解析的 `max_batch_timeout` 以兼容配置；WDL control 负责执行更严格的 Cloudflare 兼容 0..60 秒范围。当前不要依赖它做完整的等待聚合，实际 dispatch 主要由 `max_batch_size` 和平台调度节奏截断。
 - `max_concurrency` 当前不支持，部署时会被拒绝。
+- 仅支持 `worker` 类型的 queue consumer；HTTP-pull consumer 以及 `[queues]`、producer、consumer entry 中无法映射的字段会在打包前被拒绝，而不是静默忽略。
 - Queue consumer 是 runtime dispatch 目标，应声明在可路由的 tenant Worker 上，不要声明在 platform binding target Worker 上。
 
 ## 端到端示例

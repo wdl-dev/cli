@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Changed
+
+- Reject custom Wrangler module rules, unmapped queue, service, Durable Object,
+  and asset fields, and route objects instead of silently dropping their
+  effects.
+- Keep WDL `[[exports]]` and `[[platform_bindings]]` scoped to the selected
+  environment and warn when they are omitted there; let env-level `route` and
+  `routes` replace each other.
+- Project-local Wrangler must support `--env-file` (`>=4.27.0 <5.0.0`) for
+  version probing and bundling; older v4 installations take precedence over the
+  bundled release.
+
+### Fixed
+
+- Treat bundled `.sql` modules as text, reconnect idle or transiently failed
+  Tail streams while stopping on permanent `ctx_unavailable`, and show partial
+  D1 migration progress after an apply error.
+- Keep asset directories out of Wrangler dry-run so excluded files cannot block
+  bundling before the CLI applies its asset ignore rules.
+- Show retained Durable Object storage in worker deletion output and avoid
+  forged human-output lines in D1, R2, and doctor summaries.
+- Correct `--json` help text, optional `--yes` usage, and generated project
+  exclusions for `.dev.vars*` files.
+
+### Security
+
+- Stop Wrangler from automatically loading the project's `.env` into its build
+  environment, including generated `npm run dry-run` checks; exclude `.env*`,
+  `.dev.vars*`, and `.wdl-empty.env` from assets by default, and prevent a
+  project `.env` from redirecting a higher-priority Control URL via
+  `CONTROL_CONNECT_HOST`.
+- Verify HTTPS certificates against the Control URL's IP authority even when
+  `CONTROL_CONNECT_HOST` overrides the socket destination.
+- Avoid persisting checkout credentials in release jobs.
+
 ## 1.9.0
 
 ### Changed

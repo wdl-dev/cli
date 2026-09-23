@@ -186,6 +186,224 @@ test("wdl tail escapes control error details", async () => {
   );
 });
 
+test("wdl tail reconnects after a transient control 503", async () => {
+  let requests = 0;
+  /** @type {string[]} */
+  const stderrLines = [];
+  const fakeTransport = {
+    /** @param {import("node:https").RequestOptions} _opts @param {(res: import("node:http").IncomingMessage) => void} cb */
+    request(_opts, cb) {
+      const req = fakeHttpReq();
+      requests += 1;
+      const attempt = requests;
+      setImmediate(() => {
+        const res = Object.assign(fakeHttpRes(), { statusCode: attempt === 1 ? 503 : 200 });
+        cb(res);
+        if (attempt === 1) res.emit("data", Buffer.from('{"message":"Internal error"}'));
+        if (attempt === 1) res.emit("end");
+        else res.emit("error", new CliError("test stop"));
+      });
+      return req;
+    },
+  };
+  await assert.rejects(
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
+        env: {},
+        stdout: () => {},
+        stderr: (/** @type {string} */ line) => stderrLines.push(line),
+        transport: fakeTransport,
+        sleepFn: async () => {},
+      }),
+    /test stop/
+  );
+  assert.equal(requests, 2);
+  assert.ok(stderrLines.some((line) => /HTTP 503 Internal error; will reconnect/.test(line)));
+});
+
+test("wdl tail treats ctx_unavailable as a fatal control error", async () => {
+  let requests = 0;
+  const fakeTransport = {
+    /** @param {import("node:https").RequestOptions} _opts @param {(res: import("node:http").IncomingMessage) => void} cb */
+    request(_opts, cb) {
+      const req = fakeHttpReq();
+      requests += 1;
+      setImmediate(() => {
+        const res = Object.assign(fakeHttpRes(), { statusCode: 503 });
+        cb(res);
+        res.emit(
+          "data",
+          Buffer.from('{"error":"ctx_unavailable","message":"Streaming response requires ctx.waitUntil"}')
+        );
+        res.emit("end");
+      });
+      return req;
+    },
+  };
+  await assert.rejects(
+    () =>
+      runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
+        env: {},
+        stdout: () => {},
+        stderr: () => {},
+        transport: fakeTransport,
+        sleepFn: async () => {
+          throw new Error("tail must not reconnect");
+        },
+      }),
+    /HTTP 503 ctx_unavailable: Streaming response requires ctx\.waitUntil/
+  );
+  assert.equal(requests, 1);
+});
+
+test("wdl tail retains transient control details when the reconnect cap is reached", async () => {
+  let requests = 0;
+  /** @type {string[]} */
+  const stderrLines = [];
+  const fakeTransport = {
+    /** @param {import("node:https").RequestOptions} _opts @param {(res: import("node:http").IncomingMessage) => void} cb */
+    request(_opts, cb) {
+      const req = fakeHttpReq();
+      requests += 1;
+      setImmediate(() => {
+        const res = Object.assign(fakeHttpRes(), { statusCode: 503 });
+        cb(res);
+        res.emit("data", Buffer.from('{"error":"control_busy","message":"retry later"}'));
+        res.emit("end");
+      });
+      return req;
+    },
+  };
+  await assert.rejects(
+    () =>
+      runTailCommand(
+        ["foo", "--max-reconnects", "1", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
+        {
+          env: {},
+          stdout: () => {},
+          stderr: (/** @type {string} */ line) => stderrLines.push(line),
+          transport: fakeTransport,
+          sleepFn: async () => {},
+        }
+      ),
+    /gave up after 1 consecutive reconnects.*last control error: HTTP 503 control_busy: retry later/s
+  );
+  assert.ok(requests > 1);
+  assert.ok(stderrLines.some((line) => /HTTP 503 control_busy: retry later; will reconnect/.test(line)));
+});
+
+test("wdl tail backs off across repeated SSE idle timeouts", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let requests = 0;
+  let nowMs = 0;
+  /** @type {number[]} */
+  const sleepCalls = [];
+  /** @type {() => void} */
+  let firstConnected = () => {};
+  const firstConnection = new Promise((resolve) => {
+    firstConnected = () => resolve(undefined);
+  });
+  /** @type {() => void} */
+  let secondConnected = () => {};
+  const secondConnection = new Promise((resolve) => {
+    secondConnected = () => resolve(undefined);
+  });
+  const fakeTransport = {
+    /** @param {import("node:https").RequestOptions} _opts @param {(res: import("node:http").IncomingMessage) => void} cb */
+    request(_opts, cb) {
+      const req = fakeHttpReq();
+      requests += 1;
+      const attempt = requests;
+      setImmediate(() => {
+        const res = fakeHttpRes();
+        cb(res);
+        if (attempt <= 2) res.emit("data", ": tail-open\n\n");
+        if (attempt === 1) firstConnected();
+        else if (attempt === 2) secondConnected();
+        else res.emit("error", new CliError("test stop"));
+      });
+      return req;
+    },
+  };
+  const running = runTailCommand(["foo", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"], {
+    env: {},
+    stdout: () => {},
+    stderr: () => {},
+    transport: fakeTransport,
+    now: () => nowMs,
+    sleepFn: async (/** @type {number} */ ms) => {
+      sleepCalls.push(ms);
+      nowMs += ms;
+    },
+  });
+  await firstConnection;
+  nowMs += 30_000;
+  t.mock.timers.tick(30_000);
+  await secondConnection;
+  nowMs += 30_000;
+  t.mock.timers.tick(30_000);
+  await assert.rejects(running, /test stop/);
+  assert.equal(requests, 3);
+  assert.deepEqual(sleepCalls, [1_000, 2_000]);
+});
+
+test("wdl tail resets backoff after an active session later goes idle", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let requests = 0;
+  let nowMs = 0;
+  /** @type {number[]} */
+  const sleepCalls = [];
+  /** @type {(response: import("node:http").IncomingMessage) => void} */
+  let markConnected = () => {};
+  /** @type {Promise<import("node:http").IncomingMessage>} */
+  const activeConnection = new Promise((resolve) => {
+    markConnected = resolve;
+  });
+  const fakeTransport = {
+    /** @param {import("node:https").RequestOptions} _opts @param {(res: import("node:http").IncomingMessage) => void} cb */
+    request(_opts, cb) {
+      const req = fakeHttpReq();
+      const attempt = ++requests;
+      setImmediate(() => {
+        const res = fakeHttpRes();
+        cb(res);
+        if (attempt <= 3) res.emit("error", new Error("transient"));
+        else if (attempt === 4) {
+          markConnected(res);
+        } else res.emit("error", new CliError("test stop"));
+      });
+      return req;
+    },
+  };
+  const running = runTailCommand(
+    ["foo", "--max-reconnects", "1", "--ns", "demo", "--token", "t", "--control-url", "http://ctl.test"],
+    {
+      env: {},
+      stdout: () => {},
+      stderr: () => {},
+      transport: fakeTransport,
+      now: () => nowMs,
+      sleepFn: async (/** @type {number} */ ms) => {
+        sleepCalls.push(ms);
+        nowMs += ms;
+      },
+    }
+  );
+  const activeResponse = await activeConnection;
+  activeResponse.emit("data", ":hb\n\n");
+  nowMs += 20_000;
+  t.mock.timers.tick(20_000);
+  activeResponse.emit("data", ":hb\n\n");
+  nowMs += 20_000;
+  t.mock.timers.tick(20_000);
+  activeResponse.emit("data", ":hb\n\n");
+  nowMs += 30_000;
+  t.mock.timers.tick(30_000);
+  await assert.rejects(running, /test stop/);
+  assert.equal(requests, 5);
+  assert.deepEqual(sleepCalls, [1_000, 2_000, 4_000, 1_000]);
+});
+
 /** @returns {import("../../lib/control-fetch.js").ControlClientRequest} */
 function fakeHttpReq() {
   return /** @type {import("../../lib/control-fetch.js").ControlClientRequest} */ (

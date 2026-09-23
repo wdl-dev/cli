@@ -485,3 +485,18 @@ test("controlFetch omits TLS SNI for HTTPS IP literals", async () => {
   assert.equal(opts.port, 443);
   assert.equal(opts.servername, undefined);
 });
+
+test("controlFetch validates an IP authority certificate against the URL, not the connect override", async () => {
+  const { seen, transport } = captureSuccessfulRequestOptions();
+  await controlFetch("https://127.0.0.1/whoami", {
+    env: { CONTROL_CONNECT_HOST: "localhost" },
+    transport,
+  });
+  const opts = /** @type {import("node:https").RequestOptions} */ (seen[0]);
+  assert.equal(opts.host, "localhost");
+  assert.equal(opts.servername, undefined);
+  const certificate = /** @type {import("node:tls").DetailedPeerCertificate} */ (
+    /** @type {unknown} */ ({ subjectaltname: "DNS:localhost", subject: { CN: "localhost" } })
+  );
+  assert.match(opts.checkServerIdentity?.("localhost", certificate)?.message || "", /IP: 127\.0\.0\.1/);
+});

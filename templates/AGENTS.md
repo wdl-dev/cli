@@ -61,6 +61,9 @@ includes the platform-domain URL only while it is enabled. Cloudflare's separate
 `preview_urls` field is unsupported and rejected by the CLI. `[[connect]]` TCP
 listeners, Cloudflare Artifacts `triggers.events` subscriptions, and R2
 `local_dev.experimental_s3_credentials` are also unsupported and rejected.
+Custom module `rules`, unsupported `[assets]` options, queue consumer types
+other than `worker`, unmapped queue/service/DO entry fields, and route objects
+are also rejected before bundling. The implicit asset binding is named `ASSETS`.
 `[[workflows]]` supports only `name`, `binding`, and `class_name`; `script_name`
 and all other fields, including `schedules`, `limits`, `default_retention`, and
 `concurrency`, are rejected before bundling. Use per-instance `create()`
@@ -72,12 +75,13 @@ Responses config, then edit model-specific capabilities before `providers put`.
 Initializer output rejects non-text input, `previous_response_id` continuation,
 and binary WebSocket frames until their corresponding declarations are enabled;
 the bundled AI agent demo already enables its required `previousResponseId`.
-Like other bindings, `[ai]` is not inherited into named environments; deploy
-warns when the selected environment omits a top-level AI binding.
-`[wdl] session_policy = "restart"` makes every promotion close the Worker's open
-WebSockets with `1012` and retire stale Durable Object facets on their next
-dispatch; the default `preserve` leaves facets on the version that built them
-and keeps open WebSockets draining while their backend stays healthy.
+Like other bindings, `[ai]`, `[[exports]]`, and `[[platform_bindings]]` are not
+inherited into named environments; deploy warns when the selected environment
+omits one of these top-level bindings. `[wdl] session_policy = "restart"` makes
+every promotion close the Worker's open WebSockets with `1012` and retire stale
+Durable Object facets on their next dispatch; the default `preserve` leaves
+facets on the version that built them and keeps open WebSockets draining while
+their backend stays healthy.
 
 ## Runnable end-to-end examples
 
@@ -118,9 +122,13 @@ When a snippet is not enough and you need a complete working file tree:
 
 ```bash
 npm install                                            # once
-npx wrangler deploy --dry-run --outdir=.deploy-dist    # bundle check
-npm run deploy                                          # deploy to WDL
+npm run dry-run                                        # bundle check
+npm run deploy                                         # deploy to WDL
 ```
+
+The generated `dry-run` script uses an empty `.wdl-empty.env` so Wrangler does
+not inject project `.env` values into build hooks. Build hooks can still read
+project files directly; run them only in projects you trust.
 
 `wdl init` bakes `--ns <ns>` into the `deploy` script in `package.json` when you
 pass it; without `--ns` the script is `wdl deploy .` and the namespace is
@@ -136,9 +144,10 @@ Wrangler in two key ways:
   named `my-worker` deployed with `--env production` is still `my-worker` on
   WDL, where standard Cloudflare Workers / Wrangler would typically produce
   `my-worker-production`.
-- `vars`, KV, D1, R2, AI, Durable Objects, queues, services, workflows, and the
-  like are env-scoped / non-inheritable — top-level config of the same kind does
-  not flow into the selected env; redeclare it inside the `env.<name>` block.
+- `vars`, KV, D1, R2, AI, Durable Objects, queues, services, workflows,
+  `[[exports]]`, and `[[platform_bindings]]` are env-scoped / non-inheritable;
+  top-level config of the same kind does not flow into the selected env;
+  redeclare it inside the `env.<name>` block.
 
 Full rules are in `env-overrides.md`.
 

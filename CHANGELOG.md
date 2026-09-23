@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.9.1
+
 ### Changed
 
 - Reject custom Wrangler module rules, unmapped queue, service, Durable Object,

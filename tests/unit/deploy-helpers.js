@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { response } from "./helpers.js";
@@ -29,6 +29,8 @@ export function createDeployProject(t, config, prefix = "wdl-run-deploy-") {
  * @param {readonly string[]} args
  */
 export function fakeWranglerExecFile(_cmd, args) {
+  const envFile = args[args.indexOf("--env-file") + 1];
+  assert.equal(readFileSync(envFile, "utf8"), "");
   if (args.includes("--version")) return "wrangler 4.94.0";
   const outDir = /** @type {string} */ (args.find((arg) => arg.startsWith("--outdir="))).slice("--outdir=".length);
   mkdirSync(outDir, { recursive: true });
@@ -85,10 +87,8 @@ function assertWranglerCommand(cmd) {
  */
 export function assertWranglerVersionProbe(call) {
   assertWranglerCommand(call.cmd);
-  if (call.cmd === process.execPath) {
-    assert.match(call.args[0] || "", /wrangler[\\/]bin[\\/]wrangler\.js$/);
-    assert.deepEqual(call.args.slice(1), ["--version"]);
-    return;
-  }
-  assert.deepEqual(call.args, ["--version"]);
+  const args = call.cmd === process.execPath ? call.args.slice(1) : call.args;
+  if (call.cmd === process.execPath) assert.match(call.args[0] || "", /wrangler[\\/]bin[\\/]wrangler\.js$/);
+  assert.deepEqual(args.slice(0, 2), ["--version", "--env-file"]);
+  assert.equal(path.basename(args[2] || ""), "empty.env");
 }

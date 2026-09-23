@@ -42,18 +42,19 @@ URL.
 
 The deploy manifest JSON is capped at 32 MiB. Assets are embedded into that JSON
 request as base64 (~4/3 inflation) during deploy, so a large asset set can hit
-the control request cap first. The CLI additionally pre-checks before bundling:
-25 MiB per file, 100 MiB total. Use R2 for bulk, runtime-uploaded, or frequently
+the control request cap first. The CLI additionally pre-checks before upload: 25
+MiB per file, 100 MiB total. Use R2 for bulk, runtime-uploaded, or frequently
 changing files — see [r2.md](./r2.md).
 
 By default the CLI does not upload `.git/`, `node_modules/`, `.DS_Store`,
-`.wrangler/`, `.deploy-dist/`, `.wrangler.wdl-tmp*.json`, or `.env`/`.env.*`
-from the assets directory; deploy prints a one-line note listing what was
-skipped. To exclude more files, add a gitignore-syntax `.assetsignore` file to
-the assets directory (`!pattern` negation rules are supported, so you can
-deliberately re-include one of the defaults) — the same mechanism Cloudflare
-Workers Assets uses. The `.assetsignore` file itself is also not uploaded by
-default.
+`.wrangler/`, `.deploy-dist/`, `.wrangler.wdl-tmp*.json`, `.env*`, `.dev.vars*`,
+or `.wdl-empty.env` from the assets directory; deploy prints a one-line note
+listing what was skipped. To exclude more files, add a gitignore-syntax
+`.assetsignore` file to the assets directory (`!pattern` negation rules are
+supported, so you can deliberately re-include one of the defaults) — the same
+mechanism Cloudflare Workers Assets uses. The CLI collects assets after
+bundling, so Wrangler's dry-run does not scan the directory as assets. The
+`.assetsignore` file itself is also not uploaded by default.
 
 ## Worker-side usage
 
@@ -105,6 +106,9 @@ frontend build commands automatically.
   are immutable per deploy and bounded by the 32 MiB deploy manifest cap. Use R2
   — see [r2.md](./r2.md).
 - ❌ Adding `assets.run_worker_first`. It is silently ignored.
+- ❌ Renaming `assets.binding` from `ASSETS`, or setting Cloudflare-only
+  `html_handling` / `not_found_handling`. The CLI rejects these instead of
+  deploying a Worker with different asset behavior.
 - ❌ Hardcoding the CDN host in source. Always go through
   `await env.ASSETS.url(...)`.
 - ❌ Committing build output to git. Generate it at deploy time.

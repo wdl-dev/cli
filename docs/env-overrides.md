@@ -89,9 +89,10 @@ use two different top-level `name` values, two directories, or two namespaces.
 
 `vars` and most bindings still follow Wrangler's non-inheritable mental model:
 once `[env.<name>]` is selected, top-level `[vars]`, KV, D1, R2, queues,
-services, workflows, AI, etc. do not inherit into that env automatically. When a
-runtime env var or binding is needed, redeclare it inside the matching
-`[env.<name>]`. Deploy emits a warning when a top-level `[ai]` binding is not
+services, workflows, AI, `[[exports]]`, and `[[platform_bindings]]` do not
+inherit into that env automatically. When a runtime env var or binding is
+needed, redeclare it inside the matching `[env.<name>]`. Deploy emits a warning
+when top-level `[ai]`, `[[exports]]`, or `[[platform_bindings]]` is not
 redeclared in the selected environment.
 
 With the example above:
@@ -126,12 +127,14 @@ differ:
 - Non-inheritable: `[env.<name>].vars`, `[[env.<name>.kv_namespaces]]`,
   `[[env.<name>.d1_databases]]`, `[[env.<name>.r2_buckets]]`,
   `[[env.<name>.queues.*]]`, `[[env.<name>.services]]`,
-  `[[env.<name>.workflows]]`, `[env.<name>.ai]`, etc. Once an env is selected,
-  top-level config of the same kind does not fall back in.
+  `[[env.<name>.workflows]]`, `[env.<name>.ai]`, `[[env.<name>.exports]]`,
+  `[[env.<name>.platform_bindings]]`, etc. Once an env is selected, top-level
+  config of the same kind does not fall back in.
 - Inheritable: `main`, `compatibility_date` / `compatibility_flags`, `route` /
   `routes`, `workers_dev`, `[wdl]`, `[[migrations]]`, `[assets]`, `[triggers]`,
   etc. When the env does not set them, the top-level value keeps applying; when
-  the env sets them, it overrides the top-level value.
+  the env sets them, it overrides the top-level value. An env-level `route` or
+  `routes` replaces the other top-level form.
 
 So shared `vars` or bindings cannot live only at the top level in the
 expectation that every env inherits them; each env must declare the runtime vars

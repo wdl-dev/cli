@@ -19,15 +19,17 @@ import { defineCommand } from "../lib/command.js";
 import {
   CliError,
   defineCliOption,
+  formatHttpError,
   formatHelp,
   isMain,
   isPathInside,
   missingNamespaceError,
   optionHelp,
+  readJsonOrFail,
   unexpectedArgument,
 } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import { escapeTerminalText, formatDiagnosticValue, writeResult } from "../lib/output.js";
+import { escapeTerminalText, formatDiagnosticValue, writeJsonOr, writeResult, writeStatusLine } from "../lib/output.js";
 
 const D1_EXECUTE_MODES = ["all", "raw", "run", "exec"];
 
@@ -118,12 +120,9 @@ async function runD1({ values, positionals, context }) {
         "create d1 database"
       )
     );
-    writeResult(
-      values.json === true,
-      body,
-      () => [`OK ${body.namespace}/${body.databaseId} created name=${body.databaseName || "-"}`],
-      stdout
-    );
+    if (!writeJsonOr(values.json === true, body, stdout)) {
+      writeStatusLine(stdout, `OK ${body.namespace}/${body.databaseId} created name=${body.databaseName || "-"}`);
+    }
     return;
   }
 
@@ -149,7 +148,9 @@ async function runD1({ values, positionals, context }) {
         "delete d1 database"
       )
     );
-    writeResult(values.json === true, body, () => [`OK ${body.namespace}/${body.databaseId} deleted`], stdout);
+    if (!writeJsonOr(values.json === true, body, stdout)) {
+      writeStatusLine(stdout, `OK ${body.namespace}/${body.databaseId} deleted`);
+    }
     return;
   }
 
@@ -239,21 +240,49 @@ async function runMigrationsCommand({ action, databaseRef, context }) {
 
   if (action === "apply") {
     const migrations = loadLocalMigrations({ values, env, cwd, databaseRef, warn });
-    const body = /** @type {Parameters<typeof formatD1MigrationApply>[0]} */ (
-      await context.fetchJson(
-        `${migrationsBase}/apply`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ migrations }),
-          timeoutMs: LONG_CONTROL_TIMEOUT_MS,
-        },
-        "apply d1 migrations"
-      )
-    );
+    const label = "apply d1 migrations";
+    const res = await context.controlFetch(`${migrationsBase}/apply`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ migrations }),
+      timeoutMs: LONG_CONTROL_TIMEOUT_MS,
+      env,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new CliError(
+        `${label} failed: ${formatHttpError(res.status, text, res.headers)}${formatD1ApplyProgress(text)}`
+      );
+    }
+    const body = /** @type {Parameters<typeof formatD1MigrationApply>[0]} */ (await readJsonOrFail(res, label));
     writeResult(values.json === true, body, () => formatD1MigrationApply(body), stdout);
     return;
   }
+}
+
+/** @param {string} text */
+function formatD1ApplyProgress(text) {
+  /** @type {unknown} */
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return "";
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const body = /** @type {Record<string, unknown>} */ (parsed);
+  /** @type {string[]} */
+  const parts = [];
+  for (const key of ["applied", "skipped"]) {
+    const entries = body[key];
+    if (!Array.isArray(entries) || entries.length === 0) continue;
+    const ids = entries.slice(0, 5).map((entry) => {
+      const id = entry && typeof entry === "object" ? /** @type {{ id?: unknown }} */ (entry).id : undefined;
+      return typeof id === "string" ? escapeTerminalText(id) : "?";
+    });
+    parts.push(`${key} before failure=${ids.join(",")}${entries.length > 5 ? `,+${entries.length - 5} more` : ""}`);
+  }
+  return parts.length ? `; ${parts.join("; ")}` : "";
 }
 
 /**

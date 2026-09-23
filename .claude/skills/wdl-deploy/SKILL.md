@@ -1,6 +1,6 @@
 ---
 name: wdl-deploy
-description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, token, workers, delete, d1, r2, ai, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, manage the local WDL token store, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows / AI bindings, manage D1 / R2 / AI providers / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects pinned to wrangler@^4.
+description: Deploy and manage Cloudflare Workers-style projects on the WDL platform via the `wdl` CLI (init, deploy, config explain, whoami, doctor, tail, secret, token, workers, delete, d1, r2, ai, workflows). Trigger when the user asks to scaffold or deploy a Worker, inspect resolved CLI configuration, identify the active control token/principal, manage the local WDL token store, run diagnostics, tail live logs, configure KV / Queues / Durable Objects / Workflows / AI bindings, manage D1 / R2 / AI providers / secrets through `wdl`, or troubleshoot wdl CLI output. Works with `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` projects using Wrangler `>=4.27.0 <5.0.0`.
 ---
 
 # WDL CLI deploy skill
@@ -53,9 +53,11 @@ authoritative, and agent-facing references use the English set.
 
 New Wrangler configs should use `compatibility_date = "2026-06-17"` unless a
 project feature requires a newer target or the operator gives a different
-target. Control rejects explicit dates before `2026-04-01`, invalid or future
-dates, dates newer than the bundled workerd supports, upstream experimental
-enable flags, `legacy_error_serialization`, and
+target. The selected Wrangler needs `>=4.27.0 <5.0.0` for `--env-file`; an older
+project-local install takes precedence over the CLI's bundled release and fails
+even during version probing. Control rejects explicit dates before `2026-04-01`,
+invalid or future dates, dates newer than the bundled workerd supports, upstream
+experimental enable flags, `legacy_error_serialization`, and
 `allow_irrevocable_stub_storage`. WDL follows Wrangler config priority
 (`wrangler.json`, then `wrangler.jsonc`, then `wrangler.toml`). Both JSON
 filenames use Wrangler's JSONC syntax, including comments and trailing commas.
@@ -65,44 +67,48 @@ The CLI still fails fast for cheap local cases such as Python Workers modules,
 unmapped top-level or selected-env Wrangler runtime/deploy keys (`[site]`,
 `pages_build_output_dir`, `observability`, `limits`, `placement`, etc.), and
 ambiguous runtime `env` name collisions between `[vars]`, explicit bindings, and
-the implicit `ASSETS` binding. For an operator-enabled routed Worker, explicit
-`workers_dev = false` keeps its pattern routes active while disabling the
-default platform-domain URL; it requires at least one `route` / `routes` pattern
-and is not inferred. The deploy summary prints every active route-pattern URL
-hint, preserving the trailing `*` on prefix patterns, and includes the
-platform-domain URL only while it is enabled. Cloudflare's separate
-`preview_urls` field is unsupported and rejected by the CLI. WDL consumes
-`[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
+the implicit `ASSETS` binding. Custom module `rules` are rejected because WDL
+cannot recover their types from Wrangler's output. For an operator-enabled
+routed Worker, explicit `workers_dev = false` keeps its string pattern routes
+active while disabling the default platform-domain URL; it requires at least one
+`route` / `routes` pattern and is not inferred. The deploy summary prints every
+active route-pattern URL hint, preserving the trailing `*` on prefix patterns,
+and includes the platform-domain URL only while it is enabled. Cloudflare's
+separate `preview_urls` field is unsupported and rejected by the CLI. WDL
+consumes `[[exports]]`, `[[platform_bindings]]`, `[[triggers.schedules]]`,
 `[[services]].ns`, and `[wdl]` itself and removes those WDL extensions from
 Wrangler's temporary bundle config. `[ai]` is standard Wrangler configuration
 and stays in that config for Wrangler validation. If a selected named
-environment omits its own `ai`, the CLI warns that the top-level binding is not
-inherited; WDL independently maps its `binding` into the WDL manifest. Other
-fields retain their existing Wrangler passthrough behavior. `[[connect]]` TCP
-listeners are unsupported and rejected before bundling. Specific nested fields
-that WDL cannot represent are rejected rather than silently dropped, including
-Cloudflare Artifacts `triggers.events` subscriptions and R2
-`local_dev.experimental_s3_credentials`. `[[workflows]]` supports only `name`,
-`binding`, and `class_name`; `script_name` and all other fields, including
-`schedules`, `limits`, `default_retention`, and `concurrency`, are rejected
-before bundling. Use per-instance `create()` retention instead of
-`[[workflows]].default_retention`. `[wdl] session_policy` accepts `preserve` or
-`restart`. The default `preserve` leaves loaded Durable Object facets on the
-version that built them until the host actor restarts or the facet is deleted,
-and keeps established WebSockets draining while their backend stays healthy.
-`restart` closes the worker's open WebSockets with code `1012` at promotion and
-retires stale facets on their next dispatch, preserving SQLite state. Wrangler's
-object-shaped declarative `exports` config is unsupported. The dry-run child
-hides Wrangler's banner (and its normal update check) and disables anonymous
-telemetry and automatic agent skills installation, updates, and prompts.
-Bundling keeps stdin closed even with `--verbose`, which still forwards
-stdout/stderr. Wrangler may still write local metrics state and debug logs, and
-consult the configured npm registry when reporting an unknown configuration
-field; project build hooks retain their normal network access. For
-`[[services]]` and `[[exports]]`, read `docs/deploy.md`: tenant JSRPC may
-delegate service or Durable Object class stubs as opaque capabilities, but the
-receiver cannot rewrite their host-authored caller properties. Keep delegated
-stubs in memory; long-term irrevocable stub storage is unsupported.
+environment omits top-level `[ai]`, `[[exports]]`, or `[[platform_bindings]]`,
+the CLI warns that the binding is not inherited; WDL independently maps `[ai]`'s
+`binding` into the WDL manifest. Other fields retain their existing Wrangler
+passthrough behavior. `[[connect]]` TCP listeners are unsupported and rejected
+before bundling. Specific nested fields that WDL cannot represent are rejected
+rather than silently dropped, including Cloudflare Artifacts `triggers.events`
+subscriptions and R2 `local_dev.experimental_s3_credentials`, queue consumer
+types other than `worker`, unmapped queue/service/DO entry fields, route
+objects, and unsupported `[assets]` options. The implicit asset binding is named
+`ASSETS`. `[[workflows]]` supports only `name`, `binding`, and `class_name`;
+`script_name` and all other fields, including `schedules`, `limits`,
+`default_retention`, and `concurrency`, are rejected before bundling. Use
+per-instance `create()` retention instead of `[[workflows]].default_retention`.
+`[wdl] session_policy` accepts `preserve` or `restart`. The default `preserve`
+leaves loaded Durable Object facets on the version that built them until the
+host actor restarts or the facet is deleted, and keeps established WebSockets
+draining while their backend stays healthy. `restart` closes the worker's open
+WebSockets with code `1012` at promotion and retires stale facets on their next
+dispatch, preserving SQLite state. Wrangler's object-shaped declarative
+`exports` config is unsupported. The dry-run child hides Wrangler's banner (and
+its normal update check) and disables anonymous telemetry and automatic agent
+skills installation, updates, and prompts. Bundling keeps stdin closed even with
+`--verbose`, which still forwards stdout/stderr. Wrangler may still write local
+metrics state and debug logs, and consult the configured npm registry when
+reporting an unknown configuration field; project build hooks retain their
+normal network access. For `[[services]]` and `[[exports]]`, read
+`docs/deploy.md`: tenant JSRPC may delegate service or Durable Object class
+stubs as opaque capabilities, but the receiver cannot rewrite their
+host-authored caller properties. Keep delegated stubs in memory; long-term
+irrevocable stub storage is unsupported.
 
 If a command reports `Missing namespace`, supply the intended tenant with
 `--ns <namespace>` or `WDL_NS` before retrying.
@@ -114,18 +120,30 @@ selects HTTP on any host. Every HTTP `.local` target emits the plaintext-token
 warning.
 
 Never recommend setting `CONTROL_CONNECT_HOST` outside local development: it
-overrides the TCP target the admin token connects to (Host header + TLS SNI
-still track `CONTROL_URL`), and a stale value in a CI or production shell could
-route the token to an unintended host. A URL-form override uses its scheme only
-to choose the default TCP port; transport still follows `CONTROL_URL`. GUIDE
-covers the details. Local deploy output also derives the public Worker scheme
-and port from `CONTROL_URL`, never `CONTROL_CONNECT_HOST`.
+overrides the TCP target the admin token connects to (Host and TLS certificate
+identity still track `CONTROL_URL`; IP authorities omit SNI), and a stale value
+in a CI or production shell could route the token to an unintended host. A
+URL-form override uses its scheme only to choose the default TCP port; transport
+still follows `CONTROL_URL`. GUIDE covers the details. Local deploy output also
+derives the public Worker scheme and port from `CONTROL_URL`, never
+`CONTROL_CONNECT_HOST`. An override in a project `.env` is ignored unless the
+effective token and `CONTROL_URL` also come from that same `.env`; use a shell
+override when testing an endpoint supplied by a flag, shell, or token store.
 
 `wdl deploy` runs the project's Wrangler dry-run and build hooks as the user, so
-they can read the on-disk token store (`~/.config/wdl/credentials`); only deploy
-trusted projects. For a less-trusted or third-party project, recommend
+they can read project `.env` and the on-disk token store
+(`~/.config/wdl/credentials`). The CLI prevents Wrangler's automatic `.env`
+reload into the child environment, but it cannot sandbox project code; only
+deploy trusted projects. For a less-trusted or third-party project, recommend
 `--no-token-store` (or `WDL_TOKEN_STORE=off`) with an ephemeral `--token` /
-`--control-url`, rather than relying on the global store.
+`--control-url`, rather than relying on the global store. `wdl doctor` also
+executes the project's local Wrangler `--version`; run it only when that local
+tool is trusted.
+
+For a project generated by `wdl init`, use `npm run dry-run` for a local bundle
+check. Its empty `.wdl-empty.env` prevents Wrangler from injecting the project
+`.env` into build hooks; direct Wrangler dry-runs need the same explicit empty
+`--env-file`. Build hooks can still read project files themselves.
 
 `wdl ai`, `wdl secret`, and `wdl token` redact invalid argument details. When a
 string option precedes the complete subcommand path and its separate value is

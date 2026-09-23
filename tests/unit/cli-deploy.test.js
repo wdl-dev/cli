@@ -435,10 +435,22 @@ test("runDeployCommand sanitizes wrangler.name via temp --config so mixed-case w
   }
 });
 
-test("runDeployCommand warns when a selected environment does not inherit top-level AI", async (t) => {
+test("runDeployCommand warns when a selected environment does not inherit top-level bindings", async (t) => {
   const dir = createDeployProject(
     t,
-    ['name = "api"', 'main = "src/index.js"', "[ai]", 'binding = "AI"', "[env.prod]"].join("\n"),
+    [
+      'name = "api"',
+      'main = "src/index.js"',
+      "[ai]",
+      'binding = "AI"',
+      "[[exports]]",
+      'entrypoint = "Api"',
+      'allowed_callers = ["demo"]',
+      "[[platform_bindings]]",
+      'binding = "PAY"',
+      'platform = "STRIPE"',
+      "[env.prod]",
+    ].join("\n"),
     "wdl-run-deploy-ai-env-warning-"
   );
   const { calls, controlFetch } = deployPromoteFetch(
@@ -458,10 +470,28 @@ test("runDeployCommand warns when a selected environment does not inherit top-le
 
   assert.deepEqual(warnings, [
     "warning: wrangler.toml: top-level [ai] is not inherited into env.prod; " +
-      "declare ai inside env.prod to bind AI in this environment",
+      "declare [ai] inside env.prod to use it in this environment",
+    "warning: wrangler.toml: top-level [[exports]] is not inherited into env.prod; " +
+      "declare [[exports]] inside env.prod to use it in this environment",
+    "warning: wrangler.toml: top-level [[platform_bindings]] is not inherited into env.prod; " +
+      "declare [[platform_bindings]] inside env.prod to use it in this environment",
   ]);
   const manifest = JSON.parse(/** @type {string} */ (calls[0].init.body));
   assert.equal(manifest.bindings, undefined);
+  assert.equal(manifest.exports, undefined);
+  assert.equal(manifest.platformBindings, undefined);
+
+  /** @type {string[]} */
+  const verboseWarnings = [];
+  const verboseControl = deployPromoteFetch({ version: "v2", warnings: [] }, { platformDomain: "workers.example" });
+  await runDeployCommand([dir, "--env", "prod", "--ns", "demo", "--control-url", "http://ctl.test", "--verbose"], {
+    env: { ADMIN_TOKEN: "tok" },
+    stdout: () => {},
+    stderr: (/** @type {string} */ line) => verboseWarnings.push(line),
+    execFile: fakeWranglerExecFile,
+    controlFetch: verboseControl.controlFetch,
+  });
+  assert.deepEqual(verboseWarnings, warnings.slice(1));
 });
 
 test("runDeployCommand removes the sanitized temp config when wrangler exec fails", async () => {
@@ -1435,6 +1465,54 @@ test("runDeployCommand treats an empty assets directory as an implicit ASSETS bi
     assert.deepEqual(manifest.assets, {});
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("packWranglerProject rejects unmapped assets settings before invoking Wrangler", async (t) => {
+  const dir = createDeployProject(t, 'name = "api"\nmain = "src/index.js"\n');
+  const configPath = path.join(dir, "wrangler.json");
+  for (const assets of [
+    { directory: "public", binding: "STATIC" },
+    { directory: "public", html_handling: "auto-trailing-slash" },
+    { directory: "public", not_found_handling: "404-page" },
+  ]) {
+    writeFileSync(configPath, JSON.stringify({ name: "api", main: "src/index.js", assets }));
+    await assert.rejects(
+      () =>
+        packWranglerProject({
+          projectDir: dir,
+          execFile: () => {
+            throw new Error("Wrangler must not run");
+          },
+        }),
+      /assets\.binding must be "ASSETS"|\[assets\] contains unsupported field\(s\)/
+    );
+  }
+});
+
+test("packWranglerProject requires a directory whenever assets is declared", async (t) => {
+  const dir = createDeployProject(t, 'name = "api"\nmain = "src/index.js"\n');
+  const configPath = path.join(dir, "wrangler.json");
+  /** @type {Array<[unknown, RegExp]>} */
+  const invalidAssets = [
+    [null, /\[assets\] must be a table/],
+    [{}, /assets\.directory must be a non-empty string/],
+    [{ binding: "ASSETS" }, /assets\.directory must be a non-empty string/],
+    [{ directory: "" }, /assets\.directory must be a non-empty string/],
+    [{ directory: 42 }, /assets\.directory must be a non-empty string/],
+  ];
+  for (const [assets, expected] of invalidAssets) {
+    writeFileSync(configPath, JSON.stringify({ name: "api", main: "src/index.js", assets }));
+    await assert.rejects(
+      () =>
+        packWranglerProject({
+          projectDir: dir,
+          execFile: () => {
+            throw new Error("Wrangler must not run");
+          },
+        }),
+      expected
+    );
   }
 });
 

@@ -20,7 +20,8 @@ Cloudflare, Cloudflare Workers, Wrangler, and workerd are trademarks or
 registered trademarks of Cloudflare, Inc.**
 
 - You write standard module workers (`export default { fetch }`) with a normal
-  `wrangler.json` / `wrangler.jsonc` / `wrangler.toml`, pinned to `wrangler@^4`.
+  `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` and Wrangler
+  `>=4.27.0 <5.0.0`.
 - `wdl deploy` runs `wrangler deploy --dry-run` **for local bundling only** —
   nothing is ever sent to Cloudflare. Do not use `wrangler deploy` against a WDL
   platform; releases go through `wdl deploy`.

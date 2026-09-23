@@ -55,7 +55,7 @@ objects explicitly:
 wdl r2 buckets list
 wdl r2 objects list inspection-images --prefix inspections/
 wdl r2 objects head inspection-images <key>
-wdl r2 objects delete inspection-images <key> --yes
+wdl r2 objects delete inspection-images <key>
 ```
 
 The D1 database is named `inspection-main`; delete it only when the demo data is

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runD1Command, serializeMigrationStatusRequest } from "../../commands/d1.js";
 import { LONG_CONTROL_TIMEOUT_MS } from "../../lib/control-fetch.js";
+import { formatD1List } from "../../lib/d1-format.js";
 import {
   ESC,
   MODE_BITS_ENFORCED_ONLY,
@@ -17,6 +18,11 @@ import {
 
 /** @typedef {import("../../lib/control-fetch.js").ControlFetchInit} ControlFetchInit */
 /** @typedef {import("./helpers.js").ControlCall} RecordedCall */
+
+test("D1 list escapes line and column controls in returned fields", () => {
+  const lines = formatD1List({ databases: [{ databaseId: "db\nFORGED", databaseName: "name\tcolumn" }] });
+  assert.deepEqual(lines, ["db\\nFORGED\tname=name\\tcolumn\tcreated=-"]);
+});
 
 /**
  * @param {unknown} err
@@ -260,6 +266,34 @@ test("d1 migrations apply reads sorted SQL files from --dir", async () => {
     assert.equal(body.migrations[0].sql, "create table users (id integer);");
     assert.match(body.migrations[0].checksum, /^[a-f0-9]{64}$/);
     assert.deepEqual(lines, ["Applied 001_init.sql\tstatements=1"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("d1 migrations apply preserves bounded progress when a later migration fails", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-d1-migration-progress-"));
+  try {
+    mkdirSync(path.join(dir, "migrations"));
+    writeFileSync(path.join(dir, "migrations", "001_init.sql"), "select 1;");
+    await assert.rejects(
+      () =>
+        runD1Command(["migrations", "apply", "main", "--dir", "migrations", "--control-url", "http://ctl.test"], {
+          cwd: dir,
+          env: { ADMIN_TOKEN: "tok", WDL_NS: "demo" },
+          controlFetch: async () =>
+            response(
+              {
+                error: "d1_migration_apply_failed",
+                message: "later migration failed",
+                applied: [{ id: "001_init.sql" }],
+                skipped: [{ id: "old\nFORGED.sql" }],
+              },
+              409
+            ),
+        }),
+      /applied before failure=001_init\.sql; skipped before failure=old\\nFORGED\.sql/
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

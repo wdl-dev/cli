@@ -59,6 +59,8 @@ wdl d1 migrations status main      # 查看待应用
 wdl d1 migrations apply main       # 单向，不能回滚
 ```
 
+如果 apply 在先前迁移已完成后失败，CLI 会在错误中附上 control 返回的 applied/skipped ID。重试前先查 `migrations status`；一次失败不代表整批都未执行。
+
 `migrations_dir` 和显式 `--dir` 都必须留在项目根目录内。
 
 迁移一旦应用就不可改。**绝对不要**重命名或修改已应用的文件 —— CLI 通过文件名追踪，重命名会被当作全新的迁移再执行一次。

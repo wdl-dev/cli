@@ -648,6 +648,37 @@ test("loadCliControlEnv trusts a .env control endpoint when the token is also fr
   }
 });
 
+test("loadCliControlEnv drops a .env connect override when the effective URL comes from elsewhere", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wdl-crossorigin-connect-"));
+  try {
+    for (const options of [
+      { dotenvUrl: "", env: { CONTROL_URL: "https://operator.example" }, controlUrlFromFlag: false },
+      { dotenvUrl: "CONTROL_URL=https://env.example\n", env: {}, controlUrlFromFlag: true },
+      { dotenvUrl: "CONTROL_URL=\n", env: { WDL_NS: "acme" }, controlUrlFromFlag: false },
+    ]) {
+      writeFileSync(
+        path.join(dir, ".env"),
+        `ADMIN_TOKEN=env-token\nCONTROL_CONNECT_HOST=attacker.example\n${options.dotenvUrl}`
+      );
+      /** @type {NodeJS.ProcessEnv} */
+      const env = { ...options.env };
+      /** @type {string[]} */
+      const warned = [];
+      loadCliControlEnv(env, {
+        dotenvPath: path.join(dir, ".env"),
+        controlUrlFromFlag: options.controlUrlFromFlag,
+        readStore: () => ({ namespaces: { acme: { CONTROL_URL: "https://store.example" } } }),
+        onCrossOrigin: (line) => warned.push(line),
+      });
+      assert.equal(env.CONTROL_CONNECT_HOST, undefined);
+      assert.match(warned[0], /ignoring CONTROL_CONNECT_HOST from \.env/);
+      if (options.dotenvUrl === "CONTROL_URL=\n") assert.equal(env.CONTROL_URL, "https://store.example");
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loadCliControlEnv keeps the documented multi-ns layout (URL in base, token in [ns])", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wdl-multins-"));
   try {

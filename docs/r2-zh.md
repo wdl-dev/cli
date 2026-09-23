@@ -101,7 +101,7 @@ wdl r2 buckets list
 wdl r2 objects list <bucket> [--prefix <p>] [--delimiter <d>] [--limit <n>] [--cursor <c>]
 wdl r2 objects head <bucket> <key>          # 只看 metadata，不下载 body
 wdl r2 objects get  <bucket> <key> --out file  # 下载
-wdl r2 objects delete <bucket> <key> --yes  # 破坏性 —— 先确认
+wdl r2 objects delete <bucket> <key> [--yes] # 默认提示确认
 ```
 
 `wdl r2 objects get` 会写出原始 object bytes。需要 stream bytes 时请 pipe 或重定向 stdout；在交互终端中请使用 `--out <path>`。

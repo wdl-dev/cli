@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -51,6 +51,21 @@ test("probeWranglerVersion returns one parsed version shape for deploy and docto
     version: "4.114.0",
     major: 4,
   });
+});
+
+test("probeWranglerVersion prevents Wrangler from auto-loading project dotenv", () => {
+  /** @type {string | undefined} */
+  let envFile;
+  /** @param {string} _command @param {string[]} args */
+  const fake = (_command, args) => {
+    envFile = args[args.indexOf("--env-file") + 1];
+    assert.ok(envFile);
+    assert.equal(readFileSync(envFile, "utf8"), "");
+    return "4.131.0";
+  };
+  const execFile = /** @type {typeof import("node:child_process").execFileSync} */ (/** @type {unknown} */ (fake));
+  probeWranglerVersion({ execFile, cwd: "/tmp", env: {}, wrangler: { command: "wrangler", args: [] } });
+  assert.equal(existsSync(/** @type {string} */ (envFile)), false);
 });
 
 test("checkWranglerVersion accepts only the supported v4 major", () => {
@@ -140,6 +155,23 @@ test("checkWranglerVersion ENOENT hint mentions the npx opt-in", () => {
         wrangler: { command: "wrangler", args: [] },
       }),
     /WDL_ALLOW_NPX_WRANGLER=1/
+  );
+});
+
+test("checkWranglerVersion explains the --env-file error from older Wrangler", () => {
+  const execFile = /** @type {typeof import("node:child_process").execFileSync} */ (
+    /** @type {unknown} */ (
+      () => {
+        throw Object.assign(new Error("wrangler exited"), {
+          status: 1,
+          stderr: "Unknown arguments: env-file, envFile",
+        });
+      }
+    )
+  );
+  assert.throws(
+    () => checkWranglerVersion({ cwd: "/tmp/project", env: {}, wrangler: { command: "wrangler", args: [] }, execFile }),
+    /requires Wrangler >=4\.27\.0 <5\.0\.0.*Upgrade the selected Wrangler installation/s
   );
 });
 

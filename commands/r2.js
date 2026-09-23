@@ -15,7 +15,7 @@ import {
   unexpectedArgument,
 } from "../lib/common.js";
 import { confirmAction } from "../lib/stdin.js";
-import { escapeTerminalText, writeResult, writeStatusLine } from "../lib/output.js";
+import { escapeTerminalText, writeJsonOr, writeResult, writeStatusLine } from "../lib/output.js";
 import { formatBucketList, formatObjectHead, formatObjectList } from "../lib/r2-format.js";
 
 const R2_OPTIONS = [
@@ -178,7 +178,9 @@ async function runR2({ values, positionals, context: baseContext }) {
         "delete R2 object"
       )
     );
-    writeResult(values.json === true, body, () => [`OK ${body.namespace}/${body.bucket}/${body.key} deleted`], stdout);
+    if (!writeJsonOr(values.json === true, body, stdout)) {
+      writeStatusLine(stdout, `OK ${body.namespace}/${body.bucket}/${body.key} deleted`);
+    }
     return;
   }
 
@@ -337,7 +339,7 @@ function usageText() {
       "wdl r2 objects list <bucket> [--prefix <prefix>] [--delimiter <delim>] [options]",
       "wdl r2 objects head <bucket> <key> [options]",
       "wdl r2 objects get <bucket> <key> [--out <path>] [options]",
-      "wdl r2 objects delete <bucket> <key> --yes [options]",
+      "wdl r2 objects delete <bucket> <key> [--yes] [options]",
     ],
     description: "Inspect and delete namespace-scoped R2 virtual bucket data.",
     options: optionHelp(R2_OPTIONS),

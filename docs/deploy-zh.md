@@ -6,7 +6,11 @@
 
 wrangler 解析顺序是 `WDL_WRANGLER_BIN`、Worker 项目本地 wrangler、CLI 包本地 wrangler、最后是 `PATH`。默认不会临时 `npx --yes wrangler@^4` 拉包；只有设置 `WDL_ALLOW_NPX_WRANGLER=1` 时才允许这个 fallback。
 
+选中的 Wrangler 版本必须在 `>=4.27.0 <5.0.0` 范围内：WDL 在版本探测和 dry-run 打包时都会传入 `--env-file`。旧的项目本地版本优先于 CLI 自带版本；请升级该项目依赖。
+
 WDL 会隐藏这个 dry-run 子进程的 Wrangler banner（因此跳过常规 banner 更新检查），关闭匿名遥测及自动 agent skills 安装、更新和提示。即使使用 `--verbose`，打包时 stdin 也保持关闭，但仍透传 stdout/stderr。Wrangler 仍可能写入本地 metrics 状态和调试日志，并在报告未知配置字段时访问已配置的 npm registry；项目 build hook 仍保留正常的网络访问能力。
+
+`wdl init` 生成项目的 `npm run dry-run` 会给 Wrangler 指定空 `.wdl-empty.env`，避免把项目 `.env` 注入 build hook。直接执行 `wrangler deploy --dry-run` 则会加载项目 `.env`，除非也传入空的 `--env-file`；两种方式都不能阻止 build hook 自行读取项目文件。
 
 ## CLI 调用形式
 
@@ -38,9 +42,11 @@ CLI 需要三个值：
 
 优先级：`CLI 标志 > shell env > .env 中 [<ns>] 段 > .env 基础段 > wdl token store`。都没有提供时命令直接报错——没有内置默认值。
 
-**不可信项目：** `wdl deploy` 在上传前会以你的 OS 用户身份运行项目本地的 Wrangler dry-run 和 build 钩子，这些代码能读到磁盘上的 token store（凭证 scrub 只把 WDL 变量挡在 Wrangler 子进程环境外，挡不住文件）。只部署你信任的项目。对不可信 / 第三方项目，用临时的 `--token` / `--control-url` 加 `--no-token-store`（或 `WDL_TOKEN_STORE=off`）让 CLI 不读 store —— 而且根本别留全局 store，因为这个 flag 只是不**读**文件，挡不住文件本身在磁盘上。详见 [token-zh.md](./token-zh.md)。
+**不可信项目：** `wdl deploy` 在上传前会以你的 OS 用户身份运行项目本地的 Wrangler dry-run 和 build 钩子。CLI 会阻止 Wrangler 把项目 `.env` 重新载入子进程环境，但项目代码仍能直接读取该文件和磁盘上的 token store。只部署你信任的项目。对不可信 / 第三方项目，用临时的 `--token` / `--control-url` 加 `--no-token-store`（或 `WDL_TOKEN_STORE=off`）让 CLI 不读 store —— 而且根本别留全局 store，因为这个 flag 只是不**读**文件，挡不住文件本身在磁盘上。详见 [token-zh.md](./token-zh.md)。
 
 不确定最终取了哪个值时，运行 `wdl config explain`；要确认 token 实际连到哪个 control、principal、platform version 和 URL hints，运行 `wdl whoami`；本机与远端基础排查运行 `wdl doctor`。当 control 支持 `/whoami` 时，`doctor` 会验证远端 token、principal namespace、platform version 和 CLI compatibility。CI 里需要失败即挡住后续步骤时，用 `wdl doctor --strict`。如果运维方没有配置公开 platform domain，namespace URL 可能显示为 `(unavailable)`；这不代表认证失败。
+
+`wdl doctor` 还会在项目安装了本地 Wrangler 时运行其 `wrangler --version`；只在信任项目本地工具时运行。
 
 运行时密钥（与 `ADMIN_TOKEN` 不同）见 [secrets-zh.md](./secrets-zh.md)。
 
@@ -52,7 +58,7 @@ https://<namespace>.<platform-domain>/<worker-name>/<path>
 
 Worker 看到的路径是**剥掉 `/<worker-name>` 之后的路径**。除非运维方明确启用，租户没有自定义路由能力；首次配置不要加 `route` / `routes`。
 
-运维方启用自定义路由后，至少有一条 route pattern 的 Worker 可以设置 `workers_dev = false`。Custom routes 会继续生效，但上面的 platform-domain URL 会返回 404。Deploy 摘要会输出每条 active route-pattern URL hint，并在 prefix pattern 上保留尾部 `*`，而且只在 platform-domain URL 启用时输出它。WDL 不会仅因配置了 `route` / `routes` 就推断为 opt-out。
+运维方启用自定义路由后，至少有一条 route pattern 的 Worker 可以设置 `workers_dev = false`。`route` / `routes` 只接受字符串 pattern，不支持 route object。Custom routes 会继续生效，但上面的 platform-domain URL 会返回 404。Deploy 摘要会输出每条 active route-pattern URL hint，并在 prefix pattern 上保留尾部 `*`，而且只在 platform-domain URL 启用时输出它。WDL 不会仅因配置了 `route` / `routes` 就推断为 opt-out。
 
 Cloudflare 用 `workers_dev` 控制 Worker 的 `*.workers.dev` route；版本化 preview URL 由独立的 `preview_urls` 控制，后者默认跟随 `workers_dev`。WDL 则把该开关映射到上面的普通 platform-domain 服务路径，所以迁移 `wrangler.toml` 时要重新确认。WDL 不支持 `preview_urls`，CLI 会拒绝该字段。
 
@@ -75,7 +81,7 @@ Cloudflare 用 `workers_dev` 控制 Worker 的 `*.workers.dev` route；版本化
 
 1. **解析 CLI 调用形式**（上文）。
 2. **解析凭证** —— 可信项目优先用 `.env` 或 `wdl token` store，不要内联环境变量；不可信 / 第三方项目改用临时 `--token` / `--control-url` 加 `--no-token-store`（见上方凭证段 —— deploy 会以你的身份运行项目代码）。
-3. **wrangler 版本检查。** 打包步骤需要 `wrangler@^4`。如果项目 pin 了 v3，停下，告诉用户 —— 不要默默升级。
+3. **wrangler 版本检查。** 打包步骤需要支持 `--env-file` 的 Wrangler `>=4.27.0 <5.0.0`。如果项目 pin 了旧版本，停下，告诉用户 —— 不要默默升级。
 4. **安装 worker 依赖**（在 worker 目录下 `npm install`），如果 `node_modules` 不存在。
 5. **预创建持久化绑定。** 读 wrangler 配置：
    - `[[d1_databases]]` → 对每个 `database_name`，先 `wdl d1 list` 检查；缺的用 `wdl d1 create <name>` 创建。见 [d1-zh.md](./d1-zh.md)。
@@ -125,7 +131,7 @@ wdl deploy . --env production
 
 **支持：** `name`、`main`、`compatibility_date` / `compatibility_flags`、`[vars]`、`[[kv_namespaces]]`、`[[d1_databases]]`、`[[durable_objects.bindings]]`、`[[workflows]]`、`[[r2_buckets]]`、`[ai]`、`[assets] directory`、`[triggers] crons`、`[[triggers.schedules]]`（带 timezone，平台扩展）、`[[queues.producers]]` / `[[queues.consumers]]`、`[[services]]`、`[[platform_bindings]]`、`[[exports]]`、`route` / `routes`、`workers_dev`、`[wdl] session_policy`、`[env.<name>]`。
 
-WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些 WDL 扩展。`[ai]` 是 Wrangler 标准配置，会保留在临时配置中供 Wrangler 校验；如果选中的 named environment 没有自己的 `ai`，CLI 会提示顶层 binding 不会继承。WDL 另行只接受其中的 `binding` 字段，并把该声明映射到 WDL manifest。其它字段保持既有的 Wrangler 透传行为。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
+WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些 WDL 扩展。`[ai]` 是 Wrangler 标准配置，会保留在临时配置中供 Wrangler 校验；如果选中的 named environment 漏掉顶层 `[ai]`、`[[exports]]` 或 `[[platform_bindings]]`，CLI 会提示这些 binding 不会继承。WDL 另行只接受 `[ai]` 的 `binding` 字段，并把该声明映射到 WDL manifest。其它字段保持既有的 Wrangler 透传行为，但自定义 module `rules` 无法从 Wrangler bundle output 恢复类型，CLI 会拒绝。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
 WDL 还会拒绝 `[[connect]]` TCP listener、Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；它们都没有对应的 WDL deploy manifest 或 runtime 映射。
 
@@ -135,21 +141,27 @@ Tenant JSRPC 可以序列化 `Blob` value，并把 service 或 Durable Object cl
 
 **不支持（部署失败）：** Analytics Engine。Durable Objects 仅支持同 worker class；`script_name`、rename/delete migration 暂未实现。WDL Workflows 仅支持当前 Worker 内定义的 workflow class，不是完整 Cloudflare Workflows parity；`script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 暂不支持。`route` / `routes` 仅在运维方启用时支持。Python Workers modules、不支持的 workerd compatibility flags 和 WDL 保留注入模块名会在部署时被拒绝：CLI 会对本地 `.py` module fail-fast，workerd compatibility 与 bundle-shape policy 由 control plane canonical 判断。WDL 会忽略、且无法映射进 manifest 的顶层或所选 env Wrangler runtime/deploy 配置字段和 section 也会由 CLI 直接拒绝，包括 legacy `[site]` Workers Sites、`pages_build_output_dir`、`observability`、`limits`、`placement`，以及错误信息点名的其它 unsupported binding/config field 或 section。`assets.run_worker_first` 会被静默忽略。
 
+CLI 也会拒绝非 `worker` 的 queue consumer 类型、queue / service / Durable Object binding entry 中无法映射的字段、route object，以及 `html_handling`、`not_found_handling` 等不支持的 `[assets]` 选项。隐式 asset binding 固定名为 `ASSETS`；其它 `assets.binding` 名称会被拒绝。默认 asset 排除列表包含 `.env*`、`.dev.vars*` 和 `.wdl-empty.env`。
+
 WDL 的 `[[workflows]]` 只支持 `name`、`binding` 和 `class_name`。CLI 会在打包前拒绝 `script_name` 及其它所有字段，包括 `schedules`、`limits`、`default_retention` 和 `concurrency`。保留时间请通过单个 instance 的 `create()` retention 设置，不要使用 Wrangler 的 `default_retention`。
 
 Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在可路由的 tenant Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是 public/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 
 ## 破坏性命令
 
-`wdl delete worker`、`wdl delete version`、`wdl d1 delete`、`wdl secret delete` 和 `wdl ai providers delete` 默认会提示确认。如果有 `--dry-run`，先跑一遍；否则先做只读检查。删除 AI provider 前，先运行 `wdl config explain` 确认最终解析出的 namespace，再用 `wdl ai providers get <provider> --ns <namespace>` 查看目标，并在删除时传入同一个显式 `--ns`；删除 provider 会同时删除其 metadata 和 credential。只有与用户确认后才能加 `--yes`；**不要**主动加。
+`wdl delete worker`、`wdl delete version`、`wdl d1 delete`、`wdl secret delete`、`wdl r2 objects delete`、`wdl workflows restart`、`wdl workflows terminate` 和 `wdl ai providers delete` 默认会提示确认。如果有 `--dry-run`，先跑一遍；否则先做只读检查。删除 AI provider 前，先运行 `wdl config explain` 确认最终解析出的 namespace，再用 `wdl ai providers get <provider> --ns <namespace>` 查看目标，并在删除时传入同一个显式 `--ns`；删除 provider 会同时删除其 metadata 和 credential。只有与用户确认后才能加 `--yes`；**不要**主动加。
 
 `wdl delete version` 没有 dry-run endpoint：请先检查保留版本。CLI 会拒绝 `--dry-run`，不会静默执行删除。
 
 `wdl workers` 会显示 `workflow-defs=yes` 或 `workflow-defs=no`；`unknown` 表示旧 control 没有返回该字段，不表示没有 workflow definitions。即使 blocker 使 `wouldDelete=no`，worker delete dry-run 仍会报告 secret 和 workflow-definition 是否存在。
 
+如果 control 返回相关字段，worker delete 输出还会报告 Durable Object storage 是否保留及受影响的 object 数量。
+
 删除 worker **不会**删除 R2 数据 —— 见 [r2-zh.md](./r2-zh.md)。
 
 ## 常见错误
+
+Tail 收到临时性的 502/503/504，或连续 30 秒没有收到任何 stream bytes（含心跳）时会自动重连；永久性的 `503 ctx_unavailable` 和其它 HTTP 错误仍是致命错误。
 
 | 现象 | 原因 / 修复 |
 | --- | --- |
@@ -165,7 +177,7 @@ Cron triggers 和 queue consumers 是 runtime dispatch 能力，只应声明在�
 | `worker_env_too_large` | 减少 `[vars]`、secrets 或 binding metadata；如果错误点名 retained version，redeploy/delete 该版本。 |
 | `worker_code_too_large` | 减少生成的 Worker code 大小，或拆分 worker。 |
 | `worker_code_invalid` | 按 control plane 返回的原因修正 Worker bundle 形状，包括 WDL 保留注入模块名。 |
-| `wrangler build failed` | 在项目里跑 `npx wrangler deploy --dry-run` 然后在那边修。 |
+| `wrangler build failed` | 在初始化的项目里运行 `npm run dry-run`，再修本地构建或配置错误。直接跑 Wrangler 时需提供空的 `--env-file`，避免加载项目 `.env`。 |
 | `the promotion outcome is unknown` | promote 遇到 timeout、传输失败、3xx/5xx 或未确认的 2xx。再次部署前先用 `wdl workers` 确认 active version。 |
 | `control rejected the promotion` | control 拒绝了这个 version——常见于自定义 host 或 service binding 目标校验失败。按它报告的原因修复后重新部署。 |
 | `control did not confirm session_policy = restart` | control 版本早于 `[wdl] session_policy`；version 已上传并被保留，但没有 promote。先升级 control 再重新部署。 |

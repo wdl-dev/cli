@@ -110,7 +110,10 @@ A store that passes the path and permission checks above is trusted: its token
 and endpoint are same-source in a protected per-user config location. A project
 `.env` is not: a `.env` that supplies a control endpoint without also supplying
 the token is still dropped, so an untrusted project directory can never redirect
-your stored token to a host it chose.
+your stored token to a host it chose. Likewise, `.env`-supplied
+`CONTROL_CONNECT_HOST` is ignored unless the effective token and `CONTROL_URL`
+also come from that same `.env`. Set a local-debug connection override in your
+shell when using a flag, shell, or stored endpoint.
 
 ## Security: deploy runs project code as you
 

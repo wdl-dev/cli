@@ -166,6 +166,20 @@ test("parseQueues: rejects wrong shape", () => {
   assert.throws(() => parseQueues({ consumers: "no" }), /must be an array/);
 });
 
+test("parseQueues: rejects fields that would be dropped from WDL queue bindings", () => {
+  assert.throws(() => parseQueues({ typo: [] }), /\[queues\] contains unknown field\(s\): typo/);
+  assert.throws(
+    () => parseQueues({ producers: [{ binding: "Q", queue: "q", bogus: true }] }),
+    /\[\[queues\.producers\]\] contains unknown field\(s\): bogus/
+  );
+  assert.throws(
+    () => parseQueues({ consumers: [{ queue: "q", visibility_timeout_ms: 5000 }] }),
+    /\[\[queues\.consumers\]\] contains unknown field\(s\): visibility_timeout_ms/
+  );
+  assert.throws(() => parseQueues({ consumers: [{ queue: "q", type: "http_pull" }] }), /type must be "worker"/);
+  assert.deepEqual(parseQueues({ consumers: [{ queue: "q", type: "worker" }] }).consumers, [{ queue: "q" }]);
+});
+
 test("parseQueues: rejects runtime-internal producer binding names", () => {
   assert.throws(
     () => parseQueues({ producers: [{ binding: "__WDL_RESERVED__", queue: "q" }] }),
@@ -316,16 +330,18 @@ test("parseDurableObjectsFromCfg: parses local DO bindings with new_classes or n
       }),
     /\[\[durable_objects\.bindings\]\]\.name is required/
   );
-  assert.throws(
-    () =>
-      parseDurableObjectsFromCfg({
-        durable_objects: {
-          bindings: [{ name: "ROOMS", class_name: "Room", script_name: "other" }],
-        },
-        migrations: [{ tag: "v1", new_classes: ["Room"] }],
-      }),
-    /script_name is not supported/
-  );
+  for (const scriptName of ["other", null]) {
+    assert.throws(
+      () =>
+        parseDurableObjectsFromCfg({
+          durable_objects: {
+            bindings: [{ name: "ROOMS", class_name: "Room", script_name: scriptName }],
+          },
+          migrations: [{ tag: "v1", new_classes: ["Room"] }],
+        }),
+      /script_name is not supported/
+    );
+  }
   assert.throws(
     () =>
       parseDurableObjectsFromCfg({
@@ -370,6 +386,16 @@ test("parseDurableObjectsFromCfg: rejects runtime-internal binding names", () =>
         migrations: [{ tag: "v1", new_classes: ["Room"] }],
       }),
     /runtime-internal bindings/
+  );
+});
+
+test("parseDurableObjectsFromCfg: rejects unmapped binding fields", () => {
+  assert.throws(
+    () =>
+      parseDurableObjectsFromCfg({
+        durable_objects: { bindings: [{ name: "ROOMS", class_name: "Room", environment: "prod" }] },
+      }),
+    /unsupported field\(s\): environment/
   );
 });
 
@@ -501,6 +527,15 @@ test("parseServicesFromCfg: rejects runtime-reserved entrypoint names (__Wdl…_
       services: [{ binding: "X", service: "t", entrypoint: "__WdlNotReserved" }],
     })
   );
+});
+
+test("parseServicesFromCfg: rejects service props and other unmapped fields", () => {
+  for (const extra of [{ props: { role: "admin" } }, { environment: "prod" }]) {
+    assert.throws(
+      () => parseServicesFromCfg({ services: [{ binding: "API", service: "api", ...extra }] }),
+      /\[\[services\]\] contains unsupported field\(s\)/
+    );
+  }
 });
 
 test("wrangler binding parser diagnostics escape terminal controls", () => {

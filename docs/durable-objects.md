@@ -22,6 +22,11 @@ tag = "v1"
 new_classes = ["Room"]
 ```
 
+Wrangler's `durable_objects.code_update_strategy` is unsupported and rejected
+before bundling, including in the selected named environment. It is not
+equivalent to WDL's `session_policy` below, which controls whether established
+sessions survive promotion rather than setting a maximum code-update delay.
+
 ## Session policy and facets
 
 By default, promoting a new Worker version leaves already constructed DO facets

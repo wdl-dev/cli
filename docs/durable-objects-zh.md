@@ -18,6 +18,8 @@ tag = "v1"
 new_classes = ["Room"]
 ```
 
+WDL 不支持 Wrangler 的 `durable_objects.code_update_strategy`，包括所选 named environment 中的声明，CLI 都会在打包前拒绝。它不等同于下文的 WDL `session_policy`：后者控制既有会话是否跨 promotion 保留，而不是设置代码更新的最长延迟。
+
 ## 会话策略与 facet
 
 默认情况下，promote 新 Worker version 会让已经构造的 DO facet 停留在构造它的 version 上，直到 host actor 重启或 facet 被删除。已打开的 WebSocket 也会继续在该 version 上 drain，但前提是它的 backend 仍健康：backend 一旦丢失，WDL 不会重连已不活跃的 version——WebSocket 会以 `1012` 关闭，client 必须重连才能到达 active version。希望每次 promotion 都让旧 version 的会话退役、并在下一次 dispatch 时退役旧 facet 的应用可以显式配置：

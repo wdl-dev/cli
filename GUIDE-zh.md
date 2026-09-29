@@ -278,7 +278,9 @@ WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedu
 
 CLI 也会拒绝非 `worker` 的 queue consumer 类型、queue / service / Durable Object binding entry 中无法映射的字段、route object，以及 `html_handling`、`not_found_handling` 等不支持的 `[assets]` 选项。隐式 asset binding 的名称固定为 `ASSETS`；其它 `assets.binding` 会被拒绝。
 
-`[[connect]]` TCP listener 没有对应的 WDL runtime 映射，顶层和所选 environment 内的声明都会在打包前被拒绝。
+Wrangler 的 `durable_objects.code_update_strategy` 也会在打包前被拒绝。它没有对应的 WDL 映射，也不是 `[wdl] session_policy` 的别名。
+
+`[[connect]]` TCP/UDP listener 没有对应的 WDL runtime 映射，顶层和所选 environment 内的声明都会在打包前被拒绝。
 
 Cron triggers 和 queue consumers 是运行时 dispatch 能力。除非管理方明确给了 reserved namespace，否则只应声明在 tenant namespace 里的可路由 Worker 上。通过 `[[platform_bindings]]` 选择的 Worker 是冷加载的平台能力，不是公开/runtime dispatch 目标，不能声明 cron triggers 或 queue consumers。
 

@@ -58,12 +58,14 @@ disabling the default platform-domain URL; it requires at least one `route` /
 `routes` pattern and is not inferred. The deploy summary prints every active
 route-pattern URL hint, preserving the trailing `*` on prefix patterns, and
 includes the platform-domain URL only while it is enabled. Cloudflare's separate
-`preview_urls` field is unsupported and rejected by the CLI. `[[connect]]` TCP
-listeners, Cloudflare Artifacts `triggers.events` subscriptions, and R2
+`preview_urls` field is unsupported and rejected by the CLI. `[[connect]]`
+TCP/UDP listeners, Cloudflare Artifacts `triggers.events` subscriptions, and R2
 `local_dev.experimental_s3_credentials` are also unsupported and rejected.
 Custom module `rules`, unsupported `[assets]` options, queue consumer types
 other than `worker`, unmapped queue/service/DO entry fields, and route objects
 are also rejected before bundling. The implicit asset binding is named `ASSETS`.
+Wrangler's `durable_objects.code_update_strategy` is rejected before bundling;
+it has no WDL mapping and is not an alias for `[wdl] session_policy`.
 `[[workflows]]` supports only `name`, `binding`, and `class_name`; `script_name`
 and all other fields, including `schedules`, `limits`, `default_retention`, and
 `concurrency`, are rejected before bundling. Use per-instance `create()`

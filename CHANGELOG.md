@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- Upgrade the bundled Wrangler to 4.143.1 and reject the unmapped
+  `durable_objects.code_update_strategy` instead of silently ignoring it.
+
+### Security
+
+- Update `smol-toml` to 1.9.0 and Wrangler's transitive Undici to 7.29.1 to
+  address their dependency advisories without overrides.
+
 ## 1.9.1
 
 ### Changed

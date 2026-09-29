@@ -144,6 +144,42 @@ test("runDeployCommand rejects unsupported event triggers before running Wrangle
   assert.equal(execCalled, false);
 });
 
+test("runDeployCommand rejects DO code update strategies before bundling the selected config", async (t) => {
+  for (const envName of [null, "production"]) {
+    const dir = createDeployProject(
+      t,
+      [
+        'name = "api"',
+        'main = "src/index.js"',
+        `[${envName ? `env.${envName}.` : ""}durable_objects.code_update_strategy]`,
+        'mode = "deferred"',
+        "max_delay = 30",
+      ].join("\n")
+    );
+    let execCalled = false;
+    let fetchCalled = false;
+    const args = [dir, "--ns", "demo", "--control-url", "http://ctl.test"];
+    if (envName) args.push("--env", envName);
+    await assert.rejects(
+      () =>
+        runDeployCommand(args, {
+          env: { ADMIN_TOKEN: "tok" },
+          execFile: () => {
+            execCalled = true;
+            throw new Error("execFile should not be called");
+          },
+          controlFetch: async () => {
+            fetchCalled = true;
+            throw new Error("controlFetch should not be called");
+          },
+        }),
+      /\[durable_objects\]\.code_update_strategy is not supported by WDL/
+    );
+    assert.equal(execCalled, false);
+    assert.equal(fetchCalled, false);
+  }
+});
+
 test("runDeployCommand rejects unknown Workflow fields before bundling the selected config", async (t) => {
   for (const envName of [null, "production"]) {
     for (const [key, value] of [

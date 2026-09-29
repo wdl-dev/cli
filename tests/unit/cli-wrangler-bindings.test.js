@@ -399,6 +399,21 @@ test("parseDurableObjectsFromCfg: rejects unmapped binding fields", () => {
   );
 });
 
+test("parseDurableObjectsFromCfg: rejects code update strategies even without bindings", () => {
+  for (const strategy of [{ mode: "immediate" }, { mode: "deferred", max_delay: 30 }, {}, null, false, undefined]) {
+    for (const bindings of [undefined, [{ name: "ROOMS", class_name: "Room" }]]) {
+      assert.throws(
+        () =>
+          parseDurableObjectsFromCfg({
+            durable_objects: { bindings, code_update_strategy: strategy },
+            migrations: [{ tag: "v1", new_classes: ["Room"] }],
+          }),
+        /\[durable_objects\]\.code_update_strategy is not supported by WDL/
+      );
+    }
+  }
+});
+
 test("parseKvNamespacesFromCfg: validates shape and non-empty string binding/id", () => {
   assert.deepEqual(parseKvNamespacesFromCfg({}), []);
   assert.deepEqual(parseKvNamespacesFromCfg({ kv_namespaces: [] }), []);

@@ -82,16 +82,19 @@ and stays in that config for Wrangler validation. If a selected named
 environment omits top-level `[ai]`, `[[exports]]`, or `[[platform_bindings]]`,
 the CLI warns that the binding is not inherited; WDL independently maps `[ai]`'s
 `binding` into the WDL manifest. Other fields retain their existing Wrangler
-passthrough behavior. `[[connect]]` TCP listeners are unsupported and rejected
-before bundling. Specific nested fields that WDL cannot represent are rejected
-rather than silently dropped, including Cloudflare Artifacts `triggers.events`
-subscriptions and R2 `local_dev.experimental_s3_credentials`, queue consumer
-types other than `worker`, unmapped queue/service/DO entry fields, route
-objects, and unsupported `[assets]` options. The implicit asset binding is named
-`ASSETS`. `[[workflows]]` supports only `name`, `binding`, and `class_name`;
-`script_name` and all other fields, including `schedules`, `limits`,
-`default_retention`, and `concurrency`, are rejected before bundling. Use
-per-instance `create()` retention instead of `[[workflows]].default_retention`.
+passthrough behavior. `[[connect]]` TCP/UDP listeners are unsupported and
+rejected before bundling. Specific nested fields that WDL cannot represent are
+rejected rather than silently dropped, including Cloudflare Artifacts
+`triggers.events` subscriptions and R2 `local_dev.experimental_s3_credentials`,
+queue consumer types other than `worker`, unmapped queue/service/DO entry
+fields, route objects, and unsupported `[assets]` options. The implicit asset
+binding is named `ASSETS`. `[[workflows]]` supports only `name`, `binding`, and
+`class_name`; `script_name` and all other fields, including `schedules`,
+`limits`, `default_retention`, and `concurrency`, are rejected before bundling.
+Use per-instance `create()` retention instead of
+`[[workflows]].default_retention`. Wrangler's
+`durable_objects.code_update_strategy` is rejected before bundling; it has no
+WDL mapping and is not an alias for `[wdl] session_policy`.
 `[wdl] session_policy` accepts `preserve` or `restart`. The default `preserve`
 leaves loaded Durable Object facets on the version that built them until the
 host actor restarts or the facet is deleted, and keeps established WebSockets

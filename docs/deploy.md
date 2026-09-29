@@ -275,7 +275,7 @@ Wrangler's bundle output and rejects them. Wrangler's object-shaped declarative
 `exports` configuration is not supported by WDL. `[wdl] session_policy` has its
 own section above.
 
-WDL also rejects `[[connect]]` TCP listeners, Cloudflare Artifacts
+WDL also rejects `[[connect]]` TCP/UDP listeners, Cloudflare Artifacts
 `triggers.events` subscriptions, and R2 `local_dev.experimental_s3_credentials`:
 none has a WDL deploy-manifest or runtime mapping.
 
@@ -308,6 +308,9 @@ unsupported `[assets]` options such as `html_handling` and `not_found_handling`.
 WDL's implicit asset binding is named `ASSETS`; another `assets.binding` name is
 rejected. The default asset exclusions include `.env*`, `.dev.vars*`, and
 `.wdl-empty.env`.
+
+Wrangler's `durable_objects.code_update_strategy` is also rejected before
+bundling. It has no WDL mapping and is not an alias for `[wdl] session_policy`.
 
 WDL supports only `name`, `binding`, and `class_name` in `[[workflows]]`. The
 CLI rejects `script_name` and all other fields, including `schedules`, `limits`,

@@ -464,8 +464,11 @@ unsupported `[assets]` options such as `html_handling` and `not_found_handling`.
 WDL's implicit asset binding is named `ASSETS`; another `assets.binding` is
 rejected.
 
-`[[connect]]` TCP listeners have no WDL runtime mapping and are rejected before
-bundling, both at the top level and in the selected environment.
+Wrangler's `durable_objects.code_update_strategy` is also rejected before
+bundling. It has no WDL mapping and is not an alias for `[wdl] session_policy`.
+
+`[[connect]]` TCP/UDP listeners have no WDL runtime mapping and are rejected
+before bundling, both at the top level and in the selected environment.
 
 Cron triggers and queue consumers are dispatch features. Declare them only on
 routeable Workers in tenant namespaces unless your operator gives you an

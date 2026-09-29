@@ -133,7 +133,7 @@ wdl deploy . --env production
 
 WDL 会自行消费 `[[exports]]`、`[[platform_bindings]]`、`[[triggers.schedules]]`、`[[services]].ns` 和 `[wdl]`，并从传给 Wrangler bundler 的临时配置中移除这些 WDL 扩展。`[ai]` 是 Wrangler 标准配置，会保留在临时配置中供 Wrangler 校验；如果选中的 named environment 漏掉顶层 `[ai]`、`[[exports]]` 或 `[[platform_bindings]]`，CLI 会提示这些 binding 不会继承。WDL 另行只接受 `[ai]` 的 `binding` 字段，并把该声明映射到 WDL manifest。其它字段保持既有的 Wrangler 透传行为，但自定义 module `rules` 无法从 Wrangler bundle output 恢复类型，CLI 会拒绝。WDL 不支持 Wrangler 对象形态的 declarative `exports` 配置。`[wdl] session_policy` 见上面的会话策略一节。
 
-WDL 还会拒绝 `[[connect]]` TCP listener、Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；它们都没有对应的 WDL deploy manifest 或 runtime 映射。
+WDL 还会拒绝 `[[connect]]` TCP/UDP listener、Cloudflare Artifacts `triggers.events` subscription 和 R2 `local_dev.experimental_s3_credentials`；它们都没有对应的 WDL deploy manifest 或 runtime 映射。
 
 ### Service bindings 与 capability delegation
 
@@ -142,6 +142,8 @@ Tenant JSRPC 可以序列化 `Blob` value，并把 service 或 Durable Object cl
 **不支持（部署失败）：** Analytics Engine。Durable Objects 仅支持同 worker class；`script_name`、rename/delete migration 暂未实现。WDL Workflows 仅支持当前 Worker 内定义的 workflow class，不是完整 Cloudflare Workflows parity；`script_name`、跨 worker workflow、跨 worker callback、service-binding callback 和 Cloudflare source-AST visualizer 暂不支持。`route` / `routes` 仅在运维方启用时支持。Python Workers modules、不支持的 workerd compatibility flags 和 WDL 保留注入模块名会在部署时被拒绝：CLI 会对本地 `.py` module fail-fast，workerd compatibility 与 bundle-shape policy 由 control plane canonical 判断。WDL 会忽略、且无法映射进 manifest 的顶层或所选 env Wrangler runtime/deploy 配置字段和 section 也会由 CLI 直接拒绝，包括 legacy `[site]` Workers Sites、`pages_build_output_dir`、`observability`、`limits`、`placement`，以及错误信息点名的其它 unsupported binding/config field 或 section。`assets.run_worker_first` 会被静默忽略。
 
 CLI 也会拒绝非 `worker` 的 queue consumer 类型、queue / service / Durable Object binding entry 中无法映射的字段、route object，以及 `html_handling`、`not_found_handling` 等不支持的 `[assets]` 选项。隐式 asset binding 固定名为 `ASSETS`；其它 `assets.binding` 名称会被拒绝。默认 asset 排除列表包含 `.env*`、`.dev.vars*` 和 `.wdl-empty.env`。
+
+Wrangler 的 `durable_objects.code_update_strategy` 也会在打包前被拒绝。它没有对应的 WDL 映射，也不是 `[wdl] session_policy` 的别名。
 
 WDL 的 `[[workflows]]` 只支持 `name`、`binding` 和 `class_name`。CLI 会在打包前拒绝 `script_name` 及其它所有字段，包括 `schedules`、`limits`、`default_retention` 和 `concurrency`。保留时间请通过单个 instance 的 `create()` retention 设置，不要使用 Wrangler 的 `default_retention`。
 

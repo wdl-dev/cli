@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.9.2
+
 ### Changed
 
 - Upgrade the bundled Wrangler to 4.143.1 and reject the unmapped
